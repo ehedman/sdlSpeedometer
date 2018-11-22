@@ -43,4 +43,4 @@ The packages needed are:
 - Raspbian Stretch Lite 2018-11-13
 
 
-<img src="http://hedmanshome.se/sdlspeedometer.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer1.png" width=100%>
