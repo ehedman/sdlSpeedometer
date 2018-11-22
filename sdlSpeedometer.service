@@ -1,0 +1,12 @@
+# Systemd resource file
+[Unit]
+Description=Marine instrument application
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/sdlSpeedometer
+ExecStart=/usr/local/bin/sdlSpeedometer -s -n $SERVER -p $PORT
+User=root
+
+[Install]
+WantedBy=multi-user.target
