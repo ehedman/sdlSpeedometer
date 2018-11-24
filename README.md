@@ -49,7 +49,7 @@ The packages needed are:
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](http://ozzmaker.com/i2c)
-- [Create a Digital Compass with the Raspberry Pi] (http://ozzmaker.com/compass1/)
+- [Create a Digital Compass with the Raspberry Pi](http://ozzmaker.com/compass1)
 
 ### See also
 [An Open Source Yacht Glascockpit](https://github.com/ehedman/websocketNmea)
