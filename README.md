@@ -32,17 +32,22 @@ There is also a page to perform compass calibration includning on-line fetch of 
 Instructions (if needed) of how to build SDL2 libraries for framebuffer (no X) can be found in this article:
  [Hardware Accelerated SDL 2 on Raspberry Pi](http://blog.shahada.abubakar.net/post/hardware-accelerated-sdl-2-on-raspberry-pi)
 
-### Software prerequisites
+### SDL2 Software prerequisites
 The packages needed are:
 - SDL2-2.*
 - SDL2_image-2.*
 - SDL2_net-2.*
 - SDL2_ttf-2.*
 
-### library dependencies 
- - libcurl4-gnutls-dev
- - i2c-tool, libi2c-dev
- - libsqlite3-dev
+### library dependencies from Debian repos
+- libcurl4-gnutls-dev
+- i2c-tool, libi2c-dev
+- libsqlite3-dev
+- libpng-dev
+- libtiff5-dev
+- libjpeg-dev
+- libts-dev
+- libinput-dev
 
 ### Software used
 - Raspbian Stretch Lite 2018-11-13
