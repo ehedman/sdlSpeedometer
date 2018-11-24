@@ -38,6 +38,9 @@
 
 #include "sdlSpeedometer.h"
 
+#define WINDOW_W 640        // Resolution
+#define WINDOW_H 480
+
 #define INVALID     4       // Invalidate current sentences after # seconds without a refresh from talker.
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
@@ -61,8 +64,6 @@
 #endif
 
 #define DEFAULT_BACKGROUND IMAGE_PATH "Default-bg.bmp"
-
-#define VIEW_SWITCH         1792    // Happens to work when screen is tapped
 
 static int useSyslog = 0;
 
@@ -764,7 +765,7 @@ static int nmeaNetCollector(void* conf)
 
             } else {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Retry to read socket from server %s %s!", configParams->server, SDLNet_GetError());
-                SDL_Delay(200);
+                SDL_Delay(500);
             }
         }
         // Server possibly gone, try to redo all this
@@ -783,11 +784,63 @@ static int nmeaNetCollector(void* conf)
     return 0;
 }
 
+static int pageSelect(SDL_Event *event)
+{
+    // A simple event handler for touch screen buttons at fixed menu bar localtions
+
+    int x = event->tfinger.x* WINDOW_W;
+    int y = event->tfinger.y* WINDOW_H;
+
+    if (y > 400  && y < 440)
+    {
+        if (x > 342 && x < 390)
+            return 1;
+        if (x > 394 && x < 440)
+            return 2;
+        if (x > 444 && x < 490)
+            return 3;
+        if (x > 494 && x < 524)
+            return 4;
+         if (x > 528 && x < 562)
+           return 5;
+        if (x > 576 && x < 618)
+           return 6;
+    }
+    return 0;
+}
+
+static void addMenuItems(SDL_Renderer *renderer, TTF_Font *font)
+{
+  
+    // Add text on top of a simple menu bar
+
+    SDL_Texture* textM1;
+    SDL_Rect M1_rect;
+
+    get_text_and_rect(renderer, 446, 416, 0, "COG", font, &textM1, &M1_rect);
+    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+
+    get_text_and_rect(renderer, 506, 416, 0, "SOG", font, &textM1, &M1_rect);
+    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+
+    get_text_and_rect(renderer, 560, 416, 0, "DPT", font, &textM1, &M1_rect);
+    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+
+    get_text_and_rect(renderer, 608, 416, 0, "WND", font, &textM1, &M1_rect);
+    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+
+    get_text_and_rect(renderer, 660, 416, 0, "GPS", font, &textM1, &M1_rect);
+    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    
+    get_text_and_rect(renderer, 720, 416, 0, "CAL", font, &textM1, &M1_rect);
+    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+}
+
 // Present the compass with heading ant roll
 static int doCompass(SDL_Renderer *renderer, char* fontPath)
 {
     SDL_Event event;
-    SDL_Rect compassR, outerRingR, clinoMeterR;
+    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR;
     TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
@@ -795,6 +848,7 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
     SDL_Texture* compassRose = IMG_LoadTexture(renderer, IMAGE_PATH "compassRose.png");
     SDL_Texture* outerRing = IMG_LoadTexture(renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(renderer, IMAGE_PATH "clinometer.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
 
     compassR.w = 366;
     compassR.h = 366;
@@ -810,6 +864,11 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
     clinoMeterR.h = 136;
     clinoMeterR.x = 171;
     clinoMeterR.y = 178;
+
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
 
     SDL_Texture* textCOG;
     SDL_Rect COG_rect;
@@ -850,8 +909,14 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
 
         SDL_PollEvent(&event);
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN || event.type == VIEW_SWITCH)
+        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
             break;
+
+        if(event.type == SDL_FINGERDOWN)
+        {
+            if ((event.type=pageSelect(&event)))
+                break;
+        }
 
         ct = time(NULL);        // Get a timestamp for this turn
 
@@ -922,6 +987,8 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 480, 270, 0, msg_mtw, fontCog, &textMTW, &MTW_rect);
         SDL_RenderCopy(renderer, textMTW, NULL, &MTW_rect); SDL_DestroyTexture(textMTW);
        
+        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(renderer, fontSrc);
 
         SDL_RenderPresent(renderer);
 
@@ -931,6 +998,7 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
     SDL_DestroyTexture(compassRose);
     SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(clinoMeter);
+    SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
@@ -943,10 +1011,11 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
 static int doSumlog(SDL_Renderer *renderer, char* fontPath)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR;
+    SDL_Rect gaugeR, needleR, menuBarR;
     TTF_Font* fontLarge =  TTF_OpenFont(fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
 
     gaugeR.w = 440;
     gaugeR.h = 440;
@@ -958,8 +1027,14 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
     needleR.x = 120;
     needleR.y = 122;
 
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
+
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(renderer, IMAGE_PATH "sumlog.png");
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
 
     SDL_Texture* textSTW;
     SDL_Rect STW_rect;
@@ -992,8 +1067,14 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
 
         SDL_PollEvent(&event);
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN || event.type == VIEW_SWITCH)
+        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
             break;
+
+        if(event.type == SDL_FINGERDOWN)
+        {
+            if ((event.type=pageSelect(&event)))
+                break;
+        }
 
         ct = time(NULL);        // Get a timestamp for this turn
 
@@ -1051,6 +1132,9 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 480, 220, 0, msg_mtw, fontCog, &textMTW, &MTW_rect);
         SDL_RenderCopy(renderer, textMTW, NULL, &MTW_rect); SDL_DestroyTexture(textMTW);
 
+        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(renderer, fontSrc);
+
         SDL_RenderPresent(renderer); 
         
         SDL_Delay(25);
@@ -1058,9 +1142,11 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
 
     SDL_DestroyTexture(gaugeSumlog);
     SDL_DestroyTexture(gaugeNeedle);
+    SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall); 
     TTF_CloseFont(fontCog);
+    TTF_CloseFont(fontSrc);
     IMG_Quit();
 
     return event.type;
@@ -1070,12 +1156,16 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
 static int doGps(SDL_Renderer *renderer, char* fontPath)
 {
     SDL_Event event;
-    SDL_Rect gaugeR;
+    SDL_Rect gaugeR, menuBarR;
+
     TTF_Font* fontHD =  TTF_OpenFont(fontPath, 40);
     TTF_Font* fontLA =  TTF_OpenFont(fontPath, 30);
     TTF_Font* fontLO =  TTF_OpenFont(fontPath, 30);
     TTF_Font* fontMG =  TTF_OpenFont(fontPath, 14);
     TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
+
+    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
 
     SDL_Texture* textHD;
     SDL_Rect HD_rect;
@@ -1103,6 +1193,11 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
     gaugeR.x = 19;
     gaugeR.y = 18;
 
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
+
     SDL_Texture* gaugeGps = IMG_LoadTexture(renderer, IMAGE_PATH "gps.png");
 
     while (1) {
@@ -1121,8 +1216,14 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
 
         SDL_PollEvent(&event);
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN || event.type == VIEW_SWITCH)
+        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
             break;
+
+        if(event.type == SDL_FINGERDOWN)
+        {
+            if ((event.type=pageSelect(&event)))
+                break;
+        };
 
         ct = time(NULL);        // Get a timestamp for this tur
         sprintf(msg_src, "  ");
@@ -1182,17 +1283,22 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 480, 270, 0, msg_mtw, fontCog, &textMTW, &MTW_rect);
         SDL_RenderCopy(renderer, textMTW, NULL, &MTW_rect); SDL_DestroyTexture(textMTW);
 
+        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(renderer, fontSrc);
+
         SDL_RenderPresent(renderer); 
         
         SDL_Delay(25);
     }
 
     SDL_DestroyTexture(gaugeGps);
+    SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontHD);
     TTF_CloseFont(fontLA);
     TTF_CloseFont(fontLO);
     TTF_CloseFont(fontMG);
     TTF_CloseFont(fontCog);
+    TTF_CloseFont(fontSrc);
     IMG_Quit();
 
     return event.type;
@@ -1202,10 +1308,11 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
 static int doDepth(SDL_Renderer *renderer, char* fontPath)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR;
+    SDL_Rect gaugeR, needleR, menuBarR;
     TTF_Font* fontLarge =  TTF_OpenFont(fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(fontPath, 18);
     TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
 
     gaugeR.w = 440;
     gaugeR.h = 440;
@@ -1217,9 +1324,15 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
     needleR.x = 120;
     needleR.y = 122;
 
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
+
     SDL_Texture* gaugeDepthW = IMG_LoadTexture(renderer, IMAGE_PATH "depthw.png");
     SDL_Texture* gaugeDepth = IMG_LoadTexture(renderer, IMAGE_PATH "depth.png");
     SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(renderer, IMAGE_PATH "depthx10.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
     
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(renderer, IMAGE_PATH "needle.png");
 
@@ -1261,8 +1374,14 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
 
         SDL_PollEvent(&event);
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN || event.type == VIEW_SWITCH)
+        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
             break;
+
+        if(event.type == SDL_FINGERDOWN)
+        {
+            if ((event.type=pageSelect(&event)))
+                break;
+        };
 
         ct = time(NULL);        // Get a timestamp for this turn
 
@@ -1326,6 +1445,9 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 480, 220, 0, msg_stw, fontCog, &textSTW, &STW_rect);
         SDL_RenderCopy(renderer, textSTW, NULL, &STW_rect); SDL_DestroyTexture(textSTW);
 
+        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(renderer, fontSrc);
+
         SDL_RenderPresent(renderer); 
         
         SDL_Delay(25);
@@ -1335,9 +1457,11 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
     SDL_DestroyTexture(gaugeDepthW);
     SDL_DestroyTexture(gaugeDepthx10);
     SDL_DestroyTexture(gaugeNeedle);
+    SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
+     TTF_CloseFont(fontSrc);
     IMG_Quit();
 
     return event.type;
@@ -1347,10 +1471,11 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
 static int doWind(SDL_Renderer *renderer, char* fontPath)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR;
+    SDL_Rect gaugeR, needleR, menuBarR;
     TTF_Font* fontLarge =  TTF_OpenFont(fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
 
     gaugeR.w = 440;
     gaugeR.h = 440;
@@ -1362,8 +1487,14 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
     needleR.x = 120;
     needleR.y = 122;
 
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
+
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(renderer, IMAGE_PATH "wind.png");
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
 
     SDL_Texture* textVWRS;
     SDL_Rect VWRS_rect;
@@ -1404,8 +1535,14 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
 
         SDL_PollEvent(&event);
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN || event.type == VIEW_SWITCH)
+        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
             break;
+
+        if(event.type == SDL_FINGERDOWN)
+        {
+            if ((event.type=pageSelect(&event)))
+                break;
+        }
 
         ct = time(NULL);        // Get a timestamp for this turn
 
@@ -1480,6 +1617,9 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 480, 320, 0, msg_mtw, fontCog, &textMTW, &MTW_rect);
         SDL_RenderCopy(renderer, textMTW, NULL, &MTW_rect); SDL_DestroyTexture(textMTW);
 
+        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(renderer, fontSrc);
+
         SDL_RenderPresent(renderer); 
         
         SDL_Delay(25);
@@ -1487,9 +1627,11 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
 
     SDL_DestroyTexture(gaugeSumlog);
     SDL_DestroyTexture(gaugeNeedle);
+    SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
+    TTF_CloseFont(fontSrc);
     IMG_Quit();
 
     return event.type;
@@ -1552,15 +1694,20 @@ static int threadCalibrator(void *ptr)
 static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *configParams)
 {
     SDL_Event event;
+    SDL_Rect menuBarR;
+
     TTF_Font* fontCAL =  TTF_OpenFont(fontPath, 28);
     TTF_Font* fontPRG =  TTF_OpenFont(fontPath, 11);
+    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
+
+    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
 
     CURL *curl = NULL;
 
     calRunner doRun;
 
     if (!configParams->i2cFile)
-        return VIEW_SWITCH;
+        return SDL_MOUSEBUTTONDOWN;
 
     doRun.run = 1;
     doRun.i2cFile = configParams->i2cFile;
@@ -1570,6 +1717,11 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
 
     SDL_Texture* textPRG;
     SDL_Rect PRG_rect;
+
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
 
     int progress = 10;
     int seconds = 0;
@@ -1642,8 +1794,14 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
 
         SDL_PollEvent(&event);
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN || event.type == VIEW_SWITCH)
+        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
             break;
+
+        if(event.type == SDL_FINGERDOWN)
+        {
+            if ((event.type=pageSelect(&event)))
+                break;
+        }
 
         SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
 
@@ -1656,6 +1814,9 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
         get_text_and_rect(renderer, 10, 250, 1, msg_cal, fontCAL, &textCAL, &CAT_rect);
         SDL_RenderCopy(renderer, textCAL, NULL, &CAT_rect); SDL_DestroyTexture(textCAL);
 
+        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(renderer, fontSrc);
+
         SDL_RenderPresent(renderer); 
         
         SDL_Delay(100);
@@ -1667,6 +1828,8 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
         progress = cperiod;   // Will unconditionally last for 'cperiod' seconds
 
         while (1) {
+
+            event.type = 1;
 
             if (threadCalib == NULL) {
 
@@ -1705,10 +1868,12 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
     SDL_Delay(1000); 
     SDL_Log("Calibration completed");
 
+    SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontCAL);
     TTF_CloseFont(fontPRG);
+    TTF_CloseFont(fontSrc);
 
-    return VIEW_SWITCH;
+    return event.type;
 }
 
 int main(int argc, char *argv[])
@@ -1790,7 +1955,7 @@ int main(int argc, char *argv[])
     window = SDL_CreateWindow("SDL_CreateTexture",
             SDL_WINDOWPOS_UNDEFINED,
             SDL_WINDOWPOS_UNDEFINED,
-            800, 480,
+            WINDOW_W, WINDOW_H,
             SDL_WINDOW_RESIZABLE);
 
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -1800,16 +1965,37 @@ int main(int argc, char *argv[])
     Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND);
     Background_Tx = SDL_CreateTextureFromSurface(renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
+    
+    int next = 1;
+    int step = 1;
 
-    while(1) { // A click will shift to next instrument
-        if (doCompass(renderer, font_path)      == SDL_QUIT) break;
-        if (doGps(renderer, font_path)          == SDL_QUIT) break;
-        if (doSumlog(renderer, font_path)       == SDL_QUIT) break;
-        if (doDepth(renderer, font_path)        == SDL_QUIT) break;        
-        if (doWind(renderer, font_path)         == SDL_QUIT) break;
-        if (doCalibration(renderer, font_path, &configParams)  == SDL_QUIT) break;
+    while(1)
+    {
+        switch (next)
+        {
+            case 1: next = doCompass(renderer, font_path);
+                break;
+            case 2: next = doSumlog(renderer, font_path);
+                break;
+            case 3: next = doDepth(renderer, font_path);
+                break;
+            case 4: next = doWind(renderer, font_path);
+                break;
+            case 5: next = doGps(renderer, font_path);
+                break;
+            case 6: next = doCalibration(renderer, font_path, &configParams);
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                    if (++step >6) {
+                        next = step = 1;
+                    } else{ next = step; }
+                break;
+            default: next = 1;
+                break;
+        }
+        if (next == SDL_QUIT)
+            break;
     }
-
     configParams.run = 0;
     SDL_Delay(1600);
 
