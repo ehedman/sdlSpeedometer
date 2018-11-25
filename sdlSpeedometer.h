@@ -41,6 +41,15 @@ typedef struct {
     int i2cFile;
 } configuration;
 
+enum sdlPages {
+    cogPage = 1,
+    sogPage,
+    dptPage,
+    wndPage,
+    gpsPage,
+    calPage  
+};
+
 extern int i2cinit(int bus);
 extern float i2cReadHdm(int file, calibration *calib);
 extern float i2cReadRoll(int file, int dt);
