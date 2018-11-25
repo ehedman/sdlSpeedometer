@@ -50,7 +50,7 @@ The packages needed are:
 - libinput-dev
 
 ### Software used
-- Raspbian Stretch Lite 2018-11-13
+- [Raspbian Stretch Lite 2018-11-13](https://www.raspberrypi.org/downloads/raspbian)
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](http://ozzmaker.com/i2c)
@@ -59,6 +59,10 @@ The packages needed are:
 ### See also
 [An Open Source Yacht Glascockpit](https://github.com/ehedman/websocketNmea)
 
-
-<img src="http://hedmanshome.se/sdlspeedometer2.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer3.png" width=100%>
+### Screenshots
+<img src="http://hedmanshome.se/sdlspeedometer4.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer5.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer6.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer7.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer8.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer9.png" width=100%>
