@@ -58,6 +58,9 @@ extern void i2creadMAG(int  m[], int file);
 typedef struct {
     // Dynamic data from NMEA server
     float   rmc;        // RMC (Speed Over Ground) in knots
+    char    time[20];   // UTC Time
+    char    date[20];   // Date
+    int     rmc_time_ts; // time isset ?
     time_t  rmc_ts;     // RMC Timestamp
     float   roll;       // Vessel roll (non NMEA)
     time_t  roll_i2cts; // Roll timestamp

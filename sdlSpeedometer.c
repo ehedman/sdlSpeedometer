@@ -358,27 +358,22 @@ static int threadSerial(void *conf)
 
     if (portConfigure(fd, configParams) <0) {
         close(fd);
-        return 1;
+        return 0;
     }
 
-    (void)tcflush(fd, TCIOFLUSH);
+    tcflush(fd, TCIOFLUSH);
 
     while(configParams->run)
     {
         time_t ct;
         int cnt;
 
-        // The vessels network has precedence
-        if (!(time(NULL) - cnmea.net_ts > INVALID)) {
-            SDL_Delay(2000);
-            continue;
-        }
-
         memset(buffer, 0, sizeof(buffer));
 
         if ((cnt=read(fd, buffer, sizeof(buffer))) <0) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not read GPS device %s %s %d", configParams->tty, strerror(errno), errno);
             SDL_Delay(40);
+            tcflush(fd, TCIOFLUSH);
             continue;
         }
 
@@ -392,7 +387,20 @@ static int threadSerial(void *conf)
 
         if(nmeaChecksum(buffer, strlen(buffer))) continue;
 
-        ct = time(NULL);    // Get a timestamp for this turn   
+        ct = time(NULL);    // Get a timestamp for this turn 
+
+        if (cnmea.rmc_time_ts == 0 && NMPARSE(buffer, "RMC")) { // Only this GPS sets system time
+            strcpy(cnmea.time, getf(1, buffer));
+            strcpy(cnmea.date, getf(9, buffer));
+            cnmea.rmc_time_ts = 1;
+        }
+
+        // The vessels network has precedence
+        if (!(time(NULL) - cnmea.net_ts > INVALID)) {
+            SDL_Delay(2000);
+            tcflush(fd, TCIOFLUSH);
+            continue;
+        }            
 
         // RMC - Recommended minimum specific GPS/Transit data
         // RMC feed is assumed to be present at all time 
@@ -675,6 +683,8 @@ static int nmeaNetCollector(void* conf)
                 if (NMPARSE(buffer, "RMC")) {
                     cnmea.rmc=atof(getf(7, buffer));
                     cnmea.rmc_ts = ts;
+                    //strcpy(cnmea.time, getf(1, buffer));
+                    //strcpy(cnmea.date, getf(9, buffer));
                     strcpy(cnmea.gll, getf(3, buffer));
                     strcpy(cnmea.glo, getf(5, buffer));
                     strcpy(cnmea.glns, getf(4, buffer));
@@ -838,6 +848,59 @@ static void addMenuItems(SDL_Renderer *renderer, TTF_Font *font)
     SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 }
 
+static void setUTCtime(void)
+{
+    struct tm *settm = NULL;
+    time_t rawtime;
+    char buf[40];
+
+    if (16 != strlen(cnmea.time) + strlen(cnmea.date)) {
+        cnmea.rmc_time_ts = 0;  // Try again
+        return;
+    }
+
+    cnmea.rmc_time_ts = 2;      // One time only
+
+    if (getuid()) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Only root can set System UTC time from GPS. Time and date left unchanged!");
+        return;
+    }
+
+    time(&rawtime);
+    settm = gmtime(&rawtime);
+
+    setenv("TZ","UTC",1);       // Temporarily set UTC
+
+    buf[2] = '\0';
+
+    strncpy(buf,    cnmea.time,2);
+    settm->tm_hour  = atoi(buf);
+    strncpy(buf,    &cnmea.time[2],2);
+    settm->tm_min   = atoi(buf);
+    strncpy(buf,    &cnmea.time[4],2);
+    settm->tm_sec   = atoi(buf);
+
+    strncpy(buf,    cnmea.date,2);
+    settm->tm_mday  = atoi(buf);
+    strncpy(buf,    &cnmea.date[2],2);
+    settm->tm_mon   = atoi(buf)-1;
+    strncpy(buf,    &cnmea.date[4],2);   
+    settm->tm_year  = atoi(buf) +100;
+    settm->tm_isdst = 0;
+
+    // This make sense only if net (ntp) time is disabled
+    if ((rawtime = mktime(settm)) != (time_t) -1) {
+        if (stime(&rawtime) < 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS: %s", strerror(errno));
+        } else {             
+                rawtime = time(NULL);
+                strftime(buf, sizeof(buf),TIMEDATFMT, localtime(&rawtime));
+                SDL_Log("Got system time from GPS: %s", buf);
+        }
+    }
+    unsetenv("TZ"); // Restore whatever zone we are in
+}
+
 // Present the compass with heading ant roll
 static int doCompass(SDL_Renderer *renderer, char* fontPath)
 {
@@ -904,6 +967,13 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
         }
 
         ct = time(NULL);    // Get a timestamp for this turn 
+
+        if (!(ct - cnmea.rmc_ts > INVALID)) {
+            // Set system UTC time
+            if (cnmea.rmc_time_ts == 1)
+                setUTCtime();
+        }
+
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
         if (!(ct - cnmea.hdm_i2cts > INVALID)) {                        // HDM & ROLL Magnetic
@@ -932,7 +1002,7 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
                       
         angle = roundf(cnmea.hdm);
 
-        // Run needleand roll  with smooth acceleration
+        // Run needle and roll with smooth acceleration
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
 
@@ -1187,10 +1257,10 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
         {
             if ((event.type=pageSelect(&event)))
                 break;
-        };
+        }
 
         ct = time(NULL);    // Get a timestamp for this turn 
-        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
+        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
 
         sprintf(msg_src, "  ");
 
@@ -1342,7 +1412,7 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
         {
             if ((event.type=pageSelect(&event)))
                 break;
-        };
+        }
 
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -1468,7 +1538,7 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
 
     float t_angle = 0;
     float angle = 0;
-    float offset = 131; // For scale
+    const float offset = 131; // For scale
 
     while (1) {
         char msg_vwrs[40];
@@ -1520,7 +1590,7 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > INVALID || cnmea.rmc < 0.7))
-             sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);;
+             sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
          if (!(ct - cnmea.stw_ts > INVALID || cnmea.stw == 0))
@@ -1732,7 +1802,7 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
         unlink(dcfile);
     }  
 
-    sprintf(doRun.progress, "Progress .");
+    sprintf(doRun.progress, "Progress..");
 
     SDL_Thread *threadCalib = NULL;
 
@@ -1769,7 +1839,6 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
         SDL_RenderPresent(renderer); 
         
         SDL_Delay(100);
-
     }
 
     if (progress < 0) {
@@ -1778,7 +1847,7 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
 
         while (1) {
 
-            event.type = 1;
+            event.type = cogPage;
 
             if (threadCalib == NULL) {
 
@@ -1792,7 +1861,7 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
 
             SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
 
-            if (seconds ++ > 10) {
+            if (seconds++ > 10) {
                 sprintf(msg_cal, "Calibration in progress for %d more seconds", progress--);
                 seconds = 0;
                 if (progress < 0) {
@@ -1839,6 +1908,7 @@ int main(int argc, char *argv[])
     configuration configParams;
 
     configParams.run = 1;
+    memset(&cnmea, 0, sizeof(cnmea));
 
     char *font_path = DEFAULT_FONT;
 
@@ -1915,7 +1985,7 @@ int main(int argc, char *argv[])
     Background_Tx = SDL_CreateTextureFromSurface(renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
     
-    int next = cogPage; // Startpage touch
+    int next = cogPage; // Start-page for touch
     int step = cogPage; // .. mouse
 
     while(1)
@@ -1945,7 +2015,9 @@ int main(int argc, char *argv[])
         if (next == SDL_QUIT)
             break;
     }
+
     configParams.run = 0;
+
     SDL_Delay(1600);
 
     TTF_Quit();

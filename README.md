@@ -1,5 +1,5 @@
 # sdlSpeedometer
-README Oct-2018
+README Nov-2018
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design avoid a digital look.
@@ -39,7 +39,7 @@ The packages needed are:
 - SDL2_net-2.*
 - SDL2_ttf-2.*
 
-### library dependencies from Debian repos
+### Library dependencies from Debian repos
 - libcurl4-gnutls-dev
 - i2c-tool, libi2c-dev
 - libsqlite3-dev
@@ -57,7 +57,7 @@ The packages needed are:
 - [Create a Digital Compass with the Raspberry Pi](http://ozzmaker.com/compass1)
 
 ### See also
-[An Open Source Yacht Glascockpit](https://github.com/ehedman/websocketNmea)
+[An Open Source Yacht Glass Cockpit](https://github.com/ehedman/websocketNmea)
 
 ### Screenshots
 <img src="http://hedmanshome.se/sdlspeedometer4.png" width=100%>
