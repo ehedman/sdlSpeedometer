@@ -40,7 +40,7 @@
 
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
-#define WINDOW_W 640        // Resolution
+#define WINDOW_W 800        // Resolution
 #define WINDOW_H 480
 
 #define INVALID     4       // Invalidate current sentences after # seconds without a refresh from talker.
@@ -683,8 +683,6 @@ static int nmeaNetCollector(void* conf)
                 if (NMPARSE(buffer, "RMC")) {
                     cnmea.rmc=atof(getf(7, buffer));
                     cnmea.rmc_ts = ts;
-                    //strcpy(cnmea.time, getf(1, buffer));
-                    //strcpy(cnmea.date, getf(9, buffer));
                     strcpy(cnmea.gll, getf(3, buffer));
                     strcpy(cnmea.glo, getf(5, buffer));
                     strcpy(cnmea.glns, getf(4, buffer));
@@ -800,22 +798,28 @@ static int pageSelect(SDL_Event *event)
 {
     // A simple event handler for touch screen buttons at fixed menu bar localtions
 
+    // Upside down screen
+    //int x = WINDOW_W -(event->tfinger.x* WINDOW_W);
+    //int y = WINDOW_H -(event->tfinger.y* WINDOW_H);
+
+    // Normal
     int x = event->tfinger.x* WINDOW_W;
     int y = event->tfinger.y* WINDOW_H;
 
+
     if (y > 400  && y < 440)
     {
-        if (x > 350 && x < 385)
+        if (x > 450 && x < 480)
             return cogPage;
-        if (x > 400 && x < 435)
+        if (x > 504 && x < 544)
             return sogPage;
-        if (x > 445 && x < 480)
+        if (x > 560 && x < 600)
             return dptPage;
-        if (x > 495 && x < 530)
+        if (x > 614 && x < 656)
             return wndPage;
-        if (x > 530 && x < 575)
+        if (x > 670 && x < 710)
            return gpsPage;
-        if (x > 585 && x < 620)
+        if (x > 730 && x < 770)
            return calPage;
     }
     return 0;
@@ -1026,16 +1030,16 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 223, 248, 2, msg_roll, fontRoll, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
        
         SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
@@ -1104,7 +1108,8 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         char msg_dbt[40] = { " " };
         char msg_mtw[40] = { " " };
         char msg_hdm[40] = { " " };
-        float speed;
+        float speed, wspeed;
+        int stw;
         char msg_tod[40];
         time_t ct;
 
@@ -1125,19 +1130,29 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         }
 
         ct = time(NULL);    // Get a timestamp for this turn
-        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
+        strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
 
         // VHW - Water speed and Heading
-         if (ct - cnmea.stw_ts > INVALID || cnmea.stw == 0)
+         if (ct - cnmea.stw_ts > INVALID || cnmea.stw == 0) {
             sprintf(msg_stw, "----");
-        else
+            wspeed = 0.0;
+            stw = 0;
+        } else {
             sprintf(msg_stw, "%.2f", cnmea.stw);
+            wspeed = cnmea.stw;
+            stw = 1;
+        }
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (ct - cnmea.rmc_ts > INVALID || cnmea.rmc < 0.7)
             sprintf(msg_sog, "----");
-        else
+        else {
             sprintf(msg_sog, "SOG:%.2f", cnmea.rmc);
+            if (wspeed == 0.0) {
+                wspeed = cnmea.rmc;
+                sprintf(msg_stw, "%.2f", cnmea.rmc);
+            }
+        }
        
         // Heading
         if (!(ct - cnmea.hdm_ts > INVALID))
@@ -1151,7 +1166,7 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         if (!(ct - cnmea.mtw_ts > INVALID))
             sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
                          
-        speed = cnmea.stw * (maxangle/maxspeed);
+        speed = wspeed * (maxangle/maxspeed);
         angle = roundf(speed+minangle);
 
         // Run needle with smooth acceleration
@@ -1161,28 +1176,31 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
        
         SDL_RenderCopyEx(renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
-        if (!(ct - cnmea.stw_ts > INVALID || cnmea.stw == 0))
+
+        if (wspeed)
             SDL_RenderCopyEx(renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(renderer, 182, 300, 4, msg_stw, fontLarge, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 186, 366, 8, msg_sog, fontSmall, &textField, &textField_rect);       
+        get_text_and_rect(renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 170, 0, msg_dbt, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 170, 0, msg_dbt, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
-
-        get_text_and_rect(renderer, 480, 220, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 220, 0, msg_mtw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
         SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+         if (stw) {
+            get_text_and_rect(renderer, 186, 366, 8, msg_sog, fontSmall, &textField, &textField_rect);       
+            SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        }
 
         addMenuItems(renderer, fontSrc);
 
@@ -1309,16 +1327,16 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 148, 292, 9, msg_lot, fontLO, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
        
-        get_text_and_rect(renderer, 480, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
         SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
@@ -1468,13 +1486,13 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 180, 370, 1, msg_mtw, fontSmall, &textField, &textField_rect);   
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 480, 170, 0, msg_rmc, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 170, 0, msg_rmc, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 480, 220, 0, msg_stw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 220, 0, msg_stw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
         SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
@@ -1619,19 +1637,19 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
         get_text_and_rect(renderer, 182, 300, 4, msg_vwrs, fontLarge, &textField, &textField_rect);    
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 480, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 480, 170, 0, msg_stw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 170, 0, msg_stw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 220, 0, msg_rmc, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 220, 0, msg_rmc, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 270, 0, msg_dbt, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 270, 0, msg_dbt, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 480, 320, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        get_text_and_rect(renderer, 500, 320, 0, msg_mtw, fontCog, &textField, &textField_rect);
         SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
         SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
