@@ -41,11 +41,13 @@ The packages needed are:
 
 ### Library dependencies from Debian repos
 - libcurl4-gnutls-dev
-- i2c-tool, libi2c-dev
+- i2c-tool
+- libi2c-dev
 - libsqlite3-dev
 - libpng-dev
 - libtiff5-dev
 - libjpeg-dev
+- libfreetype6-dev
 - libts-dev
 - libinput-dev
 
