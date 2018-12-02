@@ -947,6 +947,7 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
     float angle = 0;
     float t_roll = 0;
     float roll = 0;
+    float c_angle = 0;
 
     while (1) {
         char msg_hdm[40] = { " " };
@@ -1007,8 +1008,13 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
         angle = roundf(cnmea.hdm);
 
         // Run needle and roll with smooth acceleration
-        if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
-        else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
+        if ((c_angle >= 180 && angle <= 180) || (c_angle <= 180  && angle >= 180)) {
+            t_angle = angle;  // Avoid smooth full turn aroud 0
+        } else {
+            if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
+            else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
+        }
+        c_angle = angle;
 
         if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
         else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
