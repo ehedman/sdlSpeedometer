@@ -24,11 +24,11 @@ Currently there are five virtual instrument working (data source within brackets
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination)
 
-If [opencpn](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
+If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
 
 ### Tested runtime environment
 
-- Raspberry Pi - any model with Debian type OS, in an embedded configuration without X and desktop stuff (see exception for opencpn).
+- Raspberry Pi - any model with Debian type OS, in an embedded configuration without X and desktop stuff (see exception for OpenCPN).
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 
 Instructions (if needed) of how to build SDL2 libraries for framebuffer (no X) can be found in this article:
@@ -53,7 +53,7 @@ The packages needed are:
 - libts-dev
 - libinput-dev
 
-### Application dependencies for running opencpn from sdlSpeedometer
+### Application dependencies for running OpenCPN from sdlSpeedometer
 - xorg
 - dirmngr
 
