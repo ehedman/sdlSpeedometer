@@ -52,6 +52,7 @@ The packages needed are:
 - libfreetype6-dev
 - libts-dev
 - libinput-dev
+- libwebp-dev
 
 ### Application dependencies for running OpenCPN from sdlSpeedometer
 - xorg
