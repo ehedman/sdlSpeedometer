@@ -8,7 +8,7 @@
  * as published by the Free Software Foundation; either version
  * 2 of the License, or (at your option) any later version.
  *
-* Desription:
+ * Desription:
  * Use the BerryGPS-IMUv2 to collect GPS and compass data to be presented
  * on an SDL2 driven framebuffer display typically on a Raspberry Pi.
  * Optionally collect nautical NMEA-0183 sentences from a NMEA network server.
@@ -26,6 +26,7 @@
 #include <SDL2/SDL_net.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sqlite3.h>
@@ -38,12 +39,19 @@
 
 #include "sdlSpeedometer.h"
 
+typedef struct {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    char *fontPath;
+    char *subtaskCmd;
+} sdl2_app;
+ 
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
 #define WINDOW_W 800        // Resolution
 #define WINDOW_H 480
 
-#define INVALID     4       // Invalidate current sentences after # seconds without a refresh from talker.
+#define S_TIMEOUT     4     // Invalidate current sentences after # seconds without a refresh from talker.
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
@@ -60,10 +68,16 @@
 #ifndef PATH_INSTALL
 #define IMAGE_PATH  "./img/"
 #define SQLDBPATH   "speedometer.db"
+#define SPAWNCMD    "./spawnSubtask"
 #else
 #define IMAGE_PATH  "/usr/local/share/images/"
 #define SQLDBPATH   "/usr/local/etc/speedometer.db"
+#define SPAWNCMD    "/usr/local/bin/spawnSubtask"
 #endif
+
+#define SUBTASKCMD  "opencpn"
+#define SUBTASKARG "-fullscreen"
+#define SUBTASKBAR "subTask.png"
 
 #define DEFAULT_BACKGROUND IMAGE_PATH "Default-bg.bmp"
 
@@ -351,7 +365,7 @@ static int threadSerial(void *conf)
 
     SDL_Log("Starting up Serial GPS collector");
 
-    if ((fd = open(configParams->tty, O_RDWR | O_NOCTTY)) <0) {
+    if ((fd = open(configParams->tty, O_RDONLY | O_NOCTTY)) <0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not open GPS device %s", configParams->tty);
         return 0;
     }
@@ -368,17 +382,18 @@ static int threadSerial(void *conf)
         time_t ct;
         int cnt;
 
+        if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT) && cnmea.rmc_time_ts == 2) {
+            SDL_Delay(2000);
+            tcflush(fd, TCIOFLUSH);
+            continue;
+        } 
+
         memset(buffer, 0, sizeof(buffer));
 
         if ((cnt=read(fd, buffer, sizeof(buffer))) <0) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not read GPS device %s %s %d", configParams->tty, strerror(errno), errno);
             SDL_Delay(40);
             tcflush(fd, TCIOFLUSH);
-            continue;
-        }
-
-        if (!skip) {
-            skip--; // Skip the first fragmental readings
             continue;
         }
 
@@ -396,7 +411,7 @@ static int threadSerial(void *conf)
         }
 
         // The vessels network has precedence
-        if (!(time(NULL) - cnmea.net_ts > INVALID)) {
+        if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
             SDL_Delay(2000);
             tcflush(fd, TCIOFLUSH);
             continue;
@@ -416,7 +431,7 @@ static int threadSerial(void *conf)
         }
 
         // GLL - Geographic Position, Latitude / Longitude
-        if (ct - cnmea.gll_ts > INVALID/2) { // If not from RMC
+        if (ct - cnmea.gll_ts > S_TIMEOUT/2) { // If not from RMC
             if (NMPARSE(buffer, "GLL")) {
                 strcpy(cnmea.gll, getf(1, buffer));
                 strcpy(cnmea.glo, getf(3, buffer));
@@ -428,7 +443,7 @@ static int threadSerial(void *conf)
         }
 
         // VTG - Track made good and ground speed
-        if (ct - cnmea.rmc_ts > INVALID/2) { // If not from RMC
+        if (ct - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
             if (NMPARSE(buffer, "VTG")) {
                 cnmea.rmc=atof(getf(5, buffer));
                 cnmea.rmc_ts = ct;
@@ -549,12 +564,12 @@ static int i2cCollector(void *conf)
         cnmea.roll = i2cReadRoll(configParams->i2cFile, dt);
 
         // The vessels network has precedence
-        if (!(time(NULL) - cnmea.net_ts > INVALID)) {
+        if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
             continue;
         }
 
         // Take over if no NMEA
-        if (ct - cnmea.hdm_ts > INVALID) {
+        if (ct - cnmea.hdm_ts > S_TIMEOUT) {
             cnmea.hdm=hdm;
             cnmea.hdm_i2cts = ct;
         }      
@@ -663,6 +678,7 @@ static int nmeaNetCollector(void* conf)
             static char buffer[2048];
             time_t ts;
             int cnt = 0;
+
             if (++retry > 10) break;
 
             SDL_Delay(30);
@@ -692,7 +708,7 @@ static int nmeaNetCollector(void* conf)
                 }
 
                 // GLL - Geographic Position, Latitude / Longitude
-                if (ts - cnmea.gll_ts > INVALID/2) { // If not from RMC
+                if (ts - cnmea.gll_ts > S_TIMEOUT/2) { // If not from RMC
                     if (NMPARSE(buffer, "GLL")) {
                         strcpy(cnmea.gll, getf(1, buffer));
                         strcpy(cnmea.glo, getf(3, buffer));
@@ -704,7 +720,7 @@ static int nmeaNetCollector(void* conf)
                 }
 
                 // VTG - Track made good and ground speed
-                if (ts - cnmea.rmc_ts > INVALID/2) { // If not from RMC
+                if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
                     if (NMPARSE(buffer, "VTG")) {
                         cnmea.rmc=atof(getf(5, buffer));
                         cnmea.net_ts = cnmea.rmc_ts = ts;
@@ -729,7 +745,7 @@ static int nmeaNetCollector(void* conf)
                 }
 
                 // DBT - Depth Below Transponder
-                if (ts - cnmea.dbt_ts > INVALID/2) { // If not from DPT
+                if (ts - cnmea.dbt_ts > S_TIMEOUT/2) { // If not from DPT
                     if (NMPARSE(buffer, "DBT")) {
                         cnmea.dbt=atof(getf(3, buffer));
                         cnmea.dbt_ts = ts;
@@ -763,7 +779,7 @@ static int nmeaNetCollector(void* conf)
                 }
 
                 // VWR - Relative Wind Speed and Angle (obsolete)
-                if (ts - cnmea.vwr_ts > INVALID/2) { // If not from MWV
+                if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
                     if (NMPARSE(buffer, "VWR")) {
                         cnmea.vwra=atof(getf(1, buffer));
                         cnmea.vwrs=atof(getf(3, buffer))/1.94; // kn 2 m/s
@@ -794,7 +810,7 @@ static int nmeaNetCollector(void* conf)
     return 0;
 }
 
-static int pageSelect(SDL_Event *event)
+static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 {
     // A simple event handler for touch screen buttons at fixed menu bar localtions
 
@@ -810,24 +826,27 @@ static int pageSelect(SDL_Event *event)
     if (y > 400  && y < 440)
     {
         if (x > 450 && x < 480)
-            return cogPage;
+            return COGPAGE;
         if (x > 504 && x < 544)
-            return sogPage;
+            return SOGPAGE;
         if (x > 560 && x < 600)
-            return dptPage;
+            return DPTPAGE;
         if (x > 614 && x < 656)
-            return wndPage;
+            return WNDPAGE;
         if (x > 670 && x < 710)
-           return gpsPage;
+           return GPSPAGE;
         if (x > 730 && x < 770)
-           return calPage;
+           return CALPAGE;
+        if (sdlApp->subtaskCmd != NULL) {
+            if (x > 30 && x < 80)
+                return TSKPAGE;
+        }
     }
     return 0;
 }
 
 static void addMenuItems(SDL_Renderer *renderer, TTF_Font *font)
-{
-  
+{  
     // Add text on top of a simple menu bar
 
     SDL_Texture* textM1;
@@ -906,19 +925,24 @@ static void setUTCtime(void)
 }
 
 // Present the compass with heading ant roll
-static int doCompass(SDL_Renderer *renderer, char* fontPath)
+static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR;
-    TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
-    TTF_Font* fontRoll = TTF_OpenFont(fontPath, 22);
-    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(fontPath, 12);
+    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR, subTaskbarR;
+    TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
+    TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    SDL_Texture* subTaskbar = NULL;
 
-    SDL_Texture* compassRose = IMG_LoadTexture(renderer, IMAGE_PATH "compassRose.png");
-    SDL_Texture* outerRing = IMG_LoadTexture(renderer, IMAGE_PATH "outerRing.png");
-    SDL_Texture* clinoMeter = IMG_LoadTexture(renderer, IMAGE_PATH "clinometer.png");
-    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
+    SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
+    SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+
+    if (sdlApp->subtaskCmd != NULL) {
+        subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH SUBTASKBAR);
+    }
 
     compassR.w = 366;
     compassR.h = 366;
@@ -939,6 +963,11 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
     menuBarR.h = 50;
     menuBarR.x = 430;
     menuBarR.y = 400;
+
+    subTaskbarR.w = 50;
+    subTaskbarR.h = 50;
+    subTaskbarR.x = 30;
+    subTaskbarR.y = 400;
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -967,13 +996,13 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
 
         if(event.type == SDL_FINGERDOWN)
         {
-            if ((event.type=pageSelect(&event)))
+            if ((event.type=pageSelect(sdlApp, &event)))
                 break;
         }
 
         ct = time(NULL);    // Get a timestamp for this turn 
 
-        if (!(ct - cnmea.rmc_ts > INVALID)) {
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
             // Set system UTC time
             if (cnmea.rmc_time_ts == 1)
                 setUTCtime();
@@ -981,28 +1010,28 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
-        if (!(ct - cnmea.hdm_i2cts > INVALID)) {                        // HDM & ROLL Magnetic
+        if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {                        // HDM & ROLL Magnetic
             sprintf(msg_hdm, "%.0f", cnmea.hdm);
             sprintf(msg_src, "mag");
-        } else if (!(ct - cnmea.stw_ts > INVALID || cnmea.stw == 0)) {  // VHW - Water speed and Heading NMEA
+        } else if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0)) {  // VHW - Water speed and Heading NMEA
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
             sprintf(msg_hdm, "%.0f", cnmea.hdm);
             sprintf(msg_src, "net");
         }
 
-        if (!(ct - cnmea.roll_i2cts > INVALID))
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
             sprintf(msg_roll, "%.0f", fabs(roll=cnmea.roll));
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > INVALID || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
             sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
         // DBT - Depth Below Transponder
-        if (!(ct - cnmea.dbt_ts > INVALID))
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
 
         // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > INVALID))
+        if (!(ct - cnmea.mtw_ts > S_TIMEOUT))
             sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
                       
         angle = roundf(cnmea.hdm);
@@ -1019,42 +1048,46 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
         if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
         else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
 
-        SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
-        SDL_RenderCopyEx(renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
-        SDL_RenderCopyEx(renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
         
-        if (!(ct - cnmea.roll_i2cts > INVALID))
-            SDL_RenderCopyEx(renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
+            SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(renderer, 226, 180, 3, msg_src, fontSrc, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 226, 180, 3, msg_src, fontSrc, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 196, 200, 3, msg_hdm, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 196, 200, 3, msg_hdm, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 223, 248, 2, msg_roll, fontRoll, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 223, 248, 2, msg_roll, fontRoll, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
        
-        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(renderer, fontSrc);
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp->renderer, fontSrc);
 
-        get_text_and_rect(renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderPresent(renderer);
+        if (subTaskbar != NULL) {
+            SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        SDL_RenderPresent(sdlApp->renderer);
 
         SDL_Delay(40);       
     }
@@ -1073,15 +1106,15 @@ static int doCompass(SDL_Renderer *renderer, char* fontPath)
 }
 
 // Present the Sumlog (NMEA net only)
-static int doSumlog(SDL_Renderer *renderer, char* fontPath)
+static int doSumlog(sdl2_app *sdlApp)
 {
     SDL_Event event;
     SDL_Rect gaugeR, needleR, menuBarR;
-    TTF_Font* fontLarge =  TTF_OpenFont(fontPath, 46);
-    TTF_Font* fontSmall =  TTF_OpenFont(fontPath, 20);
-    TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(fontPath, 12);
+    TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
+    TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
+    TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
     gaugeR.w = 440;
     gaugeR.h = 440;
@@ -1098,9 +1131,9 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
     menuBarR.x = 430;
     menuBarR.y = 400;
 
-    SDL_Texture* gaugeSumlog = IMG_LoadTexture(renderer, IMAGE_PATH "sumlog.png");
-    SDL_Texture* gaugeNeedle = IMG_LoadTexture(renderer, IMAGE_PATH "needle.png");
-    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
+    SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1131,7 +1164,7 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
 
         if(event.type == SDL_FINGERDOWN)
         {
-            if ((event.type=pageSelect(&event)))
+            if ((event.type=pageSelect(sdlApp, &event)))
                 break;
         }
 
@@ -1139,7 +1172,7 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
 
         // VHW - Water speed and Heading
-         if (ct - cnmea.stw_ts > INVALID || cnmea.stw == 0) {
+         if (ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0) {
             sprintf(msg_stw, "----");
             wspeed = 0.0;
             stw = 0;
@@ -1150,7 +1183,7 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         }
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (ct - cnmea.rmc_ts > INVALID || cnmea.rmc < 0.7)
+        if (ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7)
             sprintf(msg_sog, "----");
         else {
             sprintf(msg_sog, "SOG:%.2f", cnmea.rmc);
@@ -1161,15 +1194,15 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         }
        
         // Heading
-        if (!(ct - cnmea.hdm_ts > INVALID))
+        if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
         
         // DBT - Depth Below Transponder
-        if (!(ct - cnmea.dbt_ts > INVALID))
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
 
         // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > INVALID))
+        if (!(ct - cnmea.mtw_ts > S_TIMEOUT))
             sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
                          
         speed = wspeed * (maxangle/maxspeed);
@@ -1179,38 +1212,38 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24) ;
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
 
-        SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
-        SDL_RenderCopyEx(renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
         if (wspeed)
-            SDL_RenderCopyEx(renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(renderer, 182, 300, 4, msg_stw, fontLarge, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_stw, fontLarge, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 170, 0, msg_dbt, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 170, 0, msg_dbt, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 220, 0, msg_mtw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 220, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
          if (stw) {
-            get_text_and_rect(renderer, 186, 366, 8, msg_sog, fontSmall, &textField, &textField_rect);       
-            SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 186, 366, 8, msg_sog, fontSmall, &textField, &textField_rect);       
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
 
-        addMenuItems(renderer, fontSrc);
+        addMenuItems(sdlApp->renderer, fontSrc);
 
-        SDL_RenderPresent(renderer); 
+        SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
     }
@@ -1229,20 +1262,20 @@ static int doSumlog(SDL_Renderer *renderer, char* fontPath)
 }
 
 // Present GPS data
-static int doGps(SDL_Renderer *renderer, char* fontPath)
+static int doGps(sdl2_app *sdlApp)
 {
     SDL_Event event;
     SDL_Rect gaugeR, menuBarR;
 
-    TTF_Font* fontHD =  TTF_OpenFont(fontPath, 40);
-    TTF_Font* fontLA =  TTF_OpenFont(fontPath, 30);
-    TTF_Font* fontLO =  TTF_OpenFont(fontPath, 30);
-    TTF_Font* fontMG =  TTF_OpenFont(fontPath, 14);
-    TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(fontPath, 12);
+    TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
+    TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 30);
+    TTF_Font* fontLO =  TTF_OpenFont(sdlApp->fontPath, 30);
+    TTF_Font* fontMG =  TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
-    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1257,7 +1290,7 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
     menuBarR.x = 430;
     menuBarR.y = 400;
 
-    SDL_Texture* gaugeGps = IMG_LoadTexture(renderer, IMAGE_PATH "gps.png");
+    SDL_Texture* gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
 
     while (1) {
 
@@ -1279,7 +1312,7 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
 
         if(event.type == SDL_FINGERDOWN)
         {
-            if ((event.type=pageSelect(&event)))
+            if ((event.type=pageSelect(sdlApp, &event)))
                 break;
         }
 
@@ -1289,7 +1322,7 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
         sprintf(msg_src, "  ");
 
         // RMC - Recommended minimum specific GPS/Transit data
-         if (ct - cnmea.gll_ts > INVALID) {
+         if (ct - cnmea.gll_ts > S_TIMEOUT) {
             sprintf(msg_hdm, "----");
             sprintf(msg_lat, "----");
             sprintf(msg_lot, "----");
@@ -1297,61 +1330,61 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
             sprintf(msg_hdm, "%.0f",  cnmea.hdm);
             sprintf(msg_lat, "%.4f%s", dms2dd(atof(cnmea.gll),"m"), cnmea.glns);
             sprintf(msg_lot, "%.4f%s", dms2dd(atof(cnmea.glo),"m"), cnmea.glne);
-            if (!(ct - cnmea.hdm_i2cts > INVALID))
+            if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT))
                 sprintf(msg_src, "mag");
          }
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > INVALID || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
             sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
         // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > INVALID || cnmea.stw == 0))
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
         // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > INVALID))
+        if (!(ct - cnmea.mtw_ts > S_TIMEOUT))
             sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
 
         // DBT - Depth Below Transponder
-        if (!(ct - cnmea.dbt_ts > INVALID))
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
         
-        SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
-        SDL_RenderCopyEx(renderer, gaugeGps, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeGps, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(renderer, 196, 142, 3, msg_hdm, fontHD, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_hdm, fontHD, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 290, 168, 1, msg_src, fontMG, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 290, 168, 1, msg_src, fontMG, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 148, 222, 9, msg_lat, fontLA, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 148, 222, 9, msg_lat, fontLA, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 148, 292, 9, msg_lot, fontLO, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_lot, fontLO, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
        
-        get_text_and_rect(renderer, 500, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 120, 0, msg_stw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 170, 0, msg_sog, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 220, 0, msg_dbt, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 270, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(renderer, fontSrc);
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp->renderer, fontSrc);
 
-        get_text_and_rect(renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderPresent(renderer); 
+        SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
     }
@@ -1371,15 +1404,15 @@ static int doGps(SDL_Renderer *renderer, char* fontPath)
 }
 
 // Present Depth data (NMEA net only)
-static int doDepth(SDL_Renderer *renderer, char* fontPath)
+static int doDepth(sdl2_app *sdlApp)
 {
     SDL_Event event;
     SDL_Rect gaugeR, needleR, menuBarR;
-    TTF_Font* fontLarge =  TTF_OpenFont(fontPath, 46);
-    TTF_Font* fontSmall =  TTF_OpenFont(fontPath, 18);
-    TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(fontPath, 12);
+    TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
+    TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
+    TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
     gaugeR.w = 440;
     gaugeR.h = 440;
@@ -1396,12 +1429,12 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
     menuBarR.x = 430;
     menuBarR.y = 400;
 
-    SDL_Texture* gaugeDepthW = IMG_LoadTexture(renderer, IMAGE_PATH "depthw.png");
-    SDL_Texture* gaugeDepth = IMG_LoadTexture(renderer, IMAGE_PATH "depth.png");
-    SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(renderer, IMAGE_PATH "depthx10.png");
-    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
+    SDL_Texture* gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
+    SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     
-    SDL_Texture* gaugeNeedle = IMG_LoadTexture(renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
 
     SDL_Texture* gauge;
 
@@ -1434,7 +1467,7 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
 
         if(event.type == SDL_FINGERDOWN)
         {
-            if ((event.type=pageSelect(&event)))
+            if ((event.type=pageSelect(sdlApp, &event)))
                 break;
         }
 
@@ -1442,27 +1475,27 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
         // DPT - Depth
-         if (ct - cnmea.dbt_ts > INVALID || cnmea.dbt == 0)
+         if (ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0)
             sprintf(msg_dbt, "----");
         else
             sprintf(msg_dbt, "%.1f", cnmea.dbt);
 
         // MTW - Water temperature in C
-        if (ct - cnmea.mtw_ts > INVALID || cnmea.mtw == 0)
+        if (ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0)
             sprintf(msg_mtw, "----");
         else
             sprintf(msg_mtw, "Temp :%.1f", cnmea.mtw);
         
         // Heading
-        if (!(ct - cnmea.hdm_ts > INVALID))
+        if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > INVALID || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
              sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > INVALID || cnmea.stw == 0))
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
         gauge = gaugeDepth;
@@ -1479,35 +1512,35 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24) ;
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
 
-        SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
     
-        SDL_RenderCopyEx(renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.dbt_ts > INVALID || cnmea.dbt == 0))
-            SDL_RenderCopyEx(renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(renderer, 182, 300, 4, msg_dbt, fontLarge, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 180, 370, 1, msg_mtw, fontSmall, &textField, &textField_rect);   
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_mtw, fontSmall, &textField, &textField_rect);   
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 500, 170, 0, msg_rmc, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 170, 0, msg_rmc, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 500, 220, 0, msg_stw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 220, 0, msg_stw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(renderer, fontSrc);
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp->renderer, fontSrc);
 
-        get_text_and_rect(renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderPresent(renderer); 
+        SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
     }
@@ -1528,15 +1561,15 @@ static int doDepth(SDL_Renderer *renderer, char* fontPath)
 }
 
 // Present Wind data (NMEA net only)
-static int doWind(SDL_Renderer *renderer, char* fontPath)
+static int doWind(sdl2_app *sdlApp)
 {
     SDL_Event event;
     SDL_Rect gaugeR, needleR, menuBarR;
-    TTF_Font* fontLarge =  TTF_OpenFont(fontPath, 46);
-    TTF_Font* fontSmall =  TTF_OpenFont(fontPath, 20);
-    TTF_Font* fontCog = TTF_OpenFont(fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(fontPath, 12);
+    TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
+    TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
+    TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
     gaugeR.w = 440;
     gaugeR.h = 440;
@@ -1553,9 +1586,9 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
     menuBarR.x = 430;
     menuBarR.y = 400;
 
-    SDL_Texture* gaugeSumlog = IMG_LoadTexture(renderer, IMAGE_PATH "wind.png");
-    SDL_Texture* gaugeNeedle = IMG_LoadTexture(renderer, IMAGE_PATH "needle.png");
-    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
+    SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1582,7 +1615,7 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
 
         if(event.type == SDL_FINGERDOWN)
         {
-            if ((event.type=pageSelect(&event)))
+            if ((event.type=pageSelect(sdlApp, &event)))
                 break;
         }
 
@@ -1590,34 +1623,34 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
         // Wind speed and angle (relative)
-         if (ct -  cnmea.vwr_ts > INVALID || cnmea.vwrs == 0)
+         if (ct -  cnmea.vwr_ts > S_TIMEOUT || cnmea.vwrs == 0)
             sprintf(msg_vwrs, "----");
         else
             sprintf(msg_vwrs, "%.1f", cnmea.vwrs);
 
-        if (ct - cnmea.vwr_ts > INVALID)
+        if (ct - cnmea.vwr_ts > S_TIMEOUT)
             sprintf(msg_vwra, "----");
         else
             sprintf(msg_vwra, "%.0f", cnmea.vwra);
 
        // DPT - Depth
-         if (!(ct - cnmea.dbt_ts > INVALID || cnmea.dbt == 0))
+         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
             sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
 
         // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > INVALID || cnmea.mtw == 0))
+        if (!(ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0))
             sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
         
         // Heading
-        if (!(ct - cnmea.hdm_ts > INVALID))
+        if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > INVALID || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
              sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > INVALID || cnmea.stw == 0))
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
         angle = cnmea.vwra; // 0-180
@@ -1630,41 +1663,41 @@ static int doWind(SDL_Renderer *renderer, char* fontPath)
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24) ;
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
 
-        SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
-        SDL_RenderCopyEx(renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.vwr_ts > INVALID || cnmea.vwra == 0))
-            SDL_RenderCopyEx(renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(renderer, 216, 100, 3, msg_vwra, fontSmall, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 216, 100, 3, msg_vwra, fontSmall, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 182, 300, 4, msg_vwrs, fontLarge, &textField, &textField_rect);    
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &textField, &textField_rect);    
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 120, 0, msg_hdm, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         
-        get_text_and_rect(renderer, 500, 170, 0, msg_stw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 170, 0, msg_stw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 220, 0, msg_rmc, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 220, 0, msg_rmc, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 270, 0, msg_dbt, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 270, 0, msg_dbt, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(renderer, 500, 320, 0, msg_mtw, fontCog, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 500, 320, 0, msg_mtw, fontCog, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(renderer, fontSrc);
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp->renderer, fontSrc);
 
-        get_text_and_rect(renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderPresent(renderer); 
+        SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
     }
@@ -1736,16 +1769,16 @@ static int threadCalibrator(void *ptr)
 }
 
 // Do calibration
-static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *configParams)
+static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 {
     SDL_Event event;
     SDL_Rect menuBarR;
 
-    TTF_Font* fontCAL =  TTF_OpenFont(fontPath, 28);
-    TTF_Font* fontPRG =  TTF_OpenFont(fontPath, 11);
-    TTF_Font* fontSrc = TTF_OpenFont(fontPath, 14);
+    TTF_Font* fontCAL =  TTF_OpenFont(sdlApp->fontPath, 28);
+    TTF_Font* fontPRG =  TTF_OpenFont(sdlApp->fontPath, 11);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
 
-    SDL_Texture* menuBar = IMG_LoadTexture(renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
 
     CURL *curl = NULL;
 
@@ -1773,7 +1806,7 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
     doRun.latitude = doRun.longitude = doRun.declination = 0;
 
     // If the GPS is running OK, prepare for NOAA declination fetch
-    if (!(time(NULL) - cnmea.gll_ts > INVALID)) {
+    if (!(time(NULL) - cnmea.gll_ts > S_TIMEOUT)) {
         doRun.latitude = dms2dd(atof(cnmea.gll),"m");
         doRun.longitude = dms2dd(atof(cnmea.glo),"m");
     }
@@ -1842,11 +1875,11 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
 
         if(event.type == SDL_FINGERDOWN)
         {
-            if ((event.type=pageSelect(&event)))
+            if ((event.type=pageSelect(sdlApp, &event)))
                 break;
         }
 
-        SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
         if (seconds ++ > 10) {
             sprintf(msg_cal, "Calibration about to begin in %d seconds", progress--);
@@ -1854,13 +1887,13 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
             if (progress < 0) break;
         }   
 
-        get_text_and_rect(renderer, 10, 250, 1, msg_cal, fontCAL, &textField, &textField_rect);
-        SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &textField, &textField_rect);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        SDL_RenderCopyEx(renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(renderer, fontSrc);
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp->renderer, fontSrc);
 
-        SDL_RenderPresent(renderer); 
+        SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(100);
     }
@@ -1871,7 +1904,7 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
 
         while (1) {
 
-            event.type = cogPage;
+            event.type = COGPAGE;
 
             if (threadCalib == NULL) {
 
@@ -1883,7 +1916,7 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
                 } else SDL_DetachThread(threadCalib);
             }
 
-            SDL_RenderCopy(renderer, Background_Tx, NULL, NULL);
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
             if (seconds++ > 10) {
                 sprintf(msg_cal, "Calibration in progress for %d more seconds", progress--);
@@ -1893,13 +1926,13 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
                 }
             }
 
-            get_text_and_rect(renderer, 10, 250, 1, msg_cal, fontCAL, &textField, &textField_rect);
-            SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &textField, &textField_rect);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-            get_text_and_rect(renderer, 10, 320, 1, doRun.progress, fontPRG, &textField, &textField_rect);
-            SDL_RenderCopy(renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 10, 320, 1, doRun.progress, fontPRG, &textField, &textField_rect);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-            SDL_RenderPresent(renderer); 
+            SDL_RenderPresent(sdlApp->renderer); 
             
             SDL_Delay(100); 
         } 
@@ -1918,23 +1951,149 @@ static int doCalibration(SDL_Renderer *renderer, char* fontPath, configuration *
     return event.type;
 }
 
-int main(int argc, char *argv[])
+static void closeSDL2(sdl2_app *sdlApp)
 {
+    TTF_Quit();
+    SDL_DestroyRenderer(sdlApp->renderer);
+    SDL_DestroyWindow(sdlApp->window);
+    SDL_VideoQuit();
+    SDL_Quit();
+}
 
-    SDL_Window *window;
-    SDL_Renderer *renderer;
+static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
+{
     SDL_Surface* Loading_Surf;
-
     SDL_Thread *threadNmea;
     SDL_Thread *threadI2C;
     SDL_Thread *threadGPS;
+
+    // This is what this application is built for!
+    setenv("SDL_VIDEODRIVER", "RPI", 1);
+
+    configParams->run = 1;
+
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
+        return SDL_QUIT;
+    }
+
+    threadNmea = SDL_CreateThread(nmeaNetCollector, "nmeaNetCollector", configParams);
+
+    if (NULL == threadNmea) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread nmeaNetCollector failed: %s", SDL_GetError());
+    } else SDL_DetachThread(threadNmea);
+
+    threadI2C = SDL_CreateThread(i2cCollector, "i2cCollector", configParams);
+
+    if (NULL == threadI2C) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadI2C failed: %s", SDL_GetError());
+    } else SDL_DetachThread(threadI2C);
+
+    threadGPS = SDL_CreateThread(threadSerial, "threadGPS", configParams);
+
+    if (NULL == threadGPS) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadGPS failed: %s", SDL_GetError());
+    } else SDL_DetachThread(threadGPS);
+
+    SDL_ShowCursor(SDL_DISABLE);
+
+    if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
+            SDL_WINDOWPOS_UNDEFINED,
+            SDL_WINDOWPOS_UNDEFINED,
+            WINDOW_W, WINDOW_H,
+            SDL_WINDOW_RESIZABLE)) == NULL) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
+            configParams->run = 0;
+            return SDL_QUIT;
+    }
+
+    sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+
+    TTF_Init();
+
+    Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND);
+    Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
+    SDL_FreeSurface(Loading_Surf);
+
+    return 0;
+}
+
+// Check if subtask is within PATH.
+static int checkSubtask(sdl2_app *sdlApp)
+{
+    char subtask[PATH_MAX] = { '\0' };
+    size_t len;
+    FILE *fd;
+
+    sdlApp->subtaskCmd = NULL;
+
+    sprintf(subtask, "which %s", basename(SUBTASKCMD));
+
+    if ((fd = popen(subtask, "r")) != NULL) {
+        *subtask = '\0';
+        fgets(subtask, sizeof(subtask) , fd);
+        pclose(fd);
+    } else return 0;
+
+    if (strlen(subtask)) {
+        subtask[strlen(subtask)-1] = '\0';  // Remove the nl
+    }
+
+    if ((len=strlen(subtask))) {
+        sdlApp->subtaskCmd = SUBTASKCMD;
+    }
+
+    return len;
+}
+
+// Give up all resources in favor for a subtask.
+static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
+{
+
+    int pid;
+    int status;
+    char *args[] = {"/bin/bash", SPAWNCMD, basename(SUBTASKCMD),  SUBTASKARG, NULL};
+
+    if (!checkSubtask(sdlApp))
+        return COGPAGE;
+
+    // Take down threads
+    configParams->run = 0;
+
+    SDL_Delay(1200);
+
+    closeSDL2(sdlApp);
+       
+    pid = fork ();
+
+    if (pid == 0) {
+        // Child
+        execv ("/bin/bash", args);
+    }
+
+    waitpid(pid, &status, 0);
+
+    // Subtask completed reclaim the meat!
+    status = openSDL2(configParams, sdlApp);
+
+    if (status == 0)    
+        status = COGPAGE;
+
+    return status;
+}
+
+int main(int argc, char *argv[])
+{
+
     int c;
     configuration configParams;
+    sdl2_app sdlApp;
 
-    configParams.run = 1;
     memset(&cnmea, 0, sizeof(cnmea));
 
-    char *font_path = DEFAULT_FONT;
+    sdlApp.fontPath = DEFAULT_FONT;
+
+    (void)checkSubtask(&sdlApp);
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);
 
@@ -1970,70 +2129,36 @@ int main(int argc, char *argv[])
         syslog (LOG_NOTICE, "Program started by User %d", getuid ());
     }
 
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL: %s", SDL_GetError());
+    if (openSDL2(&configParams, &sdlApp))
         exit(EXIT_FAILURE);
-    }
-
-    threadNmea = SDL_CreateThread(nmeaNetCollector, "nmeaNetCollector", &configParams);
-
-    if (NULL == threadNmea) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread nmeaNetCollector failed: %s", SDL_GetError());
-    } else SDL_DetachThread(threadNmea);
-
-    threadI2C = SDL_CreateThread(i2cCollector, "i2cCollector", &configParams);
-
-    if (NULL == threadI2C) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadI2C failed: %s", SDL_GetError());
-    } else SDL_DetachThread(threadI2C);
-
-    threadGPS = SDL_CreateThread(threadSerial, "threadGPS", &configParams);
-
-    if (NULL == threadGPS) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadGPS failed: %s", SDL_GetError());
-    } else SDL_DetachThread(threadGPS);
-
-    SDL_ShowCursor(SDL_DISABLE);
-
-    window = SDL_CreateWindow("SDL_CreateTexture",
-            SDL_WINDOWPOS_UNDEFINED,
-            SDL_WINDOWPOS_UNDEFINED,
-            WINDOW_W, WINDOW_H,
-            SDL_WINDOW_RESIZABLE);
-
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-
-    TTF_Init();
-
-    Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND);
-    Background_Tx = SDL_CreateTextureFromSurface(renderer, Loading_Surf);
-    SDL_FreeSurface(Loading_Surf);
     
-    int next = cogPage; // Start-page for touch
-    int step = cogPage; // .. mouse
+    int next = COGPAGE; // Start-page for touch
+    int step = COGPAGE; // .. mouse
 
     while(1)
     {
         switch (next)
         {
-            case cogPage: next = doCompass(renderer, font_path);
+            case COGPAGE: next = doCompass(&sdlApp);
                 break;
-            case sogPage: next = doSumlog(renderer, font_path);
+            case SOGPAGE: next = doSumlog(&sdlApp);
                 break;
-            case dptPage: next = doDepth(renderer, font_path);
+            case DPTPAGE: next = doDepth(&sdlApp);
                 break;
-            case wndPage: next = doWind(renderer, font_path);
+            case WNDPAGE: next = doWind(&sdlApp);
                 break;
-            case gpsPage: next = doGps(renderer, font_path);
+            case GPSPAGE: next = doGps(&sdlApp);
                 break;
-            case calPage: next = doCalibration(renderer, font_path, &configParams);
+            case CALPAGE: next = doCalibration(&sdlApp, &configParams);
+                break;
+            case TSKPAGE: next = doSubtask(&sdlApp, &configParams);
                 break;
             case SDL_MOUSEBUTTONDOWN:
                     if (++step >6) {
-                        next = step = cogPage;
+                        next = step = COGPAGE;
                     } else{ next = step; }
                 break;
-            default: next = cogPage;
+            default: next = COGPAGE;
                 break;
         }
         if (next == SDL_QUIT)
@@ -2042,12 +2167,10 @@ int main(int argc, char *argv[])
 
     configParams.run = 0;
 
+    closeSDL2(&sdlApp);
+
     SDL_Delay(1600);
 
-    TTF_Quit();
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
     SDL_Log("User terminated");
 
     exit(EXIT_SUCCESS);

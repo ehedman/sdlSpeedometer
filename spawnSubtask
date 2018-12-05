@@ -1,0 +1,38 @@
+#!/bin/bash
+
+program=$1
+
+app=$(which ${program})
+
+if [ -z "${app}" ]; then
+    exit 1
+fi
+
+trap ctrl_c INT
+
+function ctrl_c() {
+    kill -INT $XPID
+    exit 0
+}
+
+export DISPLAY=:0.0
+
+Xorg -nolisten tcp vt7 -nocursor -novtswitch -br -quiet &> /dev/null &
+
+XPID=$!
+
+let q=5
+
+shift
+
+while xset q &>/dev/null ; [ $? -ne 0 ]; do
+    sleep 1
+    let "q--"
+    if [ $q -le 0 ]; then
+       exit 0
+    fi
+done
+
+${app} $* &>/dev/null
+
+ctrl_c

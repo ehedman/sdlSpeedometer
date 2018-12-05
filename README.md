@@ -4,7 +4,7 @@ README Nov-2018
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design avoid a digital look.
 
-This application is based on a Rasperry Pi and the SDL2 direct framebuffer library.
+This application is based on a Rasperry Pi and the SDL2 configured for framebuffer access.
 
 The instruments can be accessed one-by-one by clicking on a mouse or directly from the touch screen menu.
 
@@ -24,9 +24,11 @@ Currently there are five virtual instrument working (data source within brackets
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination)
 
+If [opencpn](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
+
 ### Tested runtime environment
 
-- Raspberry Pi - any model with Debian type OS, preferably in an embedded configuration without X and desktop stuff.
+- Raspberry Pi - any model with Debian type OS, in an embedded configuration without X and desktop stuff (see exception for opencpn).
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 
 Instructions (if needed) of how to build SDL2 libraries for framebuffer (no X) can be found in this article:
@@ -51,6 +53,10 @@ The packages needed are:
 - libts-dev
 - libinput-dev
 
+### Application dependencies for running opencpn from sdlSpeedometer
+- xorg
+- dirmngr
+
 ### Software used
 - [Raspbian Stretch Lite 2018-11-13](https://www.raspberrypi.org/downloads/raspbian)
 
@@ -68,3 +74,4 @@ The packages needed are:
 <img src="http://hedmanshome.se/sdlspeedometer7.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer8.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer9.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer10.png" width=100%>

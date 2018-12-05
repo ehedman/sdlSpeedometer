@@ -42,12 +42,13 @@ typedef struct {
 } configuration;
 
 enum sdlPages {
-    cogPage = 1,
-    sogPage,
-    dptPage,
-    wndPage,
-    gpsPage,
-    calPage  
+    COGPAGE = 1,
+    SOGPAGE,
+    DPTPAGE,
+    WNDPAGE,
+    GPSPAGE,
+    CALPAGE,
+    TSKPAGE  
 };
 
 extern int i2cinit(int bus);
