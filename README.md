@@ -57,6 +57,7 @@ The packages needed are:
 ### Application dependencies for running OpenCPN from sdlSpeedometer
 - xorg
 - dirmngr
+- feh
 
 ### Software used
 - [Raspbian Stretch Lite 2018-11-13](https://www.raspberrypi.org/downloads/raspbian)
