@@ -1,12 +1,17 @@
 # Systemd resource file
 [Unit]
+DefaultDependencies=no
 Description=Marine instrument application
+After=local-fs.target
 
 [Service]
 Type=simple
 EnvironmentFile=/etc/default/sdlSpeedometer
 ExecStart=/usr/local/bin/sdlSpeedometer -s -n $SERVER -p $PORT
 User=root
+RemainAfterExit=no
+Restart=on-failure
+RestartSec=5s
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target

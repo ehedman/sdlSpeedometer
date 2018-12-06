@@ -1,0 +1,14 @@
+[Unit]
+Description=Xorg Service
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/bin/Xorg -nolisten tcp vt7 -nocursor -novtswitch  -quiet
+RemainAfterExit=no
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=sysinit.target
+

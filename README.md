@@ -43,7 +43,7 @@ The packages needed are:
 
 ### Library dependencies from Debian repos
 - libcurl4-gnutls-dev
-- i2c-tool
+- i2c-tools
 - libi2c-dev
 - libsqlite3-dev
 - libpng-dev

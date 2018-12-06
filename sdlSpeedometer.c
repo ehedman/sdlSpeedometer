@@ -361,7 +361,6 @@ static int threadSerial(void *conf)
     char buffer[512];
     configuration *configParams = conf;
     int fd;
-    int skip = 10;
 
     SDL_Log("Starting up Serial GPS collector");
 
@@ -384,7 +383,6 @@ static int threadSerial(void *conf)
 
         if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT) && cnmea.rmc_time_ts == 2) {
             SDL_Delay(2000);
-            tcflush(fd, TCIOFLUSH);
             continue;
         } 
 
@@ -393,7 +391,6 @@ static int threadSerial(void *conf)
         if ((cnt=read(fd, buffer, sizeof(buffer))) <0) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not read GPS device %s %s %d", configParams->tty, strerror(errno), errno);
             SDL_Delay(40);
-            tcflush(fd, TCIOFLUSH);
             continue;
         }
 
@@ -412,8 +409,7 @@ static int threadSerial(void *conf)
 
         // The vessels network has precedence
         if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
-            SDL_Delay(2000);
-            tcflush(fd, TCIOFLUSH);
+            SDL_Delay(4000);
             continue;
         }            
 
@@ -623,7 +619,8 @@ static int nmeaNetCollector(void* conf)
     configuration *configParams = conf;
     int hostResolved = 0;
     IPaddress serverIP;                     // The IP we will connect to
-    TCPsocket clientSocket;                 // The socket to use
+    TCPsocket clientSocket = NULL;          // The socket to use
+    SDLNet_SocketSet socketSet = NULL;
 
     SDL_Log("Starting up NMEA net collector");
 
@@ -642,10 +639,13 @@ static int nmeaNetCollector(void* conf)
     Uint8 * dotQuad = (Uint8*)&serverIP.host;
     SDL_Log("Successfully resolved host %s to IP: %d.%d.%d.%d : port %d\n",configParams->server, dotQuad[0],dotQuad[1],dotQuad[2],dotQuad[3], configParams->port);
 
+    int sretry = 0;
+
     while(1)
     {
         int retry = 0;
 
+        // Join a socket server whenever found.
         while (!(clientSocket = SDLNet_TCP_Open(&serverIP))) {
             if (retry ++ < 3) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Try to open socket to server %s %s!", configParams->server, SDLNet_GetError());
@@ -657,22 +657,38 @@ static int nmeaNetCollector(void* conf)
             SDL_Delay(10000);
         }
 
+        // Create the socket set with enough space to store our desired number of connections (i.e. sockets)
+        socketSet = SDLNet_AllocSocketSet(1);
+        if (socketSet == NULL) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to allocate the socket set!");
+            break;
+        }
+
         if (!configParams->run)
             break;
 
-        // Create the socket set with enough space to store our desired number of connections (i.e. sockets)
-        SDLNet_SocketSet socketSet = SDLNet_AllocSocketSet(1);
-        if (socketSet == NULL) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to allocate the socket set!");
-            return 0;
+        // Add our socket to the socket set for polling
+        SDLNet_TCP_AddSocket(socketSet, clientSocket);
+        int activeSockets = SDLNet_CheckSockets(socketSet, 5000);
+
+        if (!activeSockets) {
+            SDLNet_TCP_DelSocket(socketSet, clientSocket);
+            SDLNet_TCP_Close(clientSocket);
+            SDLNet_FreeSocketSet(socketSet);
+            if (sretry ++ < 3) {
+                SDL_Log("There is no socket with data at the moment");
+            } else if (sretry == 4) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Supressing message 'There is no socket ...' for now");
+            } 
+            SDL_Delay(5000);
+            continue;
         }
 
-        SDLNet_TCP_AddSocket(socketSet, clientSocket);  // Add our socket to the socket set for polling
-        int activeSockets = SDLNet_CheckSockets(socketSet, 5000);
         SDL_Log("There are %d socket(s) with data at the moment", activeSockets);
 
-        retry = 0;
+        retry = sretry = 0;
 
+        // Now start collect data
         while (configParams->run)
         {
             static char buffer[2048];
@@ -803,8 +819,12 @@ static int nmeaNetCollector(void* conf)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Server %s possibly gone, awaiting its return", configParams->server);
     }
 
-    SDLNet_TCP_Close(clientSocket);
-    
+    if (clientSocket && socketSet) {
+        SDLNet_TCP_DelSocket(socketSet, clientSocket);
+        SDLNet_TCP_Close(clientSocket);
+        SDLNet_FreeSocketSet(socketSet);
+    }
+
     SDL_Log("nmeaNetCollector stopped");
 
     return 0;

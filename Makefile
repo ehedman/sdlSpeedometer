@@ -34,7 +34,17 @@ endif
 	-sudo systemctl disable sdlSpeedometer.service
 	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
 	-sudo systemctl enable sdlSpeedometer.service
-	
+
+	-sudo systemctl stop xorg.service
+	-sudo systemctl disable xorg.service
+	-sudo install -m 0644 -g root -o root xorg.service -D /lib/systemd/system/
+	-sudo systemctl enable xorg.service
+
+	-sudo systemctl stop splashscreen.service
+	-sudo systemctl disable splashscreen.service
+	-sudo install -m 0644 -g root -o root splashscreen.service -D /lib/systemd/system/
+	-sudo systemctl enable splashscreen.service
+
 clean:
 	rm -f $(BIN) *~
 
