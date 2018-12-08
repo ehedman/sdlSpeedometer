@@ -1,6 +1,7 @@
 #ifndef SPEEDOMETER_H
 #define SPEEDOMETER_H
 
+#include <sqlite3.h>
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
@@ -39,6 +40,7 @@ typedef struct {
     char tty[40];
     int baud;
     int i2cFile;
+    sqlite3 *conn3;
 } configuration;
 
 enum sdlPages {
