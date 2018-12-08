@@ -8,10 +8,10 @@ After=local-fs.target
 Type=simple
 EnvironmentFile=/etc/default/sdlSpeedometer
 ExecStart=/usr/local/bin/sdlSpeedometer -s -n $SERVER -p $PORT
-User=root
 RemainAfterExit=no
 Restart=on-failure
 RestartSec=5s
+User=erland
 
 [Install]
 WantedBy=sysinit.target

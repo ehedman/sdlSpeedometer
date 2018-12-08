@@ -24,11 +24,17 @@ Currently there are five virtual instrument working (data source within brackets
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination)
 
+### External Applications
+sdlSpeedometer in itself a very responsive application runing in an embedded system context with framebuffer SDL2. However, sdlSpeedometer can be parametized to launch almost any external application, even X based applications.
+Two marine related applications  has been integrated successfully so far:
+
 If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
+
+Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi Model B+
 
 ### Tested runtime environment
 
-- Raspberry Pi - any model with Debian type OS, in an embedded configuration without X and desktop stuff (see exception for OpenCPN).
+- Raspberry Pi - any model with Debian type OS, in an embedded configuration without X and desktop stuff (see exceptions for external applications).
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 
 Instructions (if needed) of how to build SDL2 libraries for framebuffer (no X) can be found in this article:
@@ -54,7 +60,7 @@ The packages needed are:
 - libinput-dev
 - libwebp-dev
 
-### Application dependencies for running OpenCPN from sdlSpeedometer
+### Application dependencies for running external applications from sdlSpeedometer
 - xorg
 - dirmngr
 - feh
@@ -70,10 +76,12 @@ The packages needed are:
 [An Open Source Yacht Glass Cockpit](https://github.com/ehedman/websocketNmea)
 
 ### Screenshots
-<img src="http://hedmanshome.se/sdlspeedometer4.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer12.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer5.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer6.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer7.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer8.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer9.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer10.png" width=100%>
+- zyGrib just launched on a 7" touch display
+<img src="http://hedmanshome.se/sdlspeedometer11.png" width=100%>

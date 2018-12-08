@@ -4,13 +4,13 @@
 
 program=$1
 
+export DISPLAY=:0.0
+
 app=$(which ${program})
 
 if [ -z "${app}" ]; then
     exit 1
 fi
-
-export DISPLAY=:0.0
 
 trap doQuit INT
 

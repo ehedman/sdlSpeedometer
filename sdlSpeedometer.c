@@ -43,7 +43,10 @@ typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
     char *fontPath;
-    char *subtaskCmd;
+    char *subAppsCmd[TSKPAGE][TSKPAGE];
+    int nextPage;
+    int curPage;
+    sqlite3 *conn3;
 } sdl2_app;
  
 #define TIMEDATFMT  "%x - %H:%M %Z"
@@ -74,10 +77,6 @@ typedef struct {
 #define SQLDBPATH   "/usr/local/etc/speedometer.db"
 #define SPAWNCMD    "/usr/local/bin/spawnSubtask"
 #endif
-
-#define SUBTASKCMD  "opencpn"
-#define SUBTASKARG "-fullscreen"
-#define SUBTASKBAR "subTask.png"
 
 #define DEFAULT_BACKGROUND IMAGE_PATH "Default-bg.bmp"
 
@@ -479,13 +478,18 @@ static int i2cCollector(void *conf)
         return 0;
     }
 
+    configParams->conn3 = NULL;
+
     SDL_Log("Starting up i2c collector");
 
-    if (sqlite3_open_v2(SQLDBPATH, &conn, SQLITE_OPEN_READWRITE, 0)) {
+    if (sqlite3_open_v2(SQLDBPATH, &conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(conn));
         (void)sqlite3_close(conn);
-        conn = 0;
+        configParams->conn3 = conn = NULL;
     }
+
+    if (conn)
+        configParams->conn3 = conn;
 
     while(configParams->run)
     {
@@ -857,7 +861,7 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
            return GPSPAGE;
         if (x > 730 && x < 770)
            return CALPAGE;
-        if (sdlApp->subtaskCmd != NULL) {
+        if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
             if (x > 30 && x < 80)
                 return TSKPAGE;
         }
@@ -953,15 +957,20 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
-    SDL_Texture* subTaskbar = NULL;
 
     SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
     SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
 
-    if (sdlApp->subtaskCmd != NULL) {
-        subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH SUBTASKBAR);
+    SDL_Texture* subTaskbar = NULL;
+
+    sdlApp->curPage = COGPAGE;
+
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+        char icon[PATH_MAX];
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
     }
 
     compassR.w = 366;
@@ -1129,7 +1138,7 @@ static int doCompass(sdl2_app *sdlApp)
 static int doSumlog(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1151,9 +1160,24 @@ static int doSumlog(sdl2_app *sdlApp)
     menuBarR.x = 430;
     menuBarR.y = 400;
 
+    subTaskbarR.w = 50;
+    subTaskbarR.h = 50;
+    subTaskbarR.x = 30;
+    subTaskbarR.y = 400;
+
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+
+    SDL_Texture* subTaskbar = NULL;
+
+    sdlApp->curPage = SOGPAGE;
+
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+        char icon[PATH_MAX];
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+    }
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1263,6 +1287,10 @@ static int doSumlog(sdl2_app *sdlApp)
 
         addMenuItems(sdlApp->renderer, fontSrc);
 
+        if (subTaskbar != NULL) {
+            SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
@@ -1285,7 +1313,7 @@ static int doSumlog(sdl2_app *sdlApp)
 static int doGps(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, menuBarR;
+    SDL_Rect gaugeR, menuBarR, subTaskbarR;
 
     TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
     TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 30);
@@ -1296,6 +1324,16 @@ static int doGps(sdl2_app *sdlApp)
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    
+    SDL_Texture* subTaskbar = NULL;
+
+    sdlApp->curPage = GPSPAGE;
+
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+        char icon[PATH_MAX];
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+    }
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1309,6 +1347,11 @@ static int doGps(sdl2_app *sdlApp)
     menuBarR.h = 50;
     menuBarR.x = 430;
     menuBarR.y = 400;
+
+    subTaskbarR.w = 50;
+    subTaskbarR.h = 50;
+    subTaskbarR.x = 30;
+    subTaskbarR.y = 400;
 
     SDL_Texture* gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
 
@@ -1404,6 +1447,10 @@ static int doGps(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
+        if (subTaskbar != NULL) {
+            SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
@@ -1427,7 +1474,7 @@ static int doGps(sdl2_app *sdlApp)
 static int doDepth(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1449,6 +1496,11 @@ static int doDepth(sdl2_app *sdlApp)
     menuBarR.x = 430;
     menuBarR.y = 400;
 
+    subTaskbarR.w = 50;
+    subTaskbarR.h = 50;
+    subTaskbarR.x = 30;
+    subTaskbarR.y = 400;
+
     SDL_Texture* gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
     SDL_Texture* gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
     SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
@@ -1457,6 +1509,16 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
 
     SDL_Texture* gauge;
+
+    SDL_Texture* subTaskbar = NULL;
+
+    sdlApp->curPage = DPTPAGE;
+
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+        char icon[PATH_MAX];
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+    }
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1560,6 +1622,10 @@ static int doDepth(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
+        if (subTaskbar != NULL) {
+            SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
@@ -1584,7 +1650,7 @@ static int doDepth(sdl2_app *sdlApp)
 static int doWind(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1606,9 +1672,24 @@ static int doWind(sdl2_app *sdlApp)
     menuBarR.x = 430;
     menuBarR.y = 400;
 
+    subTaskbarR.w = 50;
+    subTaskbarR.h = 50;
+    subTaskbarR.x = 30;
+    subTaskbarR.y = 400;
+
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+
+    SDL_Texture* subTaskbar = NULL;
+
+    sdlApp->curPage = WNDPAGE;
+
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+        char icon[PATH_MAX];
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+    }
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1716,6 +1797,10 @@ static int doWind(sdl2_app *sdlApp)
 
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+        if (subTaskbar != NULL) {
+            SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+        }
 
         SDL_RenderPresent(sdlApp->renderer); 
         
@@ -2035,52 +2120,80 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 
+    if (threadI2C != NULL)
+        sdlApp->conn3 = configParams->conn3;
+
     return 0;
 }
 
 // Check if subtask is within PATH.
 static int checkSubtask(sdl2_app *sdlApp)
 {
-    char subtask[PATH_MAX] = { '\0' };
-    size_t len;
+    char subtask[PATH_MAX];
+    char buff[PATH_MAX];
+    int rval;
     FILE *fd;
+    sqlite3_stmt *res;
+    const char *tail;
 
-    sdlApp->subtaskCmd = NULL;
+    if (sdlApp->subAppsCmd[0][0] == NULL) {
+       if (sdlApp->conn3 == NULL) {
+            return 0;
+        }
 
-    sprintf(subtask, "which %s", basename(SUBTASKCMD));
+        int c = 1;
+        if ((rval=sqlite3_prepare_v2(sdlApp->conn3, "select task,args from subtasks", -1, &res, &tail)) == SQLITE_OK)
+        {
+            while (sqlite3_step(res) != SQLITE_DONE) {  
+    
+                strcpy((sdlApp->subAppsCmd[c][0]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 0));
+                strcpy((sdlApp->subAppsCmd[c][1]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 1));
 
-    if ((fd = popen(subtask, "r")) != NULL) {
-        *subtask = '\0';
-        fgets(subtask, sizeof(subtask) , fd);
-        pclose(fd);
-    } else return 0;
+                sprintf(subtask, "which %s", sdlApp->subAppsCmd[c][0]);
+                *buff = '\0';
+                if ((fd = popen(subtask, "r")) != NULL) {
+                    fgets(buff, sizeof(buff) , fd);
+                    pclose(fd);
+                }
+                if (strlen(buff) < 2)
+                    sdlApp->subAppsCmd[c][0] = NULL;
 
-    if (strlen(subtask)) {
-        subtask[strlen(subtask)-1] = '\0';  // Remove the nl
+                if (c++ >= TSKPAGE) break;
+            }
+            if (c >1)
+                sdlApp->subAppsCmd[0][0] = "1"; // Checked
+        }
     }
 
-    if ((len=strlen(subtask))) {
-        sdlApp->subtaskCmd = SUBTASKCMD;
-    }
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] == NULL)
+        return 0;
 
-    return len;
+    return 1;
 }
 
-// Give up all resources in favor for a subtask.
+// Give up all resources in favor of a subtask execution.
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
 
     int pid;
-    int status;
-    char *args[] = {"/bin/bash", SPAWNCMD, basename(SUBTASKCMD),  SUBTASKARG, NULL};
+    int status, i=0;
+    char *args[20];
+    char cmd[1024];
 
     if (!checkSubtask(sdlApp))
         return COGPAGE;
 
-    // Take down threads
-    configParams->run = 0;
+    sprintf(cmd, "/bin/bash %s %s %s", SPAWNCMD, sdlApp->subAppsCmd[sdlApp->curPage][0], sdlApp->subAppsCmd[sdlApp->curPage][1]);
 
-    SDL_Delay(1200);
+    SDL_Log("Launch subcommand: %s", cmd);
+    
+    // Break up cmd to an argv array
+    args[i] = strtok(cmd, " ");
+    while(args[i] != NULL)
+        args[++i] = strtok(NULL, " ");
+
+    // Take down threads and all of SDL2
+    configParams->run = 0;
 
     closeSDL2(sdlApp);
        
@@ -2091,13 +2204,15 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         execv ("/bin/bash", args);
     }
 
+    // You've picked my bones clean, speak now ...
     waitpid(pid, &status, 0);
+    // ... before I reclaim the meat. (Solonius)
 
-    // Subtask completed reclaim the meat!
+    // Regain SDL2 control
     status = openSDL2(configParams, sdlApp);
 
     if (status == 0)    
-        status = COGPAGE;
+        status = sdlApp->curPage;
 
     return status;
 }
@@ -2105,17 +2220,24 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 int main(int argc, char *argv[])
 {
 
-    int c;
+    int c, step;
     configuration configParams;
     sdl2_app sdlApp;
 
     memset(&cnmea, 0, sizeof(cnmea));
+    memset(&sdlApp, 0, sizeof(sdlApp));
 
     sdlApp.fontPath = DEFAULT_FONT;
 
-    (void)checkSubtask(&sdlApp);
-
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);
+
+    // Initialize the subtask list
+    for (c=0; c < TSKPAGE; c++) {
+        sdlApp.subAppsCmd[c][0] = NULL;
+    }
+        
+    sdlApp.nextPage = COGPAGE; // Start-page for touch
+    step = COGPAGE; // .. mouse
 
     (void)configureDb(&configParams);   // Fetch configuration
 
@@ -2151,37 +2273,36 @@ int main(int argc, char *argv[])
 
     if (openSDL2(&configParams, &sdlApp))
         exit(EXIT_FAILURE);
-    
-    int next = COGPAGE; // Start-page for touch
-    int step = COGPAGE; // .. mouse
+
+    (void)checkSubtask(&sdlApp);
 
     while(1)
     {
-        switch (next)
+        switch (sdlApp.nextPage)
         {
-            case COGPAGE: next = doCompass(&sdlApp);
+            case COGPAGE: sdlApp.nextPage = doCompass(&sdlApp);
                 break;
-            case SOGPAGE: next = doSumlog(&sdlApp);
+            case SOGPAGE: sdlApp.nextPage = doSumlog(&sdlApp);
                 break;
-            case DPTPAGE: next = doDepth(&sdlApp);
+            case DPTPAGE: sdlApp.nextPage = doDepth(&sdlApp);
                 break;
-            case WNDPAGE: next = doWind(&sdlApp);
+            case WNDPAGE: sdlApp.nextPage = doWind(&sdlApp);
                 break;
-            case GPSPAGE: next = doGps(&sdlApp);
+            case GPSPAGE: sdlApp.nextPage = doGps(&sdlApp);
                 break;
-            case CALPAGE: next = doCalibration(&sdlApp, &configParams);
+            case CALPAGE: sdlApp.nextPage = doCalibration(&sdlApp, &configParams);
                 break;
-            case TSKPAGE: next = doSubtask(&sdlApp, &configParams);
+            case TSKPAGE: sdlApp.nextPage = doSubtask(&sdlApp, &configParams);
                 break;
             case SDL_MOUSEBUTTONDOWN:
                     if (++step >6) {
-                        next = step = COGPAGE;
-                    } else{ next = step; }
+                        sdlApp.nextPage = step = COGPAGE;
+                    } else{ sdlApp.nextPage = step; }
                 break;
-            default: next = COGPAGE;
+            default: sdlApp.nextPage = COGPAGE;
                 break;
         }
-        if (next == SDL_QUIT)
+        if (sdlApp.nextPage == SDL_QUIT)
             break;
     }
 
