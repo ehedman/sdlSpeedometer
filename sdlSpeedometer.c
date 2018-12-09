@@ -976,6 +976,23 @@ static void setUTCtime(void)
     unsetenv("TZ"); // Restore whatever zone we are in
 }
 
+// Make sure instruments take shortest route over the 0 - 360 scale
+static float rotate(float angle, int res)
+{
+    float nR = angle;
+    static float rot;
+    float aR;
+    if (res) rot = 0;
+
+    aR = fmod(rot, 360);
+    if ( aR < 0 ) { aR += 360; }
+    if ( aR < 180 && (nR > (aR + 180)) ) { rot -= 360; }
+    if ( aR >= 180 && (nR <= (aR - 180)) ) { rot += 360; }
+    rot += (nR - aR);
+
+    return(rot);
+}
+
 // Present the compass with heading ant roll
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -1033,7 +1050,7 @@ static int doCompass(sdl2_app *sdlApp)
     float angle = 0;
     float t_roll = 0;
     float roll = 0;
-    float c_angle = 0;
+    int res = 1;
 
     while (1) {
         char msg_hdm[40] = { " " };
@@ -1091,16 +1108,12 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.mtw_ts > S_TIMEOUT))
             sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
                       
-        angle = roundf(cnmea.hdm);
+        angle = rotate(roundf(cnmea.hdm), res); res=0;
 
         // Run needle and roll with smooth acceleration
-        if ((c_angle >= 180 && angle <= 180) || (c_angle <= 180  && angle >= 180)) {
-            t_angle = angle;  // Avoid smooth full turn aroud 0
-        } else {
-            if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
-            else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
-        }
-        c_angle = angle;
+        if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
+        else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
+
 
         if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
         else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
@@ -1724,6 +1737,8 @@ static int doWind(sdl2_app *sdlApp)
 
     float t_angle = 0;
     float angle = 0;
+    int res = 1;
+
     const float offset = 131; // For scale
 
     while (1) {
@@ -1787,6 +1802,8 @@ static int doWind(sdl2_app *sdlApp)
         if (cnmea.vwrd == 1) angle = 360 - angle; // Mirror the needle motion
 
         angle += offset;  
+
+        angle = rotate(angle, res); res=0;
         
         // Run needle with smooth acceleration
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24) ;
@@ -2096,9 +2113,9 @@ static void closeSDL2(sdl2_app *sdlApp)
 static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
 {
     SDL_Surface* Loading_Surf;
-    SDL_Thread *threadNmea;
-    SDL_Thread *threadI2C;
-    SDL_Thread *threadGPS;
+    SDL_Thread *threadNmea = NULL;
+    SDL_Thread *threadI2C = NULL;
+    SDL_Thread *threadGPS = NULL;
 
     // This is what this application is built for!
     setenv("SDL_VIDEODRIVER", "RPI", 1);
@@ -2276,31 +2293,34 @@ int main(int argc, char *argv[])
 
     (void)configureDb(&configParams);   // Fetch configuration
 
-    while ((c = getopt (argc, argv, "sn:p:vgiN")) != -1)
+    while ((c = getopt (argc, argv, "hsn:p:vgiNT:S:")) != -1)
     {
         switch (c)
             {
             case 's':
                 useSyslog = 1;
                 break;
-            case 'n':
-                strcpy (configParams.server, argv[optind-1]);   // Override DB
+            case 'n':   strcpy (configParams.server, argv[optind-1]);   // Override DB
                 break;
-            case 'p':
-                configParams.port = atoi(optarg);               // Override DB 
+            case 'p':   configParams.port = atoi(optarg);               // Override DB 
                 break;
-            case 'g':   configParams.runGps = 0;                // Diable GPS data collection
+            case 'g':   configParams.runGps = 0;                        // Diable GPS data collection
                 break;
-            case 'i':   configParams.runi2c = 0;                // Disable i2c data collection
+            case 'i':   configParams.runi2c = 0;                        // Disable i2c data collection
                 break;
-            case 'N':   configParams.runNet = 0;                // Disable NMEA net data collection
+            case 'N':   configParams.runNet = 0;                        // Disable NMEA net data collection
+                break;
+            case 'T':   strcpy (configParams.tty, argv[optind-1]);      // Override DB
+                break;
+            case 'S':   configParams.baud = atoi(optarg);               // Override DB 
                 break;
             case 'v':
                 fprintf(stderr, "revision: %s\n", SWREV);
                 exit(EXIT_SUCCESS);
                 break;
+            case 'h':
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -n (NMEA server) -p (port) -g -i -N -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "Usage: %s -s (use syslog) -n (NMEA server) -p (port) -T (tty) -S (speed) -g -i -N -v (version)\n", basename(argv[0]));
                 fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -N Disabe NMEA Net\n");
                 exit(EXIT_FAILURE);
                 break;
