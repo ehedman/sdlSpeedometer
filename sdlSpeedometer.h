@@ -34,7 +34,9 @@ typedef struct {
 } calRunner;
 
 typedef struct {
-    int run;
+    int runGps;
+    int runi2c;
+    int runNet;
     short port;
     char server[100];
     char tty[40];

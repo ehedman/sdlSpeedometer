@@ -7,11 +7,11 @@ After=local-fs.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/default/sdlSpeedometer
-ExecStart=/usr/local/bin/sdlSpeedometer -s -n $SERVER -p $PORT
+ExecStart=/usr/local/bin/sdlSpeedometer -s -n $SERVER -p $PORT $ARGS
 RemainAfterExit=no
 Restart=on-failure
-RestartSec=5s
-User=erland
+RestartSec=3s
+User=root
 
 [Install]
 WantedBy=sysinit.target

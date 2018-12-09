@@ -33,3 +33,8 @@ To launch sudo programs from this user mode application you must alter this file
 /etc/sudousers:
 <your name> ALL=(ALL) NOPASSWD:ALL
 
+If kplex is present in the same system I recommend kplex to own the GPS the serial port:
+
+ ./sdlSpeedometer -g : Where -g is to skip the handling of the sereilport.
+Also add into sdlSpeedometer.env (/etc/default/sdlSpeedometer)
+ ARGS=-g

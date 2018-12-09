@@ -58,7 +58,7 @@ typedef struct {
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
-#define TTY_GPS             "/dev/ttyAMA0"
+#define TTY_GPS             "/dev/ttyS0"    // RPI 3B+
 
 #ifdef REV
 #define SWREV REV
@@ -149,6 +149,24 @@ int  configureDb(configuration *configParams)
                     sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval) VALUES (%d,%d,%d,%d,%d,%d,%.2f)", \
                         dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval); 
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
+                    sqlite3_step(res);
+
+                    sqlite3_prepare_v2(conn, "CREATE TABLE subtasks (Id INTEGER PRIMARY KEY, task TEXT, args TEXT)", -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('opencpn','-fullscreen')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('zyGrib','')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('xterm','-maximized -e /usr/bin/sudo /usr/bin/raspi-config')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
                     rval = sqlite3_finalize(res);
@@ -375,15 +393,17 @@ static int threadSerial(void *conf)
 
     tcflush(fd, TCIOFLUSH);
 
-    while(configParams->run)
+    while(configParams->runGps)
     {
         time_t ct;
         int cnt;
 
-        if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT) && cnmea.rmc_time_ts == 2) {
-            SDL_Delay(2000);
+        // The vessels network has precedence
+        if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
+            SDL_Delay(4000);
+            printf("on hold again\n");
             continue;
-        } 
+        }            
 
         memset(buffer, 0, sizeof(buffer));
 
@@ -400,18 +420,6 @@ static int threadSerial(void *conf)
 
         ct = time(NULL);    // Get a timestamp for this turn 
 
-        if (cnmea.rmc_time_ts == 0 && NMPARSE(buffer, "RMC")) { // Only this GPS sets system time
-            strcpy(cnmea.time, getf(1, buffer));
-            strcpy(cnmea.date, getf(9, buffer));
-            cnmea.rmc_time_ts = 1;
-        }
-
-        // The vessels network has precedence
-        if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
-            SDL_Delay(4000);
-            continue;
-        }            
-
         // RMC - Recommended minimum specific GPS/Transit data
         // RMC feed is assumed to be present at all time 
         if (NMPARSE(buffer, "RMC")) {
@@ -420,6 +428,11 @@ static int threadSerial(void *conf)
             strcpy(cnmea.glo, getf(5, buffer));
             strcpy(cnmea.glns, getf(4, buffer));
             strcpy(cnmea.glne, getf(6, buffer));
+            if (cnmea.rmc_time_ts == 0 ) {
+                strcpy(cnmea.time, getf(1, buffer));
+                strcpy(cnmea.date, getf(9, buffer));
+                cnmea.rmc_time_ts = 1;
+            }
             if(strlen(cnmea.gll))
                 cnmea.gll_ts = cnmea.rmc_ts = ct;
             continue;      
@@ -491,7 +504,7 @@ static int i2cCollector(void *conf)
     if (conn)
         configParams->conn3 = conn;
 
-    while(configParams->run)
+    while(configParams->runi2c)
     {
         time_t ct;
         float hdm;
@@ -562,11 +575,6 @@ static int i2cCollector(void *conf)
 
         cnmea.roll_i2cts = ct;
         cnmea.roll = i2cReadRoll(configParams->i2cFile, dt);
-
-        // The vessels network has precedence
-        if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
-            continue;
-        }
 
         // Take over if no NMEA
         if (ct - cnmea.hdm_ts > S_TIMEOUT) {
@@ -648,6 +656,7 @@ static int nmeaNetCollector(void* conf)
     while(1)
     {
         int retry = 0;
+        int rretry = 0;
 
         // Join a socket server whenever found.
         while (!(clientSocket = SDLNet_TCP_Open(&serverIP))) {
@@ -656,7 +665,7 @@ static int nmeaNetCollector(void* conf)
             } else if (retry == 4) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Supressing message 'Try to open socket to ...' for now");
             }
-            if (!configParams->run)
+            if (!configParams->runNet)
                 break;
             SDL_Delay(10000);
         }
@@ -668,14 +677,14 @@ static int nmeaNetCollector(void* conf)
             break;
         }
 
-        if (!configParams->run)
+        if (!configParams->runNet)
             break;
 
         // Add our socket to the socket set for polling
         SDLNet_TCP_AddSocket(socketSet, clientSocket);
         int activeSockets = SDLNet_CheckSockets(socketSet, 5000);
 
-        if (!activeSockets) {
+        if (activeSockets <1) {
             SDLNet_TCP_DelSocket(socketSet, clientSocket);
             SDLNet_TCP_Close(clientSocket);
             SDLNet_FreeSocketSet(socketSet);
@@ -690,10 +699,10 @@ static int nmeaNetCollector(void* conf)
 
         SDL_Log("There are %d socket(s) with data at the moment", activeSockets);
 
-        retry = sretry = 0;
+        retry = sretry = rretry = 0;
 
         // Now start collect data
-        while (configParams->run)
+        while (configParams->runNet)
         {
             static char buffer[2048];
             time_t ts;
@@ -706,7 +715,8 @@ static int nmeaNetCollector(void* conf)
             ts = time(NULL);        // Get a timestamp for this turn
 
             // Check if we got an NMEA response from the server
-            if (SDLNet_CheckSockets(socketSet, 130) > 0) {
+            if (SDLNet_CheckSockets(socketSet, 2000) > 0)
+            {
 
                 if ((cnt = SDLNet_TCP_Recv(clientSocket, buffer, sizeof(buffer))) <= 0)
                     continue;
@@ -723,6 +733,11 @@ static int nmeaNetCollector(void* conf)
                     strcpy(cnmea.glo, getf(5, buffer));
                     strcpy(cnmea.glns, getf(4, buffer));
                     strcpy(cnmea.glne, getf(6, buffer));
+                    if (cnmea.rmc_time_ts == 0) {
+                        strcpy(cnmea.time, getf(1, buffer));
+                        strcpy(cnmea.date, getf(9, buffer));
+                        cnmea.rmc_time_ts = 1;
+                    }
                     cnmea.net_ts = cnmea.gll_ts = ts;
                     continue;
                 }
@@ -750,8 +765,8 @@ static int nmeaNetCollector(void* conf)
 
                 // VHW - Water speed and Heading
                 if(NMPARSE(buffer, "VHW")) {
-                    cnmea.hdm=atof(getf(3, buffer));
-                    cnmea.hdm_ts = ts;
+                    if ((cnmea.hdm=atof(getf(3, buffer))) != 0)
+                        cnmea.hdm_ts = ts;
                     cnmea.stw=atof(getf(5, buffer));
                     cnmea.stw_ts = ts;
                     continue;
@@ -810,8 +825,10 @@ static int nmeaNetCollector(void* conf)
                 }
 
             } else {
+                if (rretry++ > 10)
+                    break;
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Retry to read socket from server %s %s!", configParams->server, SDLNet_GetError());
-                SDL_Delay(500);
+                SDL_Delay(1000);
             }
         }
         // Server possibly gone, try to redo all this
@@ -819,7 +836,7 @@ static int nmeaNetCollector(void* conf)
         SDLNet_TCP_Close(clientSocket);
         SDLNet_FreeSocketSet(socketSet);
 
-        if (configParams->run)
+        if (configParams->runNet)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Server %s possibly gone, awaiting its return", configParams->server);
     }
 
@@ -898,9 +915,16 @@ static void addMenuItems(SDL_Renderer *renderer, TTF_Font *font)
 static void setUTCtime(void)
 {
     struct tm *settm = NULL;
-    time_t rawtime;
+    time_t rawtime, sys_rawtime;
     char buf[40];
-
+    static int fails;
+;
+    if (++fails > 20) {
+        // No luck - give up this
+        cnmea.rmc_time_ts = 2;
+        return;
+    }
+    // UTC of position in hhmmss.sss format + UTC date of position fix, ddmmyy format 
     if (16 != strlen(cnmea.time) + strlen(cnmea.date)) {
         cnmea.rmc_time_ts = 0;  // Try again
         return;
@@ -913,7 +937,7 @@ static void setUTCtime(void)
         return;
     }
 
-    time(&rawtime);
+    sys_rawtime = time(&rawtime);
     settm = gmtime(&rawtime);
 
     setenv("TZ","UTC",1);       // Temporarily set UTC
@@ -937,12 +961,16 @@ static void setUTCtime(void)
 
     // This make sense only if net (ntp) time is disabled
     if ((rawtime = mktime(settm)) != (time_t) -1) {
-        if (stime(&rawtime) < 0) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS: %s", strerror(errno));
-        } else {             
-                rawtime = time(NULL);
-                strftime(buf, sizeof(buf),TIMEDATFMT, localtime(&rawtime));
-                SDL_Log("Got system time from GPS: %s", buf);
+        if (rawtime >= sys_rawtime-10) {    // sys_rawtime-x skew tolerance
+            if (stime(&rawtime) < 0) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS: %s", strerror(errno));
+            } else {             
+                    rawtime = time(NULL);
+                    strftime(buf, sizeof(buf),TIMEDATFMT, localtime(&rawtime));
+                    SDL_Log("Got system time from GPS: %s", buf);
+            }
+        } else { // Could happen if historical data is replayed in the system
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS as time is moving backwards %ld seconds!", sys_rawtime-rawtime);
         }
     }
     unsetenv("TZ"); // Restore whatever zone we are in
@@ -1052,7 +1080,7 @@ static int doCompass(sdl2_app *sdlApp)
             sprintf(msg_roll, "%.0f", fabs(roll=cnmea.roll));
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1))
             sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
         // DBT - Depth Below Transponder
@@ -1227,7 +1255,7 @@ static int doSumlog(sdl2_app *sdlApp)
         }
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7)
+        if (ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0)
             sprintf(msg_sog, "----");
         else {
             sprintf(msg_sog, "SOG:%.2f", cnmea.rmc);
@@ -1398,7 +1426,7 @@ static int doGps(sdl2_app *sdlApp)
          }
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0))
             sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
         // VHW - Water speed and Heading
@@ -1573,7 +1601,7 @@ static int doDepth(sdl2_app *sdlApp)
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0))
              sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
@@ -1747,7 +1775,7 @@ static int doWind(sdl2_app *sdlApp)
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 0.7))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0))
              sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
@@ -2075,30 +2103,34 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     // This is what this application is built for!
     setenv("SDL_VIDEODRIVER", "RPI", 1);
 
-    configParams->run = 1;
-
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
         return SDL_QUIT;
     }
 
-    threadNmea = SDL_CreateThread(nmeaNetCollector, "nmeaNetCollector", configParams);
+    if (configParams->runNet) {
+        threadNmea = SDL_CreateThread(nmeaNetCollector, "nmeaNetCollector", configParams);
 
-    if (NULL == threadNmea) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread nmeaNetCollector failed: %s", SDL_GetError());
-    } else SDL_DetachThread(threadNmea);
+        if (NULL == threadNmea) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread nmeaNetCollector failed: %s", SDL_GetError());
+        } else SDL_DetachThread(threadNmea);
+    }
 
-    threadI2C = SDL_CreateThread(i2cCollector, "i2cCollector", configParams);
+    if (configParams->runi2c) {
+        threadI2C = SDL_CreateThread(i2cCollector, "i2cCollector", configParams);
 
-    if (NULL == threadI2C) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadI2C failed: %s", SDL_GetError());
-    } else SDL_DetachThread(threadI2C);
+        if (NULL == threadI2C) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadI2C failed: %s", SDL_GetError());
+        } else SDL_DetachThread(threadI2C);
+    }
 
-    threadGPS = SDL_CreateThread(threadSerial, "threadGPS", configParams);
+    if (configParams->runGps) {
+        threadGPS = SDL_CreateThread(threadSerial, "threadGPS", configParams);
 
-    if (NULL == threadGPS) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadGPS failed: %s", SDL_GetError());
-    } else SDL_DetachThread(threadGPS);
+        if (NULL == threadGPS) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadGPS failed: %s", SDL_GetError());
+        } else SDL_DetachThread(threadGPS);
+    }
 
     SDL_ShowCursor(SDL_DISABLE);
 
@@ -2108,7 +2140,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
             WINDOW_W, WINDOW_H,
             SDL_WINDOW_RESIZABLE)) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
-            configParams->run = 0;
+            configParams->runGps = configParams->runi2c = configParams->runNet = 0;
             return SDL_QUIT;
     }
 
@@ -2175,7 +2207,7 @@ static int checkSubtask(sdl2_app *sdlApp)
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
 
-    int pid;
+    int pid, runners[3];
     int status, i=0;
     char *args[20];
     char cmd[1024];
@@ -2193,7 +2225,10 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         args[++i] = strtok(NULL, " ");
 
     // Take down threads and all of SDL2
-    configParams->run = 0;
+    runners[0] = configParams->runGps;
+    runners[1] = configParams->runi2c;
+    runners[2] = configParams->runNet;
+    configParams->runGps = configParams->runi2c = configParams->runNet = 0;
 
     closeSDL2(sdlApp);
        
@@ -2209,6 +2244,9 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     // ... before I reclaim the meat. (Solonius)
 
     // Regain SDL2 control
+    configParams->runGps = runners[0];
+    configParams->runi2c = runners[1];
+    configParams->runNet = runners[2];
     status = openSDL2(configParams, sdlApp);
 
     if (status == 0)    
@@ -2231,17 +2269,14 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);
 
-    // Initialize the subtask list
-    for (c=0; c < TSKPAGE; c++) {
-        sdlApp.subAppsCmd[c][0] = NULL;
-    }
+    configParams.runGps = configParams.runi2c = configParams.runNet = 1;
         
     sdlApp.nextPage = COGPAGE; // Start-page for touch
     step = COGPAGE; // .. mouse
 
     (void)configureDb(&configParams);   // Fetch configuration
 
-    while ((c = getopt (argc, argv, "sn:p:v")) != -1)
+    while ((c = getopt (argc, argv, "sn:p:vgiN")) != -1)
     {
         switch (c)
             {
@@ -2254,12 +2289,19 @@ int main(int argc, char *argv[])
             case 'p':
                 configParams.port = atoi(optarg);               // Override DB 
                 break;
+            case 'g':   configParams.runGps = 0;                // Diable GPS data collection
+                break;
+            case 'i':   configParams.runi2c = 0;                // Disable i2c data collection
+                break;
+            case 'N':   configParams.runNet = 0;                // Disable NMEA net data collection
+                break;
             case 'v':
                 fprintf(stderr, "revision: %s\n", SWREV);
                 exit(EXIT_SUCCESS);
                 break;
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -n (nmea TCP Server -p (port)) -v (print version)\n", basename(argv[0]));
+                fprintf(stderr, "Usage: %s -s (use syslog) -n (NMEA server) -p (port) -g -i -N -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -N Disabe NMEA Net\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -2306,7 +2348,7 @@ int main(int argc, char *argv[])
             break;
     }
 
-    configParams.run = 0;
+    configParams.runGps = configParams.runi2c = configParams.runNet = 0;
 
     closeSDL2(&sdlApp);
 
