@@ -21,7 +21,7 @@ $(BIN): $(SRCS) $(HDRS)
 
 install:
 	rm -f $(BIN)
-	make $(BIN) CFLAGS="-DPATH_INSTALL"
+	make $(BIN) CFLAGS="-DPATH_INSTALL -O2"
 	sudo install -m 0755 -g root -o root $(BIN) -D $(DEST)/bin/$(BIN)
 	sudo install -m 0755 -g root -o root spawnSubtask -D $(DEST)/bin/spawnSubtask
 	sudo mkdir -p $(DEST)/share/images
