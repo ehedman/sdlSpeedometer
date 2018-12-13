@@ -24,6 +24,7 @@ install:
 	make $(BIN) CFLAGS="-DPATH_INSTALL -O2"
 	sudo install -m 0755 -g root -o root $(BIN) -D $(DEST)/bin/$(BIN)
 	sudo install -m 0755 -g root -o root spawnSubtask -D $(DEST)/bin/spawnSubtask
+	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
 	sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer

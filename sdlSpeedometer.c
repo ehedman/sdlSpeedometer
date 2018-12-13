@@ -39,16 +39,9 @@
 
 #include "sdlSpeedometer.h"
 
-typedef struct {
-    SDL_Window *window;
-    SDL_Renderer *renderer;
-    char *fontPath;
-    char *subAppsCmd[TSKPAGE][TSKPAGE];
-    int nextPage;
-    int curPage;
-    sqlite3 *conn3;
-} sdl2_app;
- 
+#define DEF_NMEA_SERVER "rpi3.hedmanshome.se"   // A test site running 24/7
+#define DEF_NMEA_PORT 10110
+
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
 #define WINDOW_W 800        // Resolution
@@ -58,7 +51,7 @@ typedef struct {
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
-#define TTY_GPS             "/dev/ttyS0"    // RPI 3B+
+#define TTY_GPS             "/dev/ttyS0"    // RPI 3
 
 #ifdef REV
 #define SWREV REV
@@ -86,7 +79,7 @@ static SDL_Texture* Background_Tx;
 
 static collected_nmea cnmea;
 
-void* logCallBack(char *userdata, int category, SDL_LogPriority priority, const char *message)
+void logCallBack(char *userdata, int category, SDL_LogPriority priority, const char *message)
 {
     FILE *out = priority == SDL_LOG_PRIORITY_ERROR? stderr : stdout;
 
@@ -94,8 +87,6 @@ void* logCallBack(char *userdata, int category, SDL_LogPriority priority, const 
         syslog (LOG_NOTICE, message, getuid ());
     else
         fprintf(out, "[%s] %s\n", basename(userdata), message);
-
-    return 0;
 }
 
 // The configuration database
@@ -140,7 +131,7 @@ int  configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port) VALUES ('%s','%s',9600,'127.0.0.1',10110)", SWREV,TTY_GPS);
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port) VALUES ('%s','%s',9600,'%s',%d)", SWREV,TTY_GPS, DEF_NMEA_SERVER, DEF_NMEA_PORT);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -165,7 +156,7 @@ int  configureDb(configuration *configParams)
                     sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('zyGrib','')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('xterm','-maximized -e /usr/bin/sudo /usr/bin/raspi-config')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('openvt','sdlSpeedometer-config')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -393,6 +384,8 @@ static int threadSerial(void *conf)
 
     tcflush(fd, TCIOFLUSH);
 
+    configParams->numThreads++;
+
     while(configParams->runGps)
     {
         time_t ct;
@@ -400,8 +393,7 @@ static int threadSerial(void *conf)
 
         // The vessels network has precedence
         if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
-            SDL_Delay(4000);
-            printf("on hold again\n");
+            SDL_Delay(1000);
             continue;
         }            
 
@@ -465,6 +457,8 @@ static int threadSerial(void *conf)
 
     SDL_Log("threadSerial stopped");
 
+    configParams->numThreads--;
+
     return 0;
 }
 
@@ -480,7 +474,6 @@ static int i2cCollector(void *conf)
     int connOk = 1;
     int update = 0;
     const char *tail;
-    sqlite3 *conn = NULL;
     sqlite3_stmt *res;
     calibration calib;
     struct stat sb;
@@ -491,18 +484,17 @@ static int i2cCollector(void *conf)
         return 0;
     }
 
-    configParams->conn3 = NULL;
+    configParams->conn = NULL;
 
     SDL_Log("Starting up i2c collector");
 
-    if (sqlite3_open_v2(SQLDBPATH, &conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(conn));
-        (void)sqlite3_close(conn);
-        configParams->conn3 = conn = NULL;
+    if (sqlite3_open_v2(SQLDBPATH, &configParams->conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams->conn));
+        (void)sqlite3_close(configParams->conn);
+        configParams->conn = NULL;
     }
 
-    if (conn)
-        configParams->conn3 = conn;
+    configParams->numThreads++;
 
     while(configParams->runi2c)
     {
@@ -511,7 +503,7 @@ static int i2cCollector(void *conf)
 
         SDL_Delay(dt);
 
-        if (conn && connOk) {
+        if (configParams->conn && connOk) {
             if (update++ > dt / 10) {
                 if (!stat(SQLCONFIG, &sb)) {
                     SDL_Delay(600);
@@ -521,12 +513,12 @@ static int i2cCollector(void *conf)
                     if ((fd = fopen(SQLCONFIG, "r")) != NULL) {
                         if (fread(sqlbuf, 1, sizeof(sqlbuf), fd) > 0) {
                             SDL_Log("  %s", &sqlbuf[12]);
-                            if (sqlite3_prepare_v2(conn, sqlbuf, -1,  &res, &tail)  == SQLITE_OK) {
+                            if (sqlite3_prepare_v2(configParams->conn, sqlbuf, -1,  &res, &tail)  == SQLITE_OK) {
                                 if (sqlite3_step(res) != SQLITE_DONE) {
-                                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to step calibration data : %s", (char*)sqlite3_errmsg(conn)); 
+                                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to step calibration data : %s", (char*)sqlite3_errmsg(configParams->conn)); 
                                 }
                                 sqlite3_finalize(res);
-                            } else { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to update calibration data : %s", (char*)sqlite3_errmsg(conn)); }
+                            } else { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to update calibration data : %s", (char*)sqlite3_errmsg(configParams->conn)); }
                         } else {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to read calibration data : %s", strerror(errno));
                         }                      
@@ -536,7 +528,7 @@ static int i2cCollector(void *conf)
                     unlink(SQLCONFIG);
                 }
 
-                rval = sqlite3_prepare_v2(conn, "select magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval from calib", -1, &res, &tail);        
+                rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval from calib", -1, &res, &tail);        
                 if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
                     // See: BerryIMU/compass_tutorial03_calibration
                     calib.magXmax = sqlite3_column_int(res, 0);
@@ -549,7 +541,7 @@ static int i2cCollector(void *conf)
                 } else {
                     if (connOk) {
                         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to look up calibration data - using defults : %s", \
-                            (char*)sqlite3_errmsg(conn));
+                            (char*)sqlite3_errmsg(configParams->conn));
                     }
                     connOk = 0;
                     calib.magXmax = dmagXmax;
@@ -583,13 +575,28 @@ static int i2cCollector(void *conf)
         }      
     }
 
-    if (conn)
-        sqlite3_close(conn);
+    if (configParams->conn) {
+        rval = SQLITE_BUSY;
+        while(rval == SQLITE_BUSY) { // make sure ! busy ! db locked 
+            rval = SQLITE_OK;
+            sqlite3_stmt * res = sqlite3_next_stmt(configParams->conn, NULL);
+            if (res != NULL) {
+                rval = sqlite3_finalize(res);
+                if (rval == SQLITE_OK) {
+                    rval = sqlite3_close(configParams->conn);
+                }
+            }
+        }
+        (void)sqlite3_close(configParams->conn);
+    }
 
     close(configParams->i2cFile);
     configParams->i2cFile = 0;
+    configParams->conn = NULL;
 
     SDL_Log("i2cCollector stopped");
+
+    configParams->numThreads--;
 
     return 0;
 }
@@ -652,6 +659,8 @@ static int nmeaNetCollector(void* conf)
     SDL_Log("Successfully resolved host %s to IP: %d.%d.%d.%d : port %d\n",configParams->server, dotQuad[0],dotQuad[1],dotQuad[2],dotQuad[3], configParams->port);
 
     int sretry = 0;
+
+    configParams->numThreads++;
 
     while(1)
     {
@@ -847,6 +856,7 @@ static int nmeaNetCollector(void* conf)
     }
 
     SDL_Log("nmeaNetCollector stopped");
+    configParams->numThreads--;
 
     return 0;
 }
@@ -1015,7 +1025,8 @@ static int doCompass(sdl2_app *sdlApp)
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
         sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
-        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+        if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
+            subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
     compassR.w = 366;
@@ -1217,7 +1228,8 @@ static int doSumlog(sdl2_app *sdlApp)
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
         sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
-        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+        if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
+            subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
     SDL_Texture* textField;
@@ -1373,7 +1385,8 @@ static int doGps(sdl2_app *sdlApp)
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
         sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
-        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+        if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
+            subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
     SDL_Texture* textField;
@@ -1558,7 +1571,8 @@ static int doDepth(sdl2_app *sdlApp)
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
         sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
-        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+        if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
+            subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
     SDL_Texture* textField;
@@ -1729,7 +1743,8 @@ static int doWind(sdl2_app *sdlApp)
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
         sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
-        subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon);
+        if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
+            subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
     SDL_Texture* textField;
@@ -2126,11 +2141,14 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     }
 
     if (configParams->runNet) {
-        threadNmea = SDL_CreateThread(nmeaNetCollector, "nmeaNetCollector", configParams);
+        if (strncmp(configParams->server, "none", 4)) {
+            threadNmea = SDL_CreateThread(nmeaNetCollector, "nmeaNetCollector", configParams);
 
-        if (NULL == threadNmea) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread nmeaNetCollector failed: %s", SDL_GetError());
-        } else SDL_DetachThread(threadNmea);
+            if (NULL == threadNmea) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread nmeaNetCollector failed: %s", SDL_GetError());
+            } else SDL_DetachThread(threadNmea);
+        } else
+            configParams->runNet = 0;
     }
 
     if (configParams->runi2c) {
@@ -2142,11 +2160,14 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     }
 
     if (configParams->runGps) {
-        threadGPS = SDL_CreateThread(threadSerial, "threadGPS", configParams);
+        if (strncmp(configParams->tty, "none", 4)) {
+            threadGPS = SDL_CreateThread(threadSerial, "threadGPS", configParams);
 
-        if (NULL == threadGPS) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadGPS failed: %s", SDL_GetError());
-        } else SDL_DetachThread(threadGPS);
+            if (NULL == threadGPS) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadGPS failed: %s", SDL_GetError());
+            } else SDL_DetachThread(threadGPS);
+        } else
+         configParams->runGps = 0;   
     }
 
     SDL_ShowCursor(SDL_DISABLE);
@@ -2169,14 +2190,11 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 
-    if (threadI2C != NULL)
-        sdlApp->conn3 = configParams->conn3;
-
     return 0;
 }
 
 // Check if subtask is within PATH.
-static int checkSubtask(sdl2_app *sdlApp)
+static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
     char subtask[PATH_MAX];
     char buff[PATH_MAX];
@@ -2186,12 +2204,12 @@ static int checkSubtask(sdl2_app *sdlApp)
     const char *tail;
 
     if (sdlApp->subAppsCmd[0][0] == NULL) {
-       if (sdlApp->conn3 == NULL) {
+       if (configParams->conn == NULL) {
             return 0;
         }
 
         int c = 1;
-        if ((rval=sqlite3_prepare_v2(sdlApp->conn3, "select task,args from subtasks", -1, &res, &tail)) == SQLITE_OK)
+        if ((rval=sqlite3_prepare_v2(configParams->conn, "select task,args from subtasks", -1, &res, &tail)) == SQLITE_OK)
         {
             while (sqlite3_step(res) != SQLITE_DONE) {  
     
@@ -2211,6 +2229,7 @@ static int checkSubtask(sdl2_app *sdlApp)
             }
             if (c >1)
                 sdlApp->subAppsCmd[0][0] = "1"; // Checked
+            sqlite3_finalize(res);
         }
     }
 
@@ -2229,7 +2248,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     char *args[20];
     char cmd[1024];
 
-    if (!checkSubtask(sdlApp))
+    if (!checkSubtask(sdlApp, configParams))
         return COGPAGE;
 
     sprintf(cmd, "/bin/bash %s %s %s", SPAWNCMD, sdlApp->subAppsCmd[sdlApp->curPage][0], sdlApp->subAppsCmd[sdlApp->curPage][1]);
@@ -2247,8 +2266,11 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     runners[2] = configParams->runNet;
     configParams->runGps = configParams->runi2c = configParams->runNet = 0;
 
+    while(configParams->numThreads)
+        SDL_Delay(100);
+
     closeSDL2(sdlApp);
-       
+    
     pid = fork ();
 
     if (pid == 0) {
@@ -2259,6 +2281,8 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     // You've picked my bones clean, speak now ...
     waitpid(pid, &status, 0);
     // ... before I reclaim the meat. (Solonius)
+
+    (void)configureDb(configParams);   // Fetch eventually new configuration
 
     // Regain SDL2 control
     configParams->runGps = runners[0];
@@ -2274,13 +2298,13 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
 int main(int argc, char *argv[])
 {
-
     int c, step;
     configuration configParams;
     sdl2_app sdlApp;
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
+    memset(&configParams, 0, sizeof(configParams));
 
     sdlApp.fontPath = DEFAULT_FONT;
 
@@ -2336,7 +2360,7 @@ int main(int argc, char *argv[])
     if (openSDL2(&configParams, &sdlApp))
         exit(EXIT_FAILURE);
 
-    (void)checkSubtask(&sdlApp);
+    (void)checkSubtask(&sdlApp, &configParams);
 
     while(1)
     {
@@ -2368,11 +2392,14 @@ int main(int argc, char *argv[])
             break;
     }
 
+    c = configParams.runi2c;
+
     configParams.runGps = configParams.runi2c = configParams.runNet = 0;
 
+    while(configParams.numThreads)
+        SDL_Delay(100);
+    
     closeSDL2(&sdlApp);
-
-    SDL_Delay(1600);
 
     SDL_Log("User terminated");
 

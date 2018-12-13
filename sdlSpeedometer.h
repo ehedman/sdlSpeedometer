@@ -37,12 +37,13 @@ typedef struct {
     int runGps;
     int runi2c;
     int runNet;
+    int numThreads;
     short port;
     char server[100];
     char tty[40];
     int baud;
     int i2cFile;
-    sqlite3 *conn3;
+    sqlite3 *conn;
 } configuration;
 
 enum sdlPages {
@@ -54,6 +55,15 @@ enum sdlPages {
     CALPAGE,
     TSKPAGE  
 };
+
+typedef struct {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    char *fontPath;
+    char *subAppsCmd[TSKPAGE][TSKPAGE];
+    int nextPage;
+    int curPage;
+} sdl2_app;
 
 extern int i2cinit(int bus);
 extern float i2cReadHdm(int file, calibration *calib);
