@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# Start a single session X-bound application
+# Start a single session X-or an openvt bound application
+
+PATH=$PATH:$(pwd)
+export PATH
 
 program=$1
 
-export DISPLAY=:0.0
-
-app=$(which ${program})
+app=$(which "${program}")
 
 if [ -z "${app}" ]; then
     exit 1
@@ -16,10 +17,18 @@ trap doQuit INT
 
 function doQuit() {
     if [ -n "${XPID}" ]; then
-        kill -INT $XPID
+        kill -INT "${XPID}"
     fi
     exit 0
 }
+
+if [ "$(basename "${app}")" == "openvt" ]; then
+    shift
+    openvt -w -s "$@"
+    exit 0
+fi
+
+export DISPLAY=:0.0
 
 function setDisplay() {
     sleep 5
@@ -49,6 +58,6 @@ fi
 
 setDisplay &
 
-${app} $* &>/dev/null
+${app} "$@" &>/dev/null
 
 doQuit

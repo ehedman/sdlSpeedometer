@@ -25,16 +25,13 @@ zyGrib's install rules installs everything in the users home path, so to have th
 cp ~/zyGrib/zyGrib /usr/local/bin/zyGrib
 .. but first check the execution path in that text file.
 
-Before executing "make install" check these files:
-  sdlSpeedometer.service : Change "User=" to your preferred user. (NOTE: This application can set system time to GPS UTC time but only as root)
-  sdlSpeedometer.env:    : Idetify your network NMEA-0183 server if applicable.
+Before executing "make install" check these items:
 
-To launch sudo programs from this user mode application you must alter this file as super user:
-/etc/sudousers:
-<your name> ALL=(ALL) NOPASSWD:ALL
+ - If not done already run (as root) raspi-config to set WiFi, localization, i2c and serial port according to the HOWTOs links in the README.md file.
+ - Run sudo ./sdlSpeedometer-config to set your preferences for this application.
 
-If kplex is present in the same system I recommend kplex to own the GPS the serial port:
+ - run make install
+ 
+ - runt sudo reboot 
 
- ./sdlSpeedometer -g : Where -g is to skip the handling of the sereilport.
-Also add into sdlSpeedometer.env (/etc/default/sdlSpeedometer)
- ARGS=-g
+When the Speedometer starts you can still run sdlSpeedometer-config from the GPS GUI page. Click the tools icon.

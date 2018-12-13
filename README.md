@@ -25,7 +25,8 @@ Currently there are five virtual instrument working (data source within brackets
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination)
 
 ### External Applications
-sdlSpeedometer in itself a very responsive application runing in an embedded system context with framebuffer SDL2. However, sdlSpeedometer can be parametized to launch almost any external application, even X based applications.
+sdlSpeedometer in itself is a very responsive application runing in an embedded system context with framebuffer SDL2. However, sdlSpeedometer can be parametized to launch almost any external application, even X based applications by means of a configuration tool invoked from the GUI.
+
 Two marine related applications  has been integrated successfully so far:
 
 If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
@@ -70,6 +71,7 @@ The packages needed are:
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](http://ozzmaker.com/i2c)
+- [BerryGPS setup Guide for Raspberry Pi](http://ozzmaker.com/berrygps-setup-guide-raspberry-pi)
 - [Create a Digital Compass with the Raspberry Pi](http://ozzmaker.com/compass1)
 
 ### See also
@@ -85,3 +87,5 @@ The packages needed are:
 <img src="http://hedmanshome.se/sdlspeedometer10.png" width=100%>
 - zyGrib just launched on a 7" touch display
 <img src="http://hedmanshome.se/sdlspeedometer11.png" width=100%>
+- sdlSpeedometers' configurator
+<img src="http://hedmanshome.se/sdlspeedometer13.png" width=100%>

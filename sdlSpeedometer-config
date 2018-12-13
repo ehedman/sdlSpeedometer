@@ -1,0 +1,379 @@
+#!/bin/bash
+
+# Inherited from raspi-config https://github.com/RPi-Distro/raspi-config
+# Copyright (c) 2012 Alex Bradbury <asb@asbradbury.org>
+#
+# See LICENSE file at github for copyright and license details
+
+export TERM="xterm-256color"
+
+ASK_TO_REBOOT=0
+
+SQLFILE=$(mktemp)
+SPEEDOMETER_DB=speedometer.db
+
+if [ ! -f $SPEEDOMETER_DB ]; then
+    cd /usr/local/etc || exit 1
+    if [ ! -f $SPEEDOMETER_DB ]; then
+        exit 0
+    fi
+fi
+
+
+do_finish() {
+
+  if [ -f "$SQLFILE" ]; then
+    sqlite3 $SPEEDOMETER_DB < "$SQLFILE" 
+  fi
+  RET=$!
+
+  sync
+
+  if [ $ASK_TO_REBOOT -eq 1 ]; then
+    whiptail --yesno "Would you like to reboot now?" 20 60 2
+    if [ $? -eq 0 ]; then # yes
+      sync
+      reboot
+    fi
+  fi
+  rm -f "$SQLFILE"
+  exit $RET
+}
+
+calc_wt_size() {
+  # NOTE: it's tempting to redirect stderr to /dev/null, so supress error
+  # output from tput. However in this case, tput detects neither stdout or
+  # stderr is a tty and so only gives default 80, 24 values
+  WT_HEIGHT=17
+  WT_WIDTH=$(tput cols)
+
+  if [ -z "$WT_WIDTH" ] || [ "$WT_WIDTH" -lt 60 ]; then
+    WT_WIDTH=80
+  fi
+  if [ "$WT_WIDTH" -gt 178 ]; then
+    WT_WIDTH=120
+  fi
+  WT_MENU_HEIGHT=$(($WT_HEIGHT-7))
+}
+
+do_set_external_app() {
+
+    if [ "$(id -u)" -ne 0 ]; then
+        RMGS="Please note that SdlSpeedometer has to run with root privileges to run 'openvt' programs"
+    fi
+
+    whiptail --msgbox "\
+Enter an application and and its arguments here. \n
+A new tools icon will appear on one of the GUI screens.
+To disable an application, enter 'notyet'. \n
+To run a terminal appication (nox-X), prefix the commant with 'openvt'. $RMGS
+" 20 70 1
+
+  CURRENT_SUBAPP=$(sqlite3 $SPEEDOMETER_DB "SELECT task FROM subtasks WHERE Id=$1;")
+  CURRENT_SUBAPPARGS=$(sqlite3 $SPEEDOMETER_DB "SELECT args FROM subtasks WHERE Id=$1;")
+  NEW_SUBAPP=$(whiptail --inputbox "Please enter a new application to be launchd from the GUI" 20 60 "$CURRENT_SUBAPP $CURRENT_SUBAPPARGS" 3>&1 1>&2 2>&3)
+
+  if [ -n "$NEW_SUBAPP" ]; then
+    cmd=$(echo "$NEW_SUBAPP" | awk -F' ' '{print $1}')
+    arg=$(echo "$NEW_SUBAPP" | awk  '{$1=""; print $0}')
+    echo "UPDATE subtasks SET task='$cmd', args='$arg' WHERE Id=$1;" >> "$SQLFILE"
+  fi
+
+}
+
+do_set_serial_device() {
+    whiptail --msgbox "\
+Enter a serial device name for the GPS. \n
+For a Raspberry Pi model 3 with the BerryGPS it should be /dev/ttyS0 and for \
+other Raspberrys' /dev/tyAMA0. \n
+If KPLEX is present in the system it is reccomended that KPLEX owns the serial device and that device name is set to 'none'.
+" 20 70 1
+
+  CURRENT_SERIALDEV=$(sqlite3 $SPEEDOMETER_DB 'SELECT tty FROM config;')
+  NEW_SERIALDEV=$(whiptail --inputbox "Please enter a serial device or 'none' to disable serial GPS handling" 20 60 "$CURRENT_SERIALDEV" 3>&1 1>&2 2>&3)
+
+  if [ -n "$NEW_SERIALDEV" ]; then
+    echo "UPDATE config SET tty = '$NEW_SERIALDEV' WHERE Id=1;" >> "$SQLFILE"
+    systemctl stop serial-getty@"$(basename "${NEW_SERIALDEV}")".service &>/dev/null || true
+    systemctl disable serial-getty@"$(basename "${NEW_SERIALDEV}")".service &>/dev/null || true
+  fi
+}
+
+do_set_serial_speed() {
+    whiptail --msgbox "\
+Enter serial baudrate for the GPS device. \n
+For a BerryGPS default is 9600.
+" 20 70 1
+
+  CURRENT_SERIALSPEED=$(sqlite3 $SPEEDOMETER_DB 'SELECT baud FROM config;')
+  NEW_SERIALSPEED=$(whiptail --inputbox "Please enter a serial baudrate" 20 60 "$CURRENT_SERIALSPEED" 3>&1 1>&2 2>&3)
+
+  if [ -n "$NEW_SERIALSPEED" ]; then
+    echo "UPDATE config SET baud = '$NEW_SERIALSPEED' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
+do_set_nmea_server() {
+    whiptail --msgbox "\
+Enter a hostname (or I.P number) of a TCP NMEA-0183 Server or 'none' to disable this service
+" 20 70 1
+
+  CURRENT_NMEASERVER=$(sqlite3 $SPEEDOMETER_DB 'SELECT server FROM config;')
+  NEW_NMEASERVER=$(whiptail --inputbox "Please enter a host name" 20 60 "$CURRENT_NMEASERVER" 3>&1 1>&2 2>&3)
+
+  if [ -n "$NEW_NMEASERVER" ]; then
+    echo "UPDATE config SET server = '$NEW_NMEASERVER' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
+do_set_nmea_port() {
+    whiptail --msgbox "\
+Enter the port number of the TCP NMEA-0183 Server
+" 20 70 1
+
+  CURRENT_NMEAPORT=$(sqlite3 $SPEEDOMETER_DB 'SELECT port FROM config;')
+  NEW_NMEAPORT=$(whiptail --inputbox "Please enter a port number" 20 60 "$CURRENT_NMEAPORT" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_NMEAPORT" ]; then
+    echo "UPDATE config SET port = '$NEW_NMEAPORT' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
+
+do_hostname() {
+
+if [ "$(id -u)" -ne 0 ]; then
+    whiptail --msgbox "\
+Ony root can do this.
+" 20 70 1
+    return
+fi
+    whiptail --msgbox "\
+Please note: RFCs mandate that a hostname's labels \
+may contain only the ASCII letters 'a' through 'z' (case-insensitive), 
+the digits '0' through '9', and the hyphen.
+Hostname labels cannot begin or end with a hyphen. 
+No other symbols, punctuation characters, or blank spaces are permitted.\
+" 20 70 1
+
+  CURRENT_HOSTNAME=$(tr  -d " \t\n\r" </etc/hostname)
+  NEW_HOSTNAME=$(whiptail --inputbox "Please enter a hostname" 20 60 "$CURRENT_HOSTNAME" 3>&1 1>&2 2>&3)
+
+  if [ $? -eq 0 ]; then
+    echo "$NEW_HOSTNAME" > /etc/hostname
+    sed -i "s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\t$NEW_HOSTNAME/g" /etc/hosts
+    ASK_TO_REBOOT=1
+  fi
+}
+
+list_wlan_interfaces() {
+  for dir in /sys/class/net/*/wireless; do
+    if [ -d "$dir" ]; then
+      basename "$(dirname "$dir")"
+    fi
+  done
+}
+
+get_wifi_country() {
+   grep country= /etc/wpa_supplicant/wpa_supplicant.conf | cut -d "=" -f 2
+}
+
+do_wifi_country() {
+  IFACE="$(list_wlan_interfaces | head -n 1)"
+  if [ -z "$IFACE" ]; then
+    whiptail --msgbox "No wireless interface found" 20 60
+    return 1
+  fi
+
+  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
+    whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
+    return 1
+  fi
+
+  oIFS="$IFS"
+  IFS="/"
+  value=$(tail -n +26 /usr/share/zoneinfo/iso3166.tab | tr '\t' '/' | tr '\n' '/')
+  COUNTRY=$(whiptail --menu "Select the country in which the Pi is to be used" 20 60 10 "${value}" 3>&1 1>&2 2>&3)
+  IFS=$oIFS
+
+  if [ $? -eq 0 ];then
+    wpa_cli -i "$IFACE" set country "$COUNTRY"
+    if ! iw reg set "$COUNTRY" 2> /dev/null; then
+        ASK_TO_REBOOT=1
+    fi
+    if [ -f /run/wifi-country-unset ] && hash rfkill 2> /dev/null; then
+        rfkill unblock wifi
+    fi
+    whiptail --msgbox "Wi-fi country set to $COUNTRY" 20 60 1
+    wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
+  fi
+}
+
+do_raspi_config() {
+
+if [ "$(id -u)" -ne 0 ]; then
+    whiptail --msgbox "\
+Ony root can do this.
+" 20 70 1
+    return
+fi
+
+    whiptail --yesno --defaultno "\
+The raspi-config tool helps you to configure your Raspberry Pi; several \
+settings can be changed with this tool without having to know the correct commands to use.\n 
+Enter YES to run raspi-config.
+" 20 70 1
+
+  if [ $? -eq 0 ]; then # yes
+    /usr/bin/raspi-config
+    return 0
+  fi
+}
+
+do_wifi_ssid_passphrase() {
+
+if [ "$(id -u)" -ne 0 ]; then
+    whiptail --msgbox "\
+Ony root can do this.
+" 20 70 1
+    return
+fi
+
+  RET=0
+  IFACE_LIST="$(list_wlan_interfaces)"
+  IFACE="$(echo "$IFACE_LIST" | head -n 1)"
+
+  if [ -z "$IFACE" ]; then
+      whiptail --msgbox "No wireless interface found" 20 60
+    return 1
+  fi
+
+  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
+      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
+    return 1
+  fi
+
+  if [ -z "$(get_wifi_country)" ]; then
+    do_wifi_country
+  fi
+
+  whiptail --msgbox "SSID net scan is about to begin. Please be patient." 20 60
+
+  SSID=""
+
+  iwlist "$IFACE" scan &>/dev/null
+  RES=$?
+
+  if [ $RES -eq 0 ]; then
+    SSID_LIST=$(wpa_cli scan_results 2>/dev/null | grep WPA | sed 's/ /_/g' | awk '{printf "%s %s OFF ", $NF, $2 }')
+  fi
+  RES=$?
+
+  while [ -z "$SSID" ]; do
+    if [ $RES -eq 0 ]; then
+      SSID="$(whiptail --title "Add SSID" --radiolist "What is the SSID of your choice?" 15 60 7 ${SSID_LIST} 3>&1 1>&2 2>&3)"
+    else
+       SSID=$(whiptail --inputbox "Please enter SSID" 20 60 3>&1 1>&2 2>&3)
+    fi
+    if [ $? -ne 0 ]; then
+      return 0
+    elif [ -z "$SSID" ]; then
+      RES=1
+      whiptail --msgbox "SSID cannot be empty. Please try again." 20 60
+    fi
+  done
+
+  PASSPHRASE=""
+  while true; do
+    PASSPHRASE=$(whiptail --passwordbox "Please enter passphrase for $SSID. Leave it empty if none." 20 60 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+      return 0
+    else
+      break
+    fi
+  done
+
+  IDS=$(wpa_cli -i "$IFACE" add_network 2>/dev/null)
+
+  if ! [ "$IDS" -eq "$IDS" ] 2> /dev/null
+  then
+    whiptail --msgbox "Failed to get network list" 20 60
+    return 1
+  fi
+
+  while [ "$IDS" -ge 0 ]; do
+      wpa_cli -i "$IFACE" remove_network "$IDS" &>/dev/null
+      let IDS=$IDS-1
+  done
+
+  wpa_cli -i "$IFACE" save_config &>/dev/null
+
+  ID="$(wpa_cli -i "$IFACE" add_network 2>/dev/null)"
+
+  wpa_cli -i "$IFACE" set_network "$ID" ssid "\"$SSID\"" 2>&1 | grep -q "OK"
+  RET=$((RET + $?))
+
+  if [ -z "$PASSPHRASE" ]; then
+    wpa_cli -i "$IFACE" set_network "$ID" key_mgmt NONE 2>&1 | grep -q "OK"
+    RET=$((RET + $?))
+  else
+    wpa_cli -i "$IFACE" set_network "$ID" psk "\"$PASSPHRASE\"" 2>&1 | grep -q "OK"
+    RET=$((RET + $?))
+  fi
+
+  if [ $RET -eq 0 ]; then
+    wpa_cli -i "$IFACE" enable_network "$ID" > /dev/null 2>&1
+  else
+    wpa_cli -i "$IFACE" remove_network "$ID" > /dev/null 2>&1
+
+    whiptail --msgbox "Failed to set SSID or passphrase" 20 60
+
+  fi
+  wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
+
+  echo "$IFACE_LIST" | while read -r IFACE; do
+    wpa_cli -i "$IFACE" reconfigure > /dev/null 2>&1
+  done
+
+  return $RET
+}
+
+do_config_menu() {
+  FUN=$(whiptail --title "sdlSpeedometer Configuration Tool (sdlSpeedometer-config)" --menu "Config Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
+    "1 Hostname" "Set the visible name for this Pi on a network" \
+    "2 Wi-fi" "Change SSID and passphrase" \
+    "3 Serial device" "Enter device name for the GPS" \
+    "4 Serial speed" "Enter baud rate for the GPS" \
+    "5 NMEA Network" "Enter NMEA-0183 server name" \
+    "6 NMEA Net port" "Enter NMEA-0183 server port" \
+    "7 Application 1" "Enter External Application 1" \
+    "8 Application 2" "Enter External Application 2" \
+    "9 Configuration" "Run raspi-config" \
+    3>&1 1>&2 2>&3)
+  RET=$?
+  if [ $RET -eq 1 ]; then
+    return 1
+  elif [ $RET -eq 0 ]; then
+    case "$FUN" in
+      1\ *) do_hostname ;;
+      2\ *) do_wifi_ssid_passphrase ;;
+      3\ *) do_set_serial_device ;;
+      4\ *) do_set_serial_speed ;;
+      5\ *) do_set_nmea_server ;;
+      6\ *) do_set_nmea_port ;;
+      7\ *) do_set_external_app 2 ;;
+      8\ *) do_set_external_app 3 ;;
+      9\ *) do_raspi_config ;;
+      *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+    esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
+  fi
+}
+
+calc_wt_size
+
+while true; do
+  do_config_menu
+  RET=$?
+  if [ $RET -eq 1 ]; then
+    do_finish
+  fi
+done

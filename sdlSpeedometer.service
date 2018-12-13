@@ -7,7 +7,7 @@ After=local-fs.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/default/sdlSpeedometer
-ExecStart=/usr/local/bin/sdlSpeedometer -s -n $SERVER -p $PORT $ARGS
+ExecStart=/usr/local/bin/sdlSpeedometer $ARGS
 RemainAfterExit=no
 Restart=on-failure
 RestartSec=3s
