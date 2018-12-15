@@ -644,6 +644,8 @@ static int nmeaNetCollector(void* conf)
     SDL_Log("Starting up NMEA net collector");
 
     cnmea.net_ts = time(NULL);
+
+    configParams->netStat = 0;
   
      // Initialise SDL_net
     if (SDLNet_Init() < 0) {
@@ -731,6 +733,7 @@ static int nmeaNetCollector(void* conf)
                     continue;
 
                 retry = 0;
+                configParams->netStat = 1;
 
                 if (nmeaChecksum(buffer, cnt)) continue;
 
@@ -834,6 +837,7 @@ static int nmeaNetCollector(void* conf)
                 }
 
             } else {
+                configParams->netStat = 0;
                 if (rretry++ > 10)
                     break;
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Retry to read socket from server %s %s!", configParams->server, SDLNet_GetError());
@@ -844,6 +848,7 @@ static int nmeaNetCollector(void* conf)
         SDLNet_TCP_DelSocket(socketSet, clientSocket);
         SDLNet_TCP_Close(clientSocket);
         SDLNet_FreeSocketSet(socketSet);
+        configParams->netStat = 0;
 
         if (configParams->runNet)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Server %s possibly gone, awaiting its return", configParams->server);
@@ -854,6 +859,8 @@ static int nmeaNetCollector(void* conf)
         SDLNet_TCP_Close(clientSocket);
         SDLNet_FreeSocketSet(socketSet);
     }
+
+    configParams->netStat = 0;
 
     SDL_Log("nmeaNetCollector stopped");
     configParams->numThreads--;
@@ -1007,7 +1014,7 @@ static float rotate(float angle, int res)
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR, subTaskbarR;
+    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR, subTaskbarR, netStatbarR;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -1017,6 +1024,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -1053,6 +1061,12 @@ static int doCompass(sdl2_app *sdlApp)
     subTaskbarR.h = 50;
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
+
+
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
     SDL_Texture* textField;
     SDL_Rect textField_rect;
@@ -1168,6 +1182,10 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->netStat == 1) {
+           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer);
 
         SDL_Delay(40);       
@@ -1177,6 +1195,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(clinoMeter);
     SDL_DestroyTexture(menuBar);
+    SDL_DestroyTexture(netStatBar);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
@@ -1190,7 +1209,7 @@ static int doCompass(sdl2_app *sdlApp)
 static int doSumlog(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1217,9 +1236,15 @@ static int doSumlog(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
+
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -1344,6 +1369,10 @@ static int doSumlog(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->netStat == 1) {
+           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
@@ -1352,6 +1381,7 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeSumlog);
     SDL_DestroyTexture(gaugeNeedle);
     SDL_DestroyTexture(menuBar);
+    SDL_DestroyTexture(netStatBar);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall); 
     TTF_CloseFont(fontCog);
@@ -1366,7 +1396,7 @@ static int doSumlog(sdl2_app *sdlApp)
 static int doGps(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, menuBarR, subTaskbarR;
+    SDL_Rect gaugeR, menuBarR, subTaskbarR, netStatbarR;
 
     TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
     TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 30);
@@ -1377,6 +1407,7 @@ static int doGps(sdl2_app *sdlApp)
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     
     SDL_Texture* subTaskbar = NULL;
 
@@ -1406,6 +1437,11 @@ static int doGps(sdl2_app *sdlApp)
     subTaskbarR.h = 50;
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
+
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
     SDL_Texture* gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
 
@@ -1505,6 +1541,10 @@ static int doGps(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->netStat == 1) {
+           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
@@ -1512,6 +1552,7 @@ static int doGps(sdl2_app *sdlApp)
 
     SDL_DestroyTexture(gaugeGps);
     SDL_DestroyTexture(menuBar);
+    SDL_DestroyTexture(netStatBar);
     TTF_CloseFont(fontHD);
     TTF_CloseFont(fontLA);
     TTF_CloseFont(fontLO);
@@ -1528,7 +1569,7 @@ static int doGps(sdl2_app *sdlApp)
 static int doDepth(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1555,10 +1596,16 @@ static int doDepth(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
+
     SDL_Texture* gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
     SDL_Texture* gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
     SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
 
@@ -1681,6 +1728,10 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->netStat == 1) {
+           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
@@ -1691,6 +1742,7 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeDepthx10);
     SDL_DestroyTexture(gaugeNeedle);
     SDL_DestroyTexture(menuBar);
+    SDL_DestroyTexture(netStatBar);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
@@ -1705,7 +1757,7 @@ static int doDepth(sdl2_app *sdlApp)
 static int doWind(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1732,9 +1784,15 @@ static int doWind(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
+
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
     SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -1862,6 +1920,10 @@ static int doWind(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->netStat == 1) {
+           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(25);
@@ -1870,6 +1932,7 @@ static int doWind(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeSumlog);
     SDL_DestroyTexture(gaugeNeedle);
     SDL_DestroyTexture(menuBar);
+    SDL_DestroyTexture(netStatBar);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
@@ -2305,6 +2368,7 @@ int main(int argc, char *argv[])
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
     memset(&configParams, 0, sizeof(configParams));
+    sdlApp.conf = &configParams;
 
     sdlApp.fontPath = DEFAULT_FONT;
 
@@ -2317,35 +2381,27 @@ int main(int argc, char *argv[])
 
     (void)configureDb(&configParams);   // Fetch configuration
 
-    while ((c = getopt (argc, argv, "hsn:p:vgiNT:S:")) != -1)
+    while ((c = getopt (argc, argv, "hsvgin")) != -1)
     {
         switch (c)
             {
             case 's':
                 useSyslog = 1;
                 break;
-            case 'n':   strcpy (configParams.server, argv[optind-1]);   // Override DB
-                break;
-            case 'p':   configParams.port = atoi(optarg);               // Override DB 
-                break;
             case 'g':   configParams.runGps = 0;                        // Diable GPS data collection
                 break;
             case 'i':   configParams.runi2c = 0;                        // Disable i2c data collection
                 break;
-            case 'N':   configParams.runNet = 0;                        // Disable NMEA net data collection
-                break;
-            case 'T':   strcpy (configParams.tty, argv[optind-1]);      // Override DB
-                break;
-            case 'S':   configParams.baud = atoi(optarg);               // Override DB 
-                break;
+            case 'n':   configParams.runNet = 0;                        // Disable NMEA net data collection
+                break;;
             case 'v':
                 fprintf(stderr, "revision: %s\n", SWREV);
                 exit(EXIT_SUCCESS);
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -n (NMEA server) -p (port) -T (tty) -S (speed) -g -i -N -v (version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -N Disabe NMEA Net\n");
+                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -n Disabe NMEA Net\n");
                 exit(EXIT_FAILURE);
                 break;
             }

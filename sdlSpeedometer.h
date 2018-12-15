@@ -44,6 +44,7 @@ typedef struct {
     int baud;
     int i2cFile;
     sqlite3 *conn;
+    int netStat;
 } configuration;
 
 enum sdlPages {
@@ -63,6 +64,7 @@ typedef struct {
     char *subAppsCmd[TSKPAGE][TSKPAGE];
     int nextPage;
     int curPage;
+    configuration *conf;
 } sdl2_app;
 
 extern int i2cinit(int bus);
