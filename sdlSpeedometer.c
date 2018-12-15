@@ -612,7 +612,7 @@ static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char 
     int f_width;
     int f_height;
     SDL_Surface *surface;
-    SDL_Color textColor = {0, 0, 0, 0};
+    SDL_Color textColor = {0, 0, 0};
 
     surface = TTF_RenderText_Solid(font, text, textColor);
     *texture = SDL_CreateTextureFromSurface(renderer, surface);
@@ -1037,10 +1037,10 @@ static int doCompass(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    compassR.w = 366;
-    compassR.h = 366;
-    compassR.x = 56;
-    compassR.y = 56;
+    compassR.w = 372;
+    compassR.h = 372;
+    compassR.x = 54;
+    compassR.y = 52;
 
     outerRingR.w = 440;
     outerRingR.h = 440;
@@ -2448,10 +2448,10 @@ int main(int argc, char *argv[])
             break;
     }
 
-    c = configParams.runi2c;
-
+    // Terminate the threads
     configParams.runGps = configParams.runi2c = configParams.runNet = 0;
 
+    // .. and let them close cleanly
     while(configParams.numThreads)
         SDL_Delay(100);
     
