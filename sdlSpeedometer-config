@@ -53,6 +53,7 @@ calc_wt_size() {
   if [ "$WT_WIDTH" -gt 178 ]; then
     WT_WIDTH=120
   fi
+  # shellcheck disable=SC2004
   WT_MENU_HEIGHT=$(($WT_HEIGHT-7))
 }
 
@@ -256,21 +257,27 @@ fi
     do_wifi_country
   fi
 
-  whiptail --msgbox "SSID net scan is about to begin. Please be patient." 20 60
-
   SSID=""
+  CSSID=""
 
-  iwlist "$IFACE" scan &>/dev/null
-  RES=$?
+  iwlist "$IFACE" scan &>/dev/null &
+  PID=$!
+  {
+    for ((i = 0 ; i <= 120 ; i+=6)); do
+      sleep 1
+      echo $i
+      kill -s 0 $PID &>/dev/null || break;
+    done
+  } | whiptail --gauge "Please wait while scanning" 6 60 0
 
-  if [ $RES -eq 0 ]; then
-    SSID_LIST=$(wpa_cli scan_results 2>/dev/null | grep WPA | sed 's/ /_/g' | awk '{printf "%s %s OFF ", $NF, $2 }')
-  fi
-  RES=$?
+  SSID_LIST=$(wpa_cli scan_results 2>/dev/null | grep WPA | sed 's/ /_/g' | awk '{printf "%s %s OFF ", $NF, $2 }')
+  RES=${PIPESTATUS[0]}
 
   while [ -z "$SSID" ]; do
-    if [ $RES -eq 0 ]; then
-      SSID="$(whiptail --title "Add SSID" --radiolist "What is the SSID of your choice?" 15 60 7 ${SSID_LIST} 3>&1 1>&2 2>&3)"
+    if [ "$RES" -eq 0 ]; then
+      CSSID=$(iwconfig 2>/dev/null | grep ESSID | cut -d: -f2)
+      # shellcheck disable=SC2086
+      SSID="$(whiptail --title "Add SSID" --radiolist "Current connection is $CSSID\nWhat is the SSID of your choice?" 15 60 7 ${SSID_LIST} 3>&1 1>&2 2>&3)"
     else
        SSID=$(whiptail --inputbox "Please enter SSID" 20 60 3>&1 1>&2 2>&3)
     fi
@@ -324,11 +331,10 @@ fi
     wpa_cli -i "$IFACE" enable_network "$ID" > /dev/null 2>&1
   else
     wpa_cli -i "$IFACE" remove_network "$ID" > /dev/null 2>&1
-
     whiptail --msgbox "Failed to set SSID or passphrase" 20 60
-
   fi
   wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
+  RET=$((RET + $?))
 
   echo "$IFACE_LIST" | while read -r IFACE; do
     wpa_cli -i "$IFACE" reconfigure > /dev/null 2>&1
