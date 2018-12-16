@@ -248,37 +248,6 @@ static char *getf(int pos, char *str)
     return (out);
 }
 
-
-// Watch the presence of an HDMI display
-static int threadMonstat(void *conf)
-{
-    configuration *configParams = conf;
-    char *cmd = {"/opt/vc/bin/tvservice -d /dev/null 2>/dev/null"};
-    char buf[40];
-    FILE *fd;
-
-    configParams->onHold = 0;
-    
-    // Use get EDID to determine if the display is present i.e. on/off
-    while (1) {
-        memset(buf, 0, sizeof(buf));
-        if ((fd = popen(cmd, "r")) != NULL) {
-            if ((fread(buf, 1, sizeof(buf), fd)) > 7) {
-                if (!strncmp("Written", buf, 7)) {
-                    configParams->onHold = 0;
-                }
-                else {
-                    configParams->onHold = 1;
-                }
-            }
-            pclose(fd);
-        }
-        SDL_Delay(5000);
-    }
-    return 0;
-}
-
-
 // Configure the BerryGPS-IMUv2 GPS Serial port
 static int portConfigure(int fd, configuration *configParams)
 {
@@ -427,11 +396,6 @@ static int threadSerial(void *conf)
         time_t ct;
         int cnt;
 
-        if (configParams->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         // The vessels network has precedence
         if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
             SDL_Delay(1000);
@@ -543,11 +507,6 @@ static int i2cCollector(void *conf)
         time_t ct;
         float hdm;
 
-        if (configParams->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         SDL_Delay(dt);
 
         if (configParams->conn && connOk) {
@@ -653,6 +612,44 @@ static int i2cCollector(void *conf)
     return 0;
 }
 
+/*
+- x, y: upper left corner.
+- texture, rect: outputs.
+*/
+static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char *text,
+        TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) {
+    int text_width;
+    int text_height;
+    int f_width;
+    int f_height;
+    SDL_Surface *surface;
+    SDL_Color textColor;
+
+    switch (color)
+    {
+        case BLACK: textColor.r = textColor.g = textColor.b = 0; break;
+        case WHITE: textColor.r = textColor.g = textColor.b = 255; break;
+        case RED:   textColor.r = 255; textColor.g = textColor.b = 0; break;
+    }
+
+    surface = TTF_RenderText_Solid(font, text, textColor);
+    *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    text_width = surface->w;
+    text_height = surface->h;
+    SDL_FreeSurface(surface);
+
+    // Get the width of one ch of the font used
+    TTF_SizeText(font,"0", &f_width, &f_height);
+
+    if (l >1)
+        rect->x = x + abs((strlen(text)-l)*f_width)/2;  // Align towards (l)
+    else
+       rect->x = x;
+    rect->y = y;
+    rect->w = text_width;
+    rect->h = text_height;
+}
+
 // Optionally collect data fron NMEA network server
 static int nmeaNetCollector(void* conf)
 {
@@ -689,12 +686,6 @@ static int nmeaNetCollector(void* conf)
     {
         int retry = 0;
         int rretry = 0;
-        int activeSockets;
-
-        if (configParams->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
 
         // Join a socket server whenever found.
         while (!(clientSocket = SDLNet_TCP_Open(&serverIP))) {
@@ -720,7 +711,7 @@ static int nmeaNetCollector(void* conf)
 
         // Add our socket to the socket set for polling
         SDLNet_TCP_AddSocket(socketSet, clientSocket);
-        activeSockets = SDLNet_CheckSockets(socketSet, 5000);
+        int activeSockets = SDLNet_CheckSockets(socketSet, 5000);
 
         if (activeSockets <1) {
             SDLNet_TCP_DelSocket(socketSet, clientSocket);
@@ -746,21 +737,18 @@ static int nmeaNetCollector(void* conf)
             time_t ts;
             int cnt = 0;
 
-            if (configParams->onHold)
-                break;
-
             if (++retry > 10) break;
+
+            SDL_Delay(30);
 
             ts = time(NULL);        // Get a timestamp for this turn
 
             // Check if we got an NMEA response from the server
-            if (SDLNet_CheckSockets(socketSet, 3000) > 0)
+            if (SDLNet_CheckSockets(socketSet, 2000) > 0)
             {
 
-                if ((cnt = SDLNet_TCP_Recv(clientSocket, buffer, sizeof(buffer))) <= 0) {
-                    SDL_Delay(30);
+                if ((cnt = SDLNet_TCP_Recv(clientSocket, buffer, sizeof(buffer))) <= 0)
                     continue;
-                }
 
                 retry = 0;
                 configParams->netStat = 1;
@@ -880,7 +868,7 @@ static int nmeaNetCollector(void* conf)
         SDLNet_FreeSocketSet(socketSet);
         configParams->netStat = 0;
 
-        if (configParams->runNet && configParams->onHold == 0)
+        if (configParams->runNet)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Server %s possibly gone, awaiting its return", configParams->server);
     }
 
@@ -896,44 +884,6 @@ static int nmeaNetCollector(void* conf)
     configParams->numThreads--;
 
     return 0;
-}
-
-/*
-- x, y: upper left corner.
-- texture, rect: outputs.
-*/
-static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char *text,
-        TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) {
-    int text_width;
-    int text_height;
-    int f_width;
-    int f_height;
-    SDL_Surface *surface;
-    SDL_Color textColor;
-
-    switch (color)
-    {
-        case BLACK: textColor.r = textColor.g = textColor.b = 0; break;
-        case WHITE: textColor.r = textColor.g = textColor.b = 255; break;
-        case RED:   textColor.r = 255; textColor.g = textColor.b = 0; break;
-    }
-
-    surface = TTF_RenderText_Solid(font, text, textColor);
-    *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    text_width = surface->w;
-    text_height = surface->h;
-    SDL_FreeSurface(surface);
-
-    // Get the width of one ch of the font used
-    TTF_SizeText(font,"0", &f_width, &f_height);
-
-    if (l >1)
-        rect->x = x + abs((strlen(text)-l)*f_width)/2;  // Align towards (l)
-    else
-       rect->x = x;
-    rect->y = y;
-    rect->w = text_width;
-    rect->h = text_height;
 }
 
 static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
@@ -1156,11 +1106,6 @@ static int doCompass(sdl2_app *sdlApp)
         char msg_tod[40];
         time_t ct;
 
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         SDL_PollEvent(&event);
 
         if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
@@ -1352,11 +1297,6 @@ static int doSumlog(sdl2_app *sdlApp)
         const float maxangle = 237; // Scale end
         const float maxspeed = 10;
 
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         SDL_PollEvent(&event);
 
         if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
@@ -1535,11 +1475,6 @@ static int doGps(sdl2_app *sdlApp)
         char msg_stw[40] = { " " };
         char msg_tod[40];
         time_t ct;
-
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
 
         SDL_PollEvent(&event);
 
@@ -1727,11 +1662,6 @@ static int doDepth(sdl2_app *sdlApp)
         const float maxangle = 236; // Scale end
         const float maxsdepth = 10;
 
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         SDL_PollEvent(&event);
 
         if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
@@ -1912,11 +1842,6 @@ static int doWind(sdl2_app *sdlApp)
         char msg_rmc[40] = { " " };
         char msg_tod[40];
         time_t ct;
-
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
 
         SDL_PollEvent(&event);
 
@@ -2287,7 +2212,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     SDL_Thread *threadNmea = NULL;
     SDL_Thread *threadI2C = NULL;
     SDL_Thread *threadGPS = NULL;
-    SDL_Thread *threadMon = NULL;
 
     // This is what this application is built for!
     setenv("SDL_VIDEODRIVER", "RPI", 1);
@@ -2326,10 +2250,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         } else
          configParams->runGps = 0;   
     }
-
-    threadMon = SDL_CreateThread(threadMonstat, "threadMonstat", configParams);
-    if (threadMon != NULL)
-        SDL_DetachThread(threadMon);
 
     SDL_ShowCursor(SDL_DISABLE);
 
