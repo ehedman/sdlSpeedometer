@@ -78,11 +78,11 @@ The packages needed are:
 [An Open Source Yacht Glass Cockpit](https://github.com/ehedman/websocketNmea)
 
 ### Screenshots
-<img src="http://hedmanshome.se/sdlspeedometer12.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer5.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer6.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer7.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer8.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer20.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer21.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer22.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer23.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer24.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer9.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer10.png" width=100%>
 - zyGrib just launched on a 7" touch display
