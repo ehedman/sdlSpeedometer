@@ -47,7 +47,8 @@
 #define WINDOW_W 800        // Resolution
 #define WINDOW_H 480
 
-#define S_TIMEOUT     4     // Invalidate current sentences after # seconds without a refresh from talker.
+#define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
+#define TRGPS       1.0     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
@@ -455,21 +456,25 @@ static int threadSerial(void *conf)
         ct = time(NULL);    // Get a timestamp for this turn 
 
         // RMC - Recommended minimum specific GPS/Transit data
-        // RMC feed is assumed to be present at all time 
         if (NMPARSE(buffer, "RMC")) {
-            cnmea.rmc=atof(getf(7, buffer));
+            cnmea.rmc_gps_ts = ct;
+            if ((cnmea.rmc=atof(getf(7, buffer))) >= TRGPS) {   // SOG
+                cnmea.rmc_ts = ct;
+                if ((cnmea.hdm=atof(getf(8, buffer))) != 0)     // Track made good
+                    cnmea.hdm_ts = ct;
+            }
             strcpy(cnmea.gll, getf(3, buffer));
             strcpy(cnmea.glo, getf(5, buffer));
             strcpy(cnmea.glns, getf(4, buffer));
             strcpy(cnmea.glne, getf(6, buffer));
-            if (cnmea.rmc_time_ts == 0 ) {
+            if (cnmea.rmc_tm_set == 0) {
                 strcpy(cnmea.time, getf(1, buffer));
                 strcpy(cnmea.date, getf(9, buffer));
-                cnmea.rmc_time_ts = 1;
+                cnmea.rmc_tm_set = 1;
             }
             if(strlen(cnmea.gll))
-                cnmea.gll_ts = cnmea.rmc_ts = ct;
-            continue;      
+                cnmea.gll_ts = ct;
+            continue;
         }
 
         // GLL - Geographic Position, Latitude / Longitude
@@ -488,11 +493,12 @@ static int threadSerial(void *conf)
         if (ct - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
             if (NMPARSE(buffer, "VTG")) {
                 cnmea.rmc=atof(getf(5, buffer));
-                cnmea.rmc_ts = ct;
+                cnmea.net_ts = cnmea.rmc_ts = ct;
+                if ((cnmea.hdm=atof(getf(1, buffer))) != 0) // Track made good
+                    cnmea.hdm_ts = ct;
                 continue;
             }
         }
-
     }
 
     close(fd);
@@ -770,16 +776,20 @@ static int nmeaNetCollector(void* conf)
 
                 // RMC - Recommended minimum specific GPS/Transit data
                 if (NMPARSE(buffer, "RMC")) {
-                    cnmea.rmc=atof(getf(7, buffer));
-                    cnmea.rmc_ts = ts;
+                    cnmea.rmc_gps_ts = ts;
+                    if ((cnmea.rmc=atof(getf(7, buffer))) >= TRGPS) {   // SOG
+                        cnmea.rmc_ts = ts;
+                        if ((cnmea.hdm=atof(getf(8, buffer))) != 0)     // Track made good
+                            cnmea.hdm_ts = ts;
+                    }
                     strcpy(cnmea.gll, getf(3, buffer));
                     strcpy(cnmea.glo, getf(5, buffer));
                     strcpy(cnmea.glns, getf(4, buffer));
                     strcpy(cnmea.glne, getf(6, buffer));
-                    if (cnmea.rmc_time_ts == 0) {
+                    if (cnmea.rmc_tm_set == 0) {
                         strcpy(cnmea.time, getf(1, buffer));
                         strcpy(cnmea.date, getf(9, buffer));
-                        cnmea.rmc_time_ts = 1;
+                        cnmea.rmc_tm_set = 1;
                     }
                     cnmea.net_ts = cnmea.gll_ts = ts;
                     continue;
@@ -802,16 +812,16 @@ static int nmeaNetCollector(void* conf)
                     if (NMPARSE(buffer, "VTG")) {
                         cnmea.rmc=atof(getf(5, buffer));
                         cnmea.net_ts = cnmea.rmc_ts = ts;
+                        if ((cnmea.hdm=atof(getf(1, buffer))) != 0) // Track made good
+                            cnmea.hdm_ts = ts;
                         continue;
                     }
                 }
 
-                // VHW - Water speed and Heading
+                // VHW - Water speed
                 if(NMPARSE(buffer, "VHW")) {
-                    if ((cnmea.hdm=atof(getf(3, buffer))) != 0)
-                        cnmea.hdm_ts = ts;
-                    cnmea.stw=atof(getf(5, buffer));
-                    cnmea.stw_ts = ts;
+                    if ((cnmea.stw=atof(getf(5, buffer))) != 0)
+                        cnmea.stw_ts = ts;
                     continue;
                 }
 
@@ -912,6 +922,9 @@ static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char 
     SDL_Surface *surface;
     SDL_Color textColor;
 
+    if (text == NULL || !strlen(text))
+        return;
+
     switch (color)
     {
         case BLACK: textColor.r = textColor.g = textColor.b = 0; break;
@@ -1007,16 +1020,16 @@ static void setUTCtime(void)
 ;
     if (++fails > 20) {
         // No luck - give up this
-        cnmea.rmc_time_ts = 2;
+        cnmea.rmc_tm_set = 2;
         return;
     }
     // UTC of position in hhmmss.sss format + UTC date of position fix, ddmmyy format 
     if (16 != strlen(cnmea.time) + strlen(cnmea.date)) {
-        cnmea.rmc_time_ts = 0;  // Try again
+        cnmea.rmc_tm_set = 0;  // Try again
         return;
     }
 
-    cnmea.rmc_time_ts = 2;      // One time only
+    cnmea.rmc_tm_set = 2;      // One time only
 
     if (getuid()) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Only root can set System UTC time from GPS. Time and date left unchanged!");
@@ -1155,13 +1168,13 @@ static int doCompass(sdl2_app *sdlApp)
 
     while (1) {
         int boxItem = 0;
-        char msg_hdm[40] = { " " };
-        char msg_roll[40 ]= { " " };
-        char msg_sog[40] = { " " };
-        char msg_stw[40] = { " " };
-        char msg_dbt[40] = { " " };
-        char msg_mtw[40] = { " " };
-        char msg_src[40] = { " " };
+        char msg_hdm[40] = { "" };
+        char msg_rll[40] = { "" };
+        char msg_sog[40] = { "" };
+        char msg_stw[40] = { "" };
+        char msg_dbt[40] = { "" };
+        char msg_mtw[40] = { "" };
+        char msg_src[40] = { "" };
         char msg_tod[40];
         time_t ct;
 
@@ -1183,28 +1196,33 @@ static int doCompass(sdl2_app *sdlApp)
 
         ct = time(NULL);    // Get a timestamp for this turn 
 
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+        if (!(ct - cnmea.rmc_gps_ts > S_TIMEOUT)) {
             // Set system UTC time
-            if (cnmea.rmc_time_ts == 1)
+            if (cnmea.rmc_tm_set == 1)
                 setUTCtime();
         }
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
-        if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {                        // HDM & ROLL Magnetic
+        // Magnetic or GPS HDM
+        if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
             sprintf(msg_hdm, "%.0f", cnmea.hdm);
             sprintf(msg_src, "mag");
-        } else if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0)) {  // VHW - Water speed and Heading NMEA
-            sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+        } else {
             sprintf(msg_hdm, "%.0f", cnmea.hdm);
-            sprintf(msg_src, "net");
+            sprintf(msg_src, "gps");
         }
 
+        // VHW - Water speed
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+            sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+
+        // Magnetic Roll
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
-            sprintf(msg_roll, "%.0f", fabs(roll=cnmea.roll));
+            sprintf(msg_rll, "%.0f", fabs(roll=cnmea.roll));
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
             sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
         // DBT - Depth Below Transponder
@@ -1241,16 +1259,15 @@ static int doCompass(sdl2_app *sdlApp)
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
        
 
-        get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_roll, fontRoll, &textField, &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &textField, &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        //if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-        if (strlen(msg_stw) > 1) {
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
 
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1)) {
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
@@ -1373,9 +1390,9 @@ static int doSumlog(sdl2_app *sdlApp)
         int boxItem = 0;
         char msg_stw[40];
         char msg_sog[40];
-        char msg_dbt[40] = { " " };
-        char msg_mtw[40] = { " " };
-        char msg_hdm[40] = { " " };
+        char msg_dbt[40] = { "" };
+        char msg_mtw[40] = { "" };
+        char msg_hdm[40] = { "" };
         float speed, wspeed;
         int stw;
         char msg_tod[40];
@@ -1406,7 +1423,7 @@ static int doSumlog(sdl2_app *sdlApp)
         strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
 
         // VHW - Water speed and Heading
-         if (ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0) {
+         if (ct - cnmea.stw_ts > S_TIMEOUT) {
             sprintf(msg_stw, "----");
             wspeed = 0.0;
             stw = 0;
@@ -1417,7 +1434,7 @@ static int doSumlog(sdl2_app *sdlApp)
         }
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0)
+        if (ct - cnmea.rmc_ts > S_TIMEOUT)
             sprintf(msg_sog, "----");
         else {
             sprintf(msg_sog, "SOG:%.2f", cnmea.rmc);
@@ -1583,10 +1600,10 @@ static int doGps(sdl2_app *sdlApp)
         char msg_lat[40];
         char msg_lot[40];
         char msg_src[40];
-        char msg_dbt[40] = { " " };
-        char msg_mtw[40] = { " " };
-        char msg_sog[40] = { " " };
-        char msg_stw[40] = { " " };
+        char msg_dbt[40] = { "" };
+        char msg_mtw[40] = { "" };
+        char msg_sog[40] = { "" };
+        char msg_stw[40] = { "" };
         char msg_tod[40];
         time_t ct;
 
@@ -1625,11 +1642,11 @@ static int doGps(sdl2_app *sdlApp)
          }
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
             sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
         // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0))
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
         // MTW - Water temperature in C
@@ -1656,12 +1673,12 @@ static int doGps(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_lot, fontLO, &textField, &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
        
-        if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0)) {
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
 
-         if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0)) {
+         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
@@ -1790,10 +1807,10 @@ static int doDepth(sdl2_app *sdlApp)
         float depth;
         float scale; 
         char msg_dbt[40];
-        char msg_mtw[40] = { " " };
-        char msg_hdm[40] = { " " };
-        char msg_stw[40] = { " " };
-        char msg_rmc[40] = { " " };
+        char msg_mtw[40] = { "" };
+        char msg_hdm[40] = { "" };
+        char msg_stw[40] = { "" };
+        char msg_rmc[40] = { "" };
         char msg_tod[40];
         time_t ct;
 
@@ -1838,11 +1855,11 @@ static int doDepth(sdl2_app *sdlApp)
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
              sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0))
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
         gauge = gaugeDepth;
@@ -1877,12 +1894,12 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
         
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0)) {
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
         
-        if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0)) {
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
@@ -2001,11 +2018,11 @@ static int doWind(sdl2_app *sdlApp)
         int boxItem = 0;
         char msg_vwrs[40];
         char msg_vwra[40];
-        char msg_dbt[40] = { " " };
-        char msg_mtw[40] = { " " };
-        char msg_stw[40] = { " " };      
-        char msg_hdm[40] = { " " };
-        char msg_rmc[40] = { " " };
+        char msg_dbt[40] = { "" };
+        char msg_mtw[40] = { "" };
+        char msg_stw[40] = { "" };      
+        char msg_hdm[40] = { "" };
+        char msg_rmc[40] = { "" };
         char msg_tod[40];
         time_t ct;
 
@@ -2037,7 +2054,7 @@ static int doWind(sdl2_app *sdlApp)
         if (ct - cnmea.vwr_ts > S_TIMEOUT)
             sprintf(msg_vwra, "----");
         else
-            sprintf(msg_vwra, "%.0f", cnmea.vwra);
+            sprintf(msg_vwra, "%.0f%c", cnmea.vwra, 0xb0);
 
         // DPT - Depth
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
@@ -2052,11 +2069,11 @@ static int doWind(sdl2_app *sdlApp)
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0))
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
              sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0))
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
         angle = cnmea.vwra; // 0-180
@@ -2078,7 +2095,7 @@ static int doWind(sdl2_app *sdlApp)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 216, 100, 3, msg_vwra, fontSmall, &textField, &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 216, 100, 4, msg_vwra, fontSmall, &textField, &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &textField, &textField_rect, BLACK);    
@@ -2089,12 +2106,12 @@ static int doWind(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
         
-        if (!(ct - cnmea.stw_ts > S_TIMEOUT || cnmea.stw == 0)) {
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
 
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT || cnmea.rmc < 1.0)) {
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }

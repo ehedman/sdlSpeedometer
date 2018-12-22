@@ -78,8 +78,9 @@ typedef struct {
     float   rmc;        // RMC (Speed Over Ground) in knots
     char    time[20];   // UTC Time
     char    date[20];   // Date
-    int     rmc_time_ts; // time isset ?
+    int     rmc_tm_set; // time isset ?
     time_t  rmc_ts;     // RMC Timestamp
+    time_t  rmc_gps_ts; // Got RMC from GPS
     float   roll;       // Vessel roll (non NMEA)
     time_t  roll_i2cts; // Roll timestamp
     float   stw;        // Speed of vessel relative to the water (Knots)
