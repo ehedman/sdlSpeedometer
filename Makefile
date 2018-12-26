@@ -14,7 +14,7 @@ endif
 all: $(BIN)
 
 override CFLAGS+= -Wall -g -std=gnu99
-LDFLAGS=-lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm
+LDFLAGS=-lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
 
 $(BIN): $(SRCS) $(HDRS)
 	$(CC) $(SRCS) $(CFLAGS) $(LDFLAGS) -o $(BIN)

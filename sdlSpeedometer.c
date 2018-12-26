@@ -29,7 +29,6 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <sqlite3.h>
 #include <curl/curl.h>
 #include <termios.h>
 #include <libgen.h>
@@ -280,6 +279,52 @@ static int threadMonstat(void *conf)
     return 0;
 }
 
+// RFB Null log
+static void nullLog() {}
+
+// RFB client gone
+static void vncClientGone(rfbClientPtr cl)
+{
+    sdl2_app *sdlApp = cl->screen->screenData;
+    sdlApp->conf->vncClients--; 
+}
+
+
+// New RFB Client
+static enum rfbNewClientAction newclient(rfbClientPtr cl)
+{
+    sdl2_app *sdlApp = cl->screen->screenData;
+    cl->clientData = NULL;
+    cl->clientGoneHook = vncClientGone;
+    sdlApp->conf->vncClients++;
+    SDL_Log("rfbProcessClient #%d connected", sdlApp->conf->vncClients);
+    return RFB_CLIENT_ACCEPT;
+}
+
+// RFB (VNC) Server thread
+static int threadVnc(void *conf) 
+{
+    sdl2_app *sdlApp = conf;
+    long usec;
+    sdlApp->conf->vncServer->desktopName = "Live Video sdlSpeedometer";
+    sdlApp->conf->vncServer->alwaysShared=(1==1);
+    sdlApp->conf->vncServer->cursor = NULL;
+    sdlApp->conf->vncServer->newClientHook = newclient;
+    sdlApp->conf->vncServer->screenData = sdlApp;
+
+    rfbInitServer(sdlApp->conf->vncServer);           
+
+    // Loop, processing clients
+    while (rfbIsActive(sdlApp->conf->vncServer))
+    {
+        usec = sdlApp->conf->vncServer->deferUpdateTime*1000;
+        rfbProcessEvents(sdlApp->conf->vncServer, usec);
+    }
+
+    SDL_Log("RFB thread terminated");
+
+    return 0;
+}
 
 // Configure the BerryGPS-IMUv2 GPS Serial port
 static int portConfigure(int fd, configuration *configParams)
@@ -1306,6 +1351,14 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+            // Read the pixels from the current render target and save them onto the surface
+            // This will slow down the application a bit.
+            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
+                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+        } 
+
         SDL_Delay(40);       
     }
 
@@ -1517,6 +1570,14 @@ static int doSumlog(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
+
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+            // Read the pixels from the current render target and save them onto the surface
+            // This will slow down the application a bit.
+            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
+                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+        }
         
         SDL_Delay(25);
     }
@@ -1720,6 +1781,14 @@ static int doGps(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
+
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+            // Read the pixels from the current render target and save them onto the surface
+            // This will slow down the application a bit.
+            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
+                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+        }
         
         SDL_Delay(25);
     }
@@ -1931,6 +2000,14 @@ static int doDepth(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
+
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+            // Read the pixels from the current render target and save them onto the surface
+            // This will slow down the application a bit.
+            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
+                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+        }
         
         SDL_Delay(25);
     }
@@ -2152,7 +2229,15 @@ static int doWind(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
 
-        SDL_RenderPresent(sdlApp->renderer); 
+        SDL_RenderPresent(sdlApp->renderer);
+ 
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+            // Read the pixels from the current render target and save them onto the surface
+            // This will slow down the application a bit.
+            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
+                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+        }
         
         SDL_Delay(25);
     }
@@ -2424,6 +2509,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     SDL_Thread *threadI2C = NULL;
     SDL_Thread *threadGPS = NULL;
     SDL_Thread *threadMon = NULL;
+    SDL_Thread *threadVNC = NULL;
 
     // This is what this application is built for!
     setenv("SDL_VIDEODRIVER", "RPI", 1);
@@ -2461,6 +2547,14 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
             } else SDL_DetachThread(threadGPS);
         } else
          configParams->runGps = 0;   
+    }
+
+    if (configParams->runVnc == 1) {
+        threadVNC = SDL_CreateThread(threadVnc, "threadVNC", sdlApp);
+        if (NULL == threadVNC) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadVNC failed: %s", SDL_GetError());
+             configParams->runVnc = 0; 
+        } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
     }
 
     threadMon = SDL_CreateThread(threadMonstat, "threadMonstat", configParams);
@@ -2606,7 +2700,7 @@ int main(int argc, char *argv[])
 
     sdlApp.fontPath = DEFAULT_FONT;
 
-    SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);
+    SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
     configParams.runGps = configParams.runi2c = configParams.runNet = 1;
         
@@ -2615,7 +2709,7 @@ int main(int argc, char *argv[])
 
     (void)configureDb(&configParams);   // Fetch configuration
 
-    while ((c = getopt (argc, argv, "hsvgin")) != -1)
+    while ((c = getopt (argc, argv, "hsvginV")) != -1)
     {
         switch (c)
             {
@@ -2627,15 +2721,17 @@ int main(int argc, char *argv[])
             case 'i':   configParams.runi2c = 0;                        // Disable i2c data collection
                 break;
             case 'n':   configParams.runNet = 0;                        // Disable NMEA net data collection
-                break;;
+                break;
+            case 'V':   configParams.runVnc = 1;                        // Enable VNC server
+                break;
             case 'v':
                 fprintf(stderr, "revision: %s\n", SWREV);
                 exit(EXIT_SUCCESS);
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -v (version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -n Disabe NMEA Net\n");
+                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -V -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -n Disabe NMEA Net : -V Enable VNC Server\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -2647,10 +2743,29 @@ int main(int argc, char *argv[])
         syslog (LOG_NOTICE, "Program started by User %d", getuid ());
     }
 
+    if (configParams.runVnc == 1) {
+        // Create an empty RGB surface that will be used to hold the VNC pixel buffer
+        configParams.vncPixelBuffer = SDL_CreateRGBSurface(0, WINDOW_W, WINDOW_H, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000); 
+        if (configParams.vncPixelBuffer != NULL) {
+            rfbErr=SDL_Log; 
+            rfbLog=SDL_Log;
+            configParams.vncServer=rfbGetScreen(&argc, argv, WINDOW_W, WINDOW_H, 8, 3, 4);           
+            configParams.vncServer->frameBuffer = configParams.vncPixelBuffer->pixels;
+            configParams.vncServer->ipv6port = 0;
+        } else {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateRGBSurfac failed: %s. VNC Server disabled!", SDL_GetError());
+            configParams.runVnc = 0;
+        }
+    }
+
     if (openSDL2(&configParams, &sdlApp))
         exit(EXIT_FAILURE);
 
     (void)checkSubtask(&sdlApp, &configParams);
+
+    if (configParams.runVnc) {
+        rfbLog=(rfbLogProc)nullLog;
+    }
 
     while(1)
     {
@@ -2683,6 +2798,12 @@ int main(int argc, char *argv[])
     }
 
     // Terminate the threads
+    if (configParams.runVnc) {
+        rfbShutdownServer(configParams.vncServer, TRUE);
+        if (configParams.vncPixelBuffer != NULL)
+            SDL_FreeSurface(configParams.vncPixelBuffer);
+    }
+
     configParams.runGps = configParams.runi2c = configParams.runNet = 0;
 
     // .. and let them close cleanly

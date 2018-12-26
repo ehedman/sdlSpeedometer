@@ -33,6 +33,8 @@ If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_
 
 Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi Model B+
 
+sdlSpeedometer has also a built-in RFB (VNC) server function so that an externel VNC client can connect in read-only mode as a slave instrument on a computer and/or a tablet with a VNC client.
+
 ### Tested runtime environment
 
 - Raspberry Pi - any model with Debian type OS, in an embedded configuration without X and desktop stuff (see exceptions for external applications).
@@ -60,6 +62,7 @@ The packages needed are:
 - libts-dev
 - libinput-dev
 - libwebp-dev
+- libvncserver-dev
 
 ### Application dependencies for running external applications from sdlSpeedometer
 - xorg

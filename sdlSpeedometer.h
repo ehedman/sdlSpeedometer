@@ -2,6 +2,7 @@
 #define SPEEDOMETER_H
 
 #include <sqlite3.h>
+#include <rfb/rfb.h>
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
@@ -37,9 +38,13 @@ typedef struct {
     int runGps;
     int runi2c;
     int runNet;
+    int runVnc;
     int numThreads;
     short port;
     char server[100];
+    rfbScreenInfoPtr vncServer;
+    SDL_Surface* vncPixelBuffer;
+    int vncClients;
     char tty[40];
     int baud;
     int i2cFile;
