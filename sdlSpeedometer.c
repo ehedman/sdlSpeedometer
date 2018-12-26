@@ -1204,13 +1204,16 @@ static int doCompass(sdl2_app *sdlApp)
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
-        // Magnetic or GPS HDM
+        // Magnetic/Net or GPS HDM
         if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
             sprintf(msg_hdm, "%.0f", cnmea.hdm);
             sprintf(msg_src, "mag");
         } else {
             sprintf(msg_hdm, "%.0f", cnmea.hdm);
-            sprintf(msg_src, "gps");
+            if (!( ct - cnmea.net_ts > S_TIMEOUT))
+                sprintf(msg_src, "net");
+            else
+                sprintf(msg_src, "gps");
         }
 
         // VHW - Water speed
@@ -1637,8 +1640,12 @@ static int doGps(sdl2_app *sdlApp)
             sprintf(msg_hdm, "%.0f",  cnmea.hdm);
             sprintf(msg_lat, "%.4f%s", dms2dd(atof(cnmea.gll),"m"), cnmea.glns);
             sprintf(msg_lot, "%.4f%s", dms2dd(atof(cnmea.glo),"m"), cnmea.glne);
-            if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT))
+            if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
                 sprintf(msg_src, "mag");
+            } else if (!( ct - cnmea.net_ts > S_TIMEOUT))
+                sprintf(msg_src, "net");
+            else
+                sprintf(msg_src, "gps");
          }
 
         // RMC - Recommended minimum specific GPS/Transit data

@@ -275,9 +275,12 @@ fi
 
   while [ -z "$SSID" ]; do
     if [ "$RES" -eq 0 ]; then
-      CSSID=$(iwconfig 2>/dev/null | grep ESSID | cut -d: -f2)
+      CSSID=$(iwconfig "$IFACE" 2> /dev/null | awk -F: '/ESSID:/ {print $2}' | awk '{printf "%s",$1}')
+      IP=$(ip -4 addr show "$IFACE" | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+      if [ -n "$IP" ]; then IP="($IP)"; fi 
       # shellcheck disable=SC2086
-      SSID="$(whiptail --title "Add SSID" --radiolist "Current connection is $CSSID\nWhat is the SSID of your choice?" 15 60 7 ${SSID_LIST} 3>&1 1>&2 2>&3)"
+      SSID="$(whiptail --title "Add SSID" --radiolist "Current connection is $CSSID $IP\nWhat is the SSID of your choice?" 15 60 7 ${SSID_LIST} 3>&1 1>&2 2>&3)"
+      
     else
        SSID=$(whiptail --inputbox "Please enter SSID" 20 60 3>&1 1>&2 2>&3)
     fi
