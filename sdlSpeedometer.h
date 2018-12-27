@@ -39,12 +39,14 @@ typedef struct {
     int runi2c;
     int runNet;
     int runVnc;
+    int runMon;
     int numThreads;
     short port;
     char server[100];
     rfbScreenInfoPtr vncServer;
     SDL_Surface* vncPixelBuffer;
     int vncClients;
+    int vncPort;
     char tty[40];
     int baud;
     int i2cFile;

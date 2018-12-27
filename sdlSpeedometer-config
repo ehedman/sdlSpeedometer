@@ -139,6 +139,17 @@ Enter the port number of the TCP NMEA-0183 Server
   fi
 }
 
+do_set_vnc_port() {
+    whiptail --msgbox "\
+Enter the port number of the VNC Server
+" 20 70 1
+
+  CURRENT_VNCPORT=$(sqlite3 $SPEEDOMETER_DB 'SELECT vncport FROM config;')
+  NEW_VNCPORT=$(whiptail --inputbox "Please enter a port number" 20 60 "$CURRENT_VNCPORT" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_VNCPORT" ]; then
+    echo "UPDATE config SET vncport = '$NEW_VNCPORT' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
 
 do_hostname() {
 
@@ -354,9 +365,10 @@ do_config_menu() {
     "4 Serial speed" "Enter baud rate for the GPS" \
     "5 NMEA Network" "Enter NMEA-0183 server name" \
     "6 NMEA Net port" "Enter NMEA-0183 server port" \
-    "7 Application 1" "Enter External Application 1" \
-    "8 Application 2" "Enter External Application 2" \
-    "9 Configuration" "Run raspi-config" \
+    "7 VNC Server port" "Enter VNC server port" \
+    "8 Application 1" "Enter External Application 1" \
+    "9 Application 2" "Enter External Application 2" \
+    "10 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -369,9 +381,10 @@ do_config_menu() {
       4\ *) do_set_serial_speed ;;
       5\ *) do_set_nmea_server ;;
       6\ *) do_set_nmea_port ;;
-      7\ *) do_set_external_app 2 ;;
-      8\ *) do_set_external_app 3 ;;
-      9\ *) do_raspi_config ;;
+      7\ *) do_set_vnc_port ;;
+      8\ *) do_set_external_app 2 ;;
+      9\ *) do_set_external_app 3 ;;
+      10\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi

@@ -33,7 +33,7 @@ If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_
 
 Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi Model B+
 
-sdlSpeedometer has also a built-in RFB (VNC) server function so that an externel VNC client can connect in read-only mode as a slave instrument on a computer and/or a tablet with a VNC client.
+sdlSpeedometer has also a built-in RFB (VNC) server function so that an external VNC client can connect a slave instrument on a computer and/or a tablet with a VNC client.
 
 ### Tested runtime environment
 

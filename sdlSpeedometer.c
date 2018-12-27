@@ -39,7 +39,8 @@
 #include "sdlSpeedometer.h"
 
 #define DEF_NMEA_SERVER "rpi3.hedmanshome.se"   // A test site running 24/7
-#define DEF_NMEA_PORT 10110
+#define DEF_NMEA_PORT   10110
+#define DEF_VNC_PORT    5903
 
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
@@ -134,10 +135,10 @@ int  configureDb(configuration *configParams)
                             return 1;
                     }
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port) VALUES ('%s','%s',9600,'%s',%d)", SWREV,TTY_GPS, DEF_NMEA_SERVER, DEF_NMEA_PORT);
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport) VALUES ('%s','%s',9600,'%s',%d,%d)", SWREV,TTY_GPS, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -192,12 +193,13 @@ int  configureDb(configuration *configParams)
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port from config", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport from config", -1, &res, &tail);        
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
         strcpy(configParams->server,    (char*)sqlite3_column_text(res, 2));
         configParams->port =            sqlite3_column_int(res, 3);
+        configParams->vncPort =         sqlite3_column_int(res, 4);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -276,53 +278,6 @@ static int threadMonstat(void *conf)
         }
         SDL_Delay(5000);
     }
-    return 0;
-}
-
-// RFB Null log
-static void nullLog() {}
-
-// RFB client gone
-static void vncClientGone(rfbClientPtr cl)
-{
-    sdl2_app *sdlApp = cl->screen->screenData;
-    sdlApp->conf->vncClients--; 
-}
-
-
-// New RFB Client
-static enum rfbNewClientAction newclient(rfbClientPtr cl)
-{
-    sdl2_app *sdlApp = cl->screen->screenData;
-    cl->clientData = NULL;
-    cl->clientGoneHook = vncClientGone;
-    sdlApp->conf->vncClients++;
-    SDL_Log("rfbProcessClient #%d connected", sdlApp->conf->vncClients);
-    return RFB_CLIENT_ACCEPT;
-}
-
-// RFB (VNC) Server thread
-static int threadVnc(void *conf) 
-{
-    sdl2_app *sdlApp = conf;
-    long usec;
-    sdlApp->conf->vncServer->desktopName = "Live Video sdlSpeedometer";
-    sdlApp->conf->vncServer->alwaysShared=(1==1);
-    sdlApp->conf->vncServer->cursor = NULL;
-    sdlApp->conf->vncServer->newClientHook = newclient;
-    sdlApp->conf->vncServer->screenData = sdlApp;
-
-    rfbInitServer(sdlApp->conf->vncServer);           
-
-    // Loop, processing clients
-    while (rfbIsActive(sdlApp->conf->vncServer))
-    {
-        usec = sdlApp->conf->vncServer->deferUpdateTime*1000;
-        rfbProcessEvents(sdlApp->conf->vncServer, usec);
-    }
-
-    SDL_Log("RFB thread terminated");
-
     return 0;
 }
 
@@ -954,6 +909,76 @@ static int nmeaNetCollector(void* conf)
     return 0;
 }
 
+
+// RFB Null log
+static void nullLog(void) {}
+
+// RFB Touch events
+static void vncClientTouch(int buttonMask, int x, int y, rfbClientPtr cl)
+{
+    SDL_Event touchEvent;
+
+    if (buttonMask & 1) {
+        touchEvent.type = SDL_FINGERDOWN;
+        touchEvent.tfinger.x = (float)x/(float)WINDOW_W;
+        touchEvent.tfinger.y = (float)y/(float)WINDOW_H;
+        touchEvent.tfinger.dx = 0;
+        touchEvent.tfinger.dy = 0;
+        touchEvent.tfinger.pressure = 1;
+        touchEvent.tfinger.timestamp = time(NULL);
+        touchEvent.tfinger.touchId = 0;
+        touchEvent.tfinger.fingerId = 6;
+        touchEvent.user.code = 1;
+
+        SDL_PushEvent(&touchEvent); // Add this event to the event queue. 
+    }    
+}
+
+// RFB client gone
+static void vncClientGone(rfbClientPtr cl)
+{
+    sdl2_app *sdlApp = cl->screen->screenData;
+    sdlApp->conf->vncClients--; 
+}
+
+// New RFB Client
+static enum rfbNewClientAction vncNewclient(rfbClientPtr cl)
+{
+    sdl2_app *sdlApp = cl->screen->screenData;
+    cl->clientData = NULL;
+    cl->clientGoneHook = vncClientGone;
+    sdlApp->conf->vncClients++;
+    SDL_Log("rfbProcessClient #%d connected", sdlApp->conf->vncClients);
+    return RFB_CLIENT_ACCEPT;
+}
+
+// RFB (VNC) Server thread
+static int threadVnc(void *conf) 
+{
+    sdl2_app *sdlApp = conf;
+    long usec;
+    sdlApp->conf->vncServer->desktopName = "Live Video sdlSpeedometer";
+    sdlApp->conf->vncServer->alwaysShared=(1==1);
+    sdlApp->conf->vncServer->cursor = NULL;
+    sdlApp->conf->vncServer->newClientHook = vncNewclient;
+    sdlApp->conf->vncServer->screenData = sdlApp;
+    sdlApp->conf->vncServer->ptrAddEvent = vncClientTouch;
+    sdlApp->conf->vncServer->port = sdlApp->conf->vncPort;
+
+    rfbInitServer(sdlApp->conf->vncServer);           
+
+    // Loop, processing clients
+    while (rfbIsActive(sdlApp->conf->vncServer))
+    {
+        usec = sdlApp->conf->vncServer->deferUpdateTime*1000;
+        rfbProcessEvents(sdlApp->conf->vncServer, usec);
+    }
+
+    SDL_Log("RFB serivice stopped");
+
+    return 0;
+}
+
 /*
 - x, y: upper left corner.
 - texture, rect: outputs.
@@ -1007,7 +1032,6 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     int x = event->tfinger.x* WINDOW_W;
     int y = event->tfinger.y* WINDOW_H;
 
-
     if (y > 400  && y < 440)
     {
         if (x > 450 && x < 480)
@@ -1020,6 +1044,8 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
             return WNDPAGE;
         if (x > 670 && x < 710)
            return GPSPAGE;
+        if (event->user.code == 1)  // Not allowed for RFB
+            return 0;
         if (x > 730 && x < 770)
            return CALPAGE;
         if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
@@ -1211,6 +1237,8 @@ static int doCompass(sdl2_app *sdlApp)
     int res = 1;
     int boxItems[] = {120,170,220,270};
 
+    int toggle = 1;
+
     while (1) {
         int boxItem = 0;
         char msg_hdm[40] = { "" };
@@ -1351,7 +1379,7 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
             // Read the pixels from the current render target and save them onto the surface
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
@@ -1441,6 +1469,7 @@ static int doSumlog(sdl2_app *sdlApp)
     float t_angle = 0;
     float angle = 0;
     int boxItems[] = {120,170,220};
+    int toggle = 1;
 
     while (1) {
         int boxItem = 0;
@@ -1516,8 +1545,8 @@ static int doSumlog(sdl2_app *sdlApp)
         angle = roundf(speed+minangle);
 
         // Run needle with smooth acceleration
-        if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24) ;
-        else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
+        if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
+        else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
@@ -1571,7 +1600,7 @@ static int doSumlog(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
             // Read the pixels from the current render target and save them onto the surface
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
@@ -1579,7 +1608,7 @@ static int doSumlog(sdl2_app *sdlApp)
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
-        SDL_Delay(25);
+        SDL_Delay(40);
     }
 
     SDL_DestroyTexture(gaugeSumlog);
@@ -1611,10 +1640,11 @@ static int doGps(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
+    SDL_Texture* gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
-    
+        
     SDL_Texture* subTaskbar = NULL;
 
     sdlApp->curPage = GPSPAGE;
@@ -1656,7 +1686,7 @@ static int doGps(sdl2_app *sdlApp)
 
     int boxItems[] = {120,170,220,270};
 
-    SDL_Texture* gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
+    int toggle = 1;
 
     while (1) {
         int boxItem = 0;
@@ -1782,7 +1812,7 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
             // Read the pixels from the current render target and save them onto the surface
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
@@ -1790,7 +1820,7 @@ static int doGps(sdl2_app *sdlApp)
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
-        SDL_Delay(25);
+        SDL_Delay(500);
     }
 
     SDL_DestroyTexture(gaugeGps);
@@ -1878,6 +1908,8 @@ static int doDepth(sdl2_app *sdlApp)
     float t_angle = 0;
     float angle = 0;
 
+    int toggle = 1;
+
     while (1) {
         int boxItem = 0;
         float depth;
@@ -1949,8 +1981,8 @@ static int doDepth(sdl2_app *sdlApp)
         angle = roundf(scale+minangle);
 
         // Run needle with smooth acceleration
-        if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24) ;
-        else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
+        if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
+        else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
     
@@ -1999,9 +2031,9 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
 
-        SDL_RenderPresent(sdlApp->renderer); 
+        SDL_RenderPresent(sdlApp->renderer);
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
             // Read the pixels from the current render target and save them onto the surface
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
@@ -2009,7 +2041,7 @@ static int doDepth(sdl2_app *sdlApp)
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
-        SDL_Delay(25);
+        SDL_Delay(40);
     }
 
     SDL_DestroyTexture(gaugeDepth);
@@ -2096,6 +2128,8 @@ static int doWind(sdl2_app *sdlApp)
     float angle = 0;
     int res = 1;
 
+    int toggle = 1;
+
     const float offset = 131; // For scale
 
     while (1) {
@@ -2169,8 +2203,8 @@ static int doWind(sdl2_app *sdlApp)
         angle = rotate(angle, res); res=0;
         
         // Run needle with smooth acceleration
-        if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24) ;
-        else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
+        if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
+        else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
@@ -2231,7 +2265,7 @@ static int doWind(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
  
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
             // Read the pixels from the current render target and save them onto the surface
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
@@ -2239,7 +2273,7 @@ static int doWind(sdl2_app *sdlApp)
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
-        SDL_Delay(25);
+        SDL_Delay(40);
     }
 
     SDL_DestroyTexture(gaugeSumlog);
@@ -2557,9 +2591,12 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
     }
 
-    threadMon = SDL_CreateThread(threadMonstat, "threadMonstat", configParams);
-    if (threadMon != NULL)
-        SDL_DetachThread(threadMon);
+     if (configParams->runMon == 1) {
+        threadMon = SDL_CreateThread(threadMonstat, "threadMonstat", configParams);
+        if (threadMon != NULL)
+            SDL_DetachThread(threadMon);
+        configParams->runMon = 2;
+    }
 
     SDL_ShowCursor(SDL_DISABLE);
 
@@ -2702,7 +2739,7 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
-    configParams.runGps = configParams.runi2c = configParams.runNet = 1;
+    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runMon = 1;
         
     sdlApp.nextPage = COGPAGE; // Start-page for touch
     step = COGPAGE; // .. mouse
