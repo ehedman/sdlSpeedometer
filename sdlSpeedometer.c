@@ -917,8 +917,19 @@ static void nullLog(void) {}
 static void vncClientTouch(int buttonMask, int x, int y, rfbClientPtr cl)
 {
     SDL_Event touchEvent;
+    sdl2_app *sdlApp = cl->screen->screenData;
 
     if (buttonMask & 1) {
+
+        if (sdlApp->conf->subTaskPID != 0) {
+            /* If a subtask is running, the VNC client will appear frozen.
+             * Most likely the user will tap the screen, 
+             * so let's kill the process group to re-activate SDL mode.
+             */
+            kill(-(sdlApp->conf->subTaskPID), SIGTERM);
+            return;
+        }
+
         touchEvent.type = SDL_FINGERDOWN;
         touchEvent.tfinger.x = (float)x/(float)WINDOW_W;
         touchEvent.tfinger.y = (float)y/(float)WINDOW_H;
@@ -948,7 +959,7 @@ static enum rfbNewClientAction vncNewclient(rfbClientPtr cl)
     cl->clientData = NULL;
     cl->clientGoneHook = vncClientGone;
     sdlApp->conf->vncClients++;
-    SDL_Log("rfbProcessClient #%d connected", sdlApp->conf->vncClients);
+    SDL_Log("rfbProcessClient: connect: Client #%d", sdlApp->conf->vncClients);
     return RFB_CLIENT_ACCEPT;
 }
 
@@ -1032,21 +1043,21 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     int x = event->tfinger.x* WINDOW_W;
     int y = event->tfinger.y* WINDOW_H;
 
-    if (y > 400  && y < 440)
+    if (y > 400  && y < 450)
     {
-        if (x > 450 && x < 480)
+        if (x > 433 && x < 483)
             return COGPAGE;
-        if (x > 504 && x < 544)
+        if (x > 490 && x < 540)
             return SOGPAGE;
-        if (x > 560 && x < 600)
+        if (x > 547 && x < 595)
             return DPTPAGE;
-        if (x > 614 && x < 656)
+        if (x > 605 && x < 652)
             return WNDPAGE;
-        if (x > 670 && x < 710)
+        if (x > 662 && x < 708)
            return GPSPAGE;
         if (event->user.code == 1)  // Not allowed for RFB
             return 0;
-        if (x > 730 && x < 770)
+        if (x > 718 && x < 765)
            return CALPAGE;
         if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
             if (x > 30 && x < 80)
@@ -2671,7 +2682,7 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
 
-    int pid, runners[3];
+    int runners[3];
     int status, i=0;
     char *args[20];
     char cmd[1024];
@@ -2699,18 +2710,20 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
     closeSDL2(sdlApp);
     
-    pid = fork ();
+    configParams->subTaskPID = fork ();
 
-    if (pid == 0) {
+    if (configParams->subTaskPID == 0) {
         // Child
+        setpgid(0, 0);
         execv ("/bin/bash", args);
     }
 
     // You've picked my bones clean, speak now ...
-    waitpid(pid, &status, 0);
+    waitpid(configParams->subTaskPID, &status, 0);
     // ... before I reclaim the meat. (Solonius)
+    configParams->subTaskPID = 0;
 
-    (void)configureDb(configParams);   // Fetch eventually new configuration
+    (void)configureDb(configParams);   // Fetch eventually a new configuration
 
     // Regain SDL2 control
     configParams->runGps = runners[0];
@@ -2753,13 +2766,13 @@ int main(int argc, char *argv[])
             case 's':
                 useSyslog = 1;
                 break;
-            case 'g':   configParams.runGps = 0;                        // Diable GPS data collection
+            case 'g':   configParams.runGps = 0;    // Diable GPS data collection
                 break;
-            case 'i':   configParams.runi2c = 0;                        // Disable i2c data collection
+            case 'i':   configParams.runi2c = 0;    // Disable i2c data collection
                 break;
-            case 'n':   configParams.runNet = 0;                        // Disable NMEA net data collection
+            case 'n':   configParams.runNet = 0;    // Disable NMEA net data collection
                 break;
-            case 'V':   configParams.runVnc = 1;                        // Enable VNC server
+            case 'V':   configParams.runVnc = 1;    // Enable VNC server
                 break;
             case 'v':
                 fprintf(stderr, "revision: %s\n", SWREV);

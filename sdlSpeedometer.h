@@ -53,6 +53,7 @@ typedef struct {
     sqlite3 *conn;
     int netStat;
     int onHold;
+    int subTaskPID;
 } configuration;
 
 enum sdlPages {
