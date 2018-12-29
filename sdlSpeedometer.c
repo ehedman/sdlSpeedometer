@@ -2343,7 +2343,8 @@ static int doWind(sdl2_app *sdlApp)
 static int doEnvironment(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeVoltR, gaugeCurrR, gaugeTempR, voltNeedleR, currNeedleR, tempNeedleR, menuBarR, netStatbarR, subTaskbarR;
+    SDL_Rect gaugeVoltR, gaugeCurrR, gaugeTempR, voltNeedleR, currNeedleR;
+    SDL_Rect tempNeedleR, menuBarR, netStatbarR, subTaskbarR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
@@ -2443,11 +2444,45 @@ static int doEnvironment(sdl2_app *sdlApp)
     char msg_curr_bank[20] = {"Bank -"};
     char msg_temp_loca[20] = {"--"};
 
+#ifdef PLOTSDL
+	// The captionlist and coordlist lists
+    captionlist caption_list;
+    coordlist coordinate_list;
+
+	//populate plot parameter object
+	plot_params params;
+
+	params.screen_width=430;
+	params.screen_heigth=210;
+	params.font_text_path=DEFAULT_FONT;
+	params.font_text_size=12;
+    params.hide_backgroud = 1;
+    params.hide_caption = 1;
+	params.caption_text_x="Time (s)";
+	params.caption_text_y="Watt";
+	params.scale_x = 1;
+	params.scale_y = 2;
+	params.max_x = 10;
+	params.max_y = 30;
+    params.screen = sdlApp->window;
+    params.renderer = sdlApp->renderer;
+    params.offset_x = 10;
+    params.offset_y = 240;
+    float powerBuf[20];
+    float awpw = 0;
+    int slot = 0;
+
+    memset(powerBuf, 0, sizeof(powerBuf));
+#endif
+
     while (1) {
 
         char msg_tod[40];
         float v_angle, c_angle, t_angle;
-        float volt_value, curr_value, temp_value;
+        float volt_value = 0;
+        float curr_value = 0;
+        float temp_value = 0;
+        int doPlot = 0;
         time_t ct;
 
         if (sdlApp->conf->onHold) {
@@ -2503,6 +2538,8 @@ static int doEnvironment(sdl2_app *sdlApp)
 
             get_text_and_rect(sdlApp->renderer, 146, 50, 0, msg_volt_bank, fontLarge, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            doPlot++;
         }
 
         if (!(ct -  cnmea.curr_ts > S_TIMEOUT)) {
@@ -2514,6 +2551,8 @@ static int doEnvironment(sdl2_app *sdlApp)
 
             get_text_and_rect(sdlApp->renderer, 370, 50, 0, msg_curr_bank, fontLarge, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            doPlot++;
         }
 
         if (!(ct -  cnmea.temp_ts > S_TIMEOUT)) {
@@ -2541,6 +2580,52 @@ static int doEnvironment(sdl2_app *sdlApp)
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
+#ifdef PLOTSDL
+
+        if (doPlot == 2)
+        {
+            coordinate_list = NULL;
+            caption_list = NULL;
+            slot = 0;
+
+            // Hidden but must be defined
+            caption_list=push_back_caption(caption_list,"Power consumption",0,0x0000FF);
+
+            powerBuf[9] = fabs(cnmea.volt * cnmea.curr);
+	        coordinate_list=push_back_coord(coordinate_list,0,0,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,1,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,2,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,3,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,4,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,5,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,6,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,7,powerBuf[slot++]);
+	        coordinate_list=push_back_coord(coordinate_list,0,8,powerBuf[slot++]);
+            coordinate_list=push_back_coord(coordinate_list,0,9,powerBuf[slot++]); 
+
+            int awt = 0;
+            for (int j=0; j < slot; j+=1) { // Roll the history
+                powerBuf[j] = powerBuf[j+1];
+                if (powerBuf[j]) {
+                    awpw += powerBuf[j];
+                    awt++;
+                }
+            }
+
+            awpw /= awt;
+         
+            params.max_y = 50; params.scale_y = 5;
+            if (awpw < 100) {params.max_y = 120;    params.scale_y = 10;}
+            if (awpw < 40)  {params.max_y = 50;     params.scale_y = 5;}
+            if (awpw < 20)  {params.max_y = 30;     params.scale_y = 3;}
+            if (awpw < 6)   {params.max_y = 8;      params.scale_y = 1;}
+           
+            params.caption_list = caption_list;
+	        params.coordinate_list = coordinate_list;
+
+            plot_graph(&params);
+        }
+#endif
 
         SDL_RenderPresent(sdlApp->renderer);
  
@@ -2551,14 +2636,18 @@ static int doEnvironment(sdl2_app *sdlApp)
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
-        
-        SDL_Delay(500);
 
+        SDL_Delay(1000);
     }
 
     if (subTaskbar != NULL) {
         SDL_DestroyTexture(subTaskbar);
     }
+
+#ifdef PLOTSDL
+    params.screen_width=0;
+    plot_graph(&params);
+#endif
     SDL_DestroyTexture(gaugeVolt);
     SDL_DestroyTexture(gaugeCurr);
     SDL_DestroyTexture(gaugeTemp);

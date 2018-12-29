@@ -63,6 +63,7 @@ The packages needed are:
 - libinput-dev
 - libwebp-dev
 - libvncserver-dev
+- Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### Application dependencies for running external applications from sdlSpeedometer
 - xorg
@@ -88,6 +89,7 @@ The packages needed are:
 <img src="http://hedmanshome.se/sdlspeedometer24.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer9.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer10.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer25.png" width=100%>
 - zyGrib just launched on a 7" touch display
 <img src="http://hedmanshome.se/sdlspeedometer11.png" width=100%>
 - sdlSpeedometers' configurator

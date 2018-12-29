@@ -4,6 +4,11 @@
 #include <sqlite3.h>
 #include <rfb/rfb.h>
 
+#ifdef PLOTSDL
+#include <plotsdl/plot.h>
+#include <plotsdl/llist.h>
+#endif
+
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
 #define dmagXmax 1707

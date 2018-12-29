@@ -1,0 +1,335 @@
+diff -Naru plot-sdl-orig/plot-sdl-lib/plot.c plot-sdl/plot-sdl-lib/plot.c
+--- plot-sdl-orig/plot-sdl-lib/plot.c	2018-12-29 19:05:51.359581687 +0100
++++ plot-sdl/plot-sdl-lib/plot.c	2018-12-29 18:53:12.967517273 +0100
+@@ -53,24 +53,28 @@
+ int plot_graph(plot_params *params)
+ {
+ 
+-	setvbuf (stdout, NULL, _IONBF, 0);
++    if (params->screen == (SDL_Window *)NULL)
++    {
++	    setvbuf (stdout, NULL, _IONBF, 0);
++	   
++
++	    if(TTF_Init() == -1)
++	    {
++		    fprintf(stderr, "Error SDL TTF_Init error : %s\n", TTF_GetError());
++		    return EXIT_FAILURE;
++	    }
++	    if (SDL_Init(SDL_INIT_VIDEO)==-1){
++
++		    fprintf(stderr, "Error SDL init failure : %s\n", SDL_GetError());
++		    return EXIT_FAILURE;
++	    }
++    }
+ 
+-	surfacelist surface_list = NULL;
+-
+-	if(TTF_Init() == -1)
+-	{
+-		fprintf(stderr, "Error SDL TTF_Init error : %s\n", TTF_GetError());
+-		return EXIT_FAILURE;
+-	}
+-	if (SDL_Init(SDL_INIT_VIDEO)==-1){
+-
+-		fprintf(stderr, "Error SDL init failure : %s\n", SDL_GetError());
+-		return EXIT_FAILURE;
+-	}
++    surfacelist surface_list = NULL;
+ 
+ 	splot plot;
+ 	plot.font                 = NULL;
+-	plot.screen               = NULL;
++	plot.screen               = params->screen;
+ 	plot.plot_surface         = NULL;
+ 	plot.plot_mask_surface    = NULL;
+ 	plot.caption_surface      = NULL;
+@@ -79,7 +83,7 @@
+ 	plot.captionY             = NULL;
+ 	plot.textureX             = NULL;
+ 	plot.textureY             = NULL;
+-	plot.renderer             = NULL;
++	plot.renderer             = params->renderer;
+ 
+ 	//font specs
+ 	plot.font = TTF_OpenFont(params->font_text_path, params->font_text_size);
+@@ -92,19 +96,22 @@
+ 		return EXIT_FAILURE;
+ 	}
+ 
+-	plot.screen = SDL_CreateWindow(
+-		params->plot_window_title,
+-		SDL_WINDOWPOS_UNDEFINED,
+-		SDL_WINDOWPOS_UNDEFINED,
+-		params->screen_width, 
+-		params->screen_heigth,
+-		SDL_WINDOW_SHOWN);
++    if (plot.screen == NULL)
++    {
++	    plot.screen = SDL_CreateWindow(
++		    params->plot_window_title,
++		    SDL_WINDOWPOS_UNDEFINED,
++		    SDL_WINDOWPOS_UNDEFINED,
++		    params->screen_width, 
++		    params->screen_heigth,
++		    SDL_WINDOW_SHOWN);
++    }
+ 
+ 	//SDL_SetWindowFullscreen(plot.screen,SDL_WINDOW_FULLSCREEN);
+ 
+ 	draw_plot(&plot,params,&surface_list);
+ 
+-	clean_plot(&plot,params,&surface_list);
++    clean_plot(&plot,params,&surface_list);
+ 
+ 	return EXIT_SUCCESS;
+ }		
+@@ -121,26 +128,31 @@
+  */
+ void clean_plot(splot *plot, plot_params *params, surfacelist *surface_list)
+ {
+-	SDL_DestroyTexture(plot->textureX);
+-	SDL_DestroyTexture(plot->textureY);
+-	SDL_FreeSurface   (plot->plot_mask_surface);
+-	SDL_FreeSurface   (plot->plot_surface);
+-	SDL_FreeSurface   (plot->caption_mask_surface);
+-	SDL_FreeSurface   (plot->caption_surface);
+-	SDL_FreeSurface   (plot->captionX);
+-	SDL_FreeSurface   (plot->captionY);
++    SDL_DestroyTexture(plot->textureX);
++    SDL_DestroyTexture(plot->textureY);
++    SDL_FreeSurface   (plot->plot_mask_surface);
++    SDL_FreeSurface   (plot->plot_surface);
++    SDL_FreeSurface   (plot->caption_mask_surface);
++    SDL_FreeSurface   (plot->caption_surface);
++    SDL_FreeSurface   (plot->captionX);
++    SDL_FreeSurface   (plot->captionY);  
+ 
+ 	params->caption_list    = clear_caption(params->caption_list);
+ 	params->coordinate_list = clear_coord(params->coordinate_list);
+ 
+ 	*surface_list=clear_surface(*surface_list);
+ 
+-	SDL_DestroyRenderer(plot->renderer);
+-	SDL_DestroyWindow  (plot->screen);
+-
+-	SDL_Quit();
+-	TTF_CloseFont(plot->font);
+-	TTF_Quit();
++    if (params->screen != NULL) {
++        TTF_CloseFont(plot->font);
++        return;
++    }
++
++    SDL_DestroyRenderer(plot->renderer);
++    SDL_DestroyWindow  (plot->screen);
++
++    SDL_Quit();
++    TTF_CloseFont(plot->font);
++    TTF_Quit();
+ }
+ 
+ /**
+@@ -155,7 +167,10 @@
+  */
+ void draw_plot(splot *plot, plot_params *params, surfacelist *surface_list)
+ {
+-	plot->renderer = SDL_CreateRenderer(plot->screen, 0, 0);
++    if (params->renderer == NULL)
++    {
++	    plot->renderer = SDL_CreateRenderer(plot->screen, 0, 0);
++    } else plot->renderer = params->renderer;
+ 
+ 	if (plot->screen != NULL) {
+ 
+@@ -166,14 +181,17 @@
+ 		plot->captionY = TTF_RenderText_Blended(plot->font, params->caption_text_y, font_color);
+ 
+ 		//------------ background-----------------------
+-		SDL_SetRenderDrawColor(plot->renderer,255,255,255,255);
+-		SDL_Rect screen;
+-		screen.x=0;
+-		screen.y=0;
+-		screen.w=params->screen_width;
+-		screen.h=params->screen_heigth;
++        if (!params->hide_backgroud)
++        {
++		    SDL_SetRenderDrawColor(plot->renderer,255,255,255,255);
++		    SDL_Rect screen;
++		    screen.x=params->offset_x;
++		    screen.y=params->offset_y;
++		    screen.w=params->screen_width;
++		    screen.h=params->screen_heigth;
+ 
+-		SDL_RenderFillRect( plot->renderer, &screen );
++		    SDL_RenderFillRect( plot->renderer, &screen );
++        }
+ 		//---------------------------------------------
+ 
+ 		float plot_width=params->screen_width*0.8;
+@@ -181,8 +199,8 @@
+ 		float plot_caption_heigth=params->screen_heigth*0.05;
+ 
+ 		SDL_Rect plot_position;
+-		plot_position.x=(params->screen_width/2)-(plot_width*0.47);
+-		plot_position.y=(params->screen_heigth*0.50)-(plot_heigth/2);
++		plot_position.x=((params->screen_width/2)-(plot_width*0.47)) + params->offset_x;
++		plot_position.y=((params->screen_heigth*0.50)-(plot_heigth/2)) + params->offset_y;
+ 		plot_position.w=plot_width;
+ 		plot_position.h=plot_heigth;
+ 
+@@ -199,24 +217,25 @@
+ 		plot_caption_position.h=plot_caption_heigth;
+ 
+ 		SDL_Rect plot_caption_mask_position;
+-		plot_caption_mask_position.x=plot_caption_position.x-stroke_width;
+-		plot_caption_mask_position.y=plot_caption_position.y-stroke_width;
+-		plot_caption_mask_position.w=plot_width+stroke_width*2;
+-		plot_caption_mask_position.h=plot_caption_heigth+stroke_width*2;
+-
+-		SDL_SetRenderDrawColor(plot->renderer,0, 0, 0,255);
+-		SDL_RenderFillRect(plot->renderer,&plot_mask_position);
+-
+-		SDL_SetRenderDrawColor(plot->renderer,255, 255, 255,255);
+-		SDL_RenderFillRect(plot->renderer,&plot_position);
+-
+-		SDL_SetRenderDrawColor(plot->renderer,0, 0, 0,255);
+-		SDL_RenderFillRect(plot->renderer,&plot_caption_mask_position);
+-
+-		SDL_SetRenderDrawColor(plot->renderer,255, 255, 255,255);
+-		SDL_RenderFillRect(plot->renderer,&plot_caption_position);
+-
+-
++        if (!params->hide_caption)
++        {
++		    plot_caption_mask_position.x=plot_caption_position.x-stroke_width;
++		    plot_caption_mask_position.y=plot_caption_position.y-stroke_width;
++		    plot_caption_mask_position.w=plot_width+stroke_width*2;
++		    plot_caption_mask_position.h=plot_caption_heigth+stroke_width*2;
++
++		    SDL_SetRenderDrawColor(plot->renderer,0, 0, 0,255);
++		    SDL_RenderFillRect(plot->renderer,&plot_mask_position);
++
++		    SDL_SetRenderDrawColor(plot->renderer,255, 255, 255,255);
++		    SDL_RenderFillRect(plot->renderer,&plot_position);
++
++		    SDL_SetRenderDrawColor(plot->renderer,0, 0, 0,255);
++		    SDL_RenderFillRect(plot->renderer,&plot_caption_mask_position);
++
++	        SDL_SetRenderDrawColor(plot->renderer,255, 255, 255,255);
++	        SDL_RenderFillRect(plot->renderer,&plot_caption_position);
++        }
+ 		SDL_Rect caption_y_position;
+ 		caption_y_position.x=plot_position.x;
+ 		caption_y_position.y=plot_position.y;
+@@ -282,6 +301,7 @@
+ 					caption_text.x=circle_x2+DOT_RADIUS+CAPTION_OFFSET_CIRCLE_TO_TEXT;
+ 					caption_text.y=circle_y2-caption_text.h/2;
+ 					SDL_RenderCopy(plot->renderer, texture_text, NULL, &caption_text);
++                    SDL_DestroyTexture(texture_text);
+ 
+ 					*surface_list=push_back_surface(*surface_list,caption_text_surface);
+ 
+@@ -299,13 +319,15 @@
+ 			}
+ 		}
+ 
+-		SDL_RenderPresent(plot->renderer);
++        if (params->renderer == NULL)
++		    SDL_RenderPresent(plot->renderer);
+ 
+ 		#ifdef __ANDROID__
+ 		__android_log_print(ANDROID_LOG_VERBOSE,APP_NAME,"plot finished");
+ 		#endif
+ 
+-		wait_for_sdl_event();
++        if (params->renderer == NULL)
++		    wait_for_sdl_event();
+ 	}
+ 	else{
+ 		fprintf(stderr, "Error cant allocate memory for screen : %s\n", SDL_GetError());
+@@ -448,6 +470,7 @@
+ 		caption_text.x=init_pos_x-caption_text.w/2;
+ 		caption_text.y=init_pos_y+5;
+ 		SDL_RenderCopy(renderer, texture_text, NULL, &caption_text);
++        SDL_DestroyTexture(texture_text);
+ 
+ 		*surface_list=push_back_surface(*surface_list,caption_text_surface);
+ 
+@@ -476,6 +499,7 @@
+ 		caption_text.x=init_pos_x-caption_text.w-10;
+ 		caption_text.y=init_pos_y-caption_text.h/2;
+ 		SDL_RenderCopy(renderer, texture_text, NULL, &caption_text);
++        SDL_DestroyTexture(texture_text);
+ 
+ 		*surface_list=push_back_surface(*surface_list,caption_text_surface);
+ 
+@@ -497,6 +521,7 @@
+ 	SDL_Point caption_center={plot_position_x-CAPTION_Y_LABEL_OFFSET,0};
+ 	SDL_RendererFlip flip = SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL;
+ 	SDL_RenderCopyEx(plot->renderer,plot->textureY,NULL,&text_caption_y,90,&caption_center,flip);
++    SDL_DestroyTexture(plot->textureY);
+ 
+ 	//caption x
+ 	SDL_Rect text_caption_x;
+@@ -505,6 +530,7 @@
+ 	text_caption_x.x=params->screen_width/2-text_caption_x.w/2;
+ 	text_caption_x.y=plot_position_y+plot_heigth+1*regular_caption_text_heigth;
+ 	SDL_RenderCopy(plot->renderer, plot->textureX, NULL, &text_caption_x);
++    SDL_DestroyTexture(plot->textureX);
+ }
+ 
+ /**
+@@ -636,4 +662,4 @@
+ 			SDL_RenderDrawPoint(renderer,x,((int)(cy - r + dy)));
+ 		}
+ 	}
+-}
+\ Ingen nyrad vid filslut
++}
+diff -Naru plot-sdl-orig/plot-sdl-lib/plotsdl/plot.h plot-sdl/plot-sdl-lib/plotsdl/plot.h
+--- plot-sdl-orig/plot-sdl-lib/plotsdl/plot.h	2018-12-29 19:05:51.359581687 +0100
++++ plot-sdl/plot-sdl-lib/plotsdl/plot.h	2018-12-29 18:55:55.086700725 +0100
+@@ -66,6 +66,12 @@
+ 	float       scale_y           ;
+ 	float       max_x             ;
+ 	float       max_y             ;
++	SDL_Renderer *renderer        ;
++	SDL_Window   *screen          ;
++	int         offset_x          ;
++	int         offset_y          ;
++	int         hide_backgroud    ;
++	int         hide_caption      ;
+ 
+ } plot_params;
+ 
+@@ -214,4 +220,4 @@
+  */
+ void fill_circle(SDL_Renderer *renderer, int cx, int cy, int radius);
+ 
+-#endif
+\ Ingen nyrad vid filslut
++#endif
+diff -Naru plot-sdl-orig/plot-sdl-test/main.c plot-sdl/plot-sdl-test/main.c
+--- plot-sdl-orig/plot-sdl-test/main.c	2018-12-29 19:05:51.359581687 +0100
++++ plot-sdl/plot-sdl-test/main.c	2018-12-29 18:57:06.834339680 +0100
+@@ -87,6 +87,12 @@
+ 	params.scale_y = 10;
+ 	params.max_x = 8.5;
+ 	params.max_y = 120;
++	params.renderer = NULL;    // Let the lib create the renderer
++	params.screen = NULL;      // Let the lib create the screen
++	params.hide_backgroud = 0; // Do not hide the white background
++	params.hide_caption = 0;   // Do not hide the caption
++	params.offset_x = 0;	   // Add an offset to x postion
++	params.offset_y = 0;       // Add an offset to the y position
+ 
+ 	int ret = plot_graph(&params);
+ 
+@@ -97,4 +103,4 @@
+ 	}
+ 
+ 	return EXIT_SUCCESS;
+-}
+\ Ingen nyrad vid filslut
++}

@@ -8,20 +8,26 @@ GETC=".git/HEAD"
 SMDB=speedometer.db
 
 ifeq ($(shell test -e $(GETC) && echo -n yes),yes)
-CFLAGS=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
+CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
+endif
+
+LDFLAGS=-lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
+
+ifeq ($(shell test -e /usr/local/include/plotsdl/plot.h && echo -n yes),yes)
+CFLAGS+=-DPLOTSDL
+LDFLAGS+=-lplotsdl
 endif
 
 all: $(BIN)
 
 override CFLAGS+= -Wall -g -std=gnu99
-LDFLAGS=-lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
 
 $(BIN): $(SRCS) $(HDRS)
-	$(CC) $(SRCS) $(CFLAGS) $(LDFLAGS) -o $(BIN)
+	$(CC) $(SRCS) $(CFLAGS) $(EXTRA_CFLAGS) $(LDFLAGS) -o $(BIN)
 
 install:
 	rm -f $(BIN)
-	make $(BIN) CFLAGS="-DPATH_INSTALL -O2"
+	make $(BIN)  EXTRA_CFLAGS="-DPATH_INSTALL -O2"
 	sudo install -m 0755 -g root -o root $(BIN) -D $(DEST)/bin/$(BIN)
 	sudo install -m 0755 -g root -o root spawnSubtask -D $(DEST)/bin/spawnSubtask
 	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config
