@@ -63,6 +63,7 @@ enum sdlPages {
     WNDPAGE,
     GPSPAGE,
     CALPAGE,
+    PWRPAGE,
     TSKPAGE  
 };
 
@@ -113,6 +114,17 @@ typedef struct {
     char    glns[2];    // North (N) or South (S)
     char    glne[2];    // East (E) or West (W)
     time_t  net_ts;     // Data valid from network
+    // Sensors $P type messages
+    float   volt;       // Sensor Volt
+    int     volt_bank;  // Batery sensor bank #
+    time_t  volt_ts;    // Volt Timestamp
+    float   curr;       // Sensor Current
+    int     curr_bank;  // Current sensor bank #
+    time_t  curr_ts;    // Current Timestamp
+    float   temp;       // Sensor Temp
+    int     temp_loc;   // Sensor location i.e, indoor ...
+    time_t  temp_ts;    // Temp Timestamp
+    // Misc
     float   declination;  // from NOAA
 } collected_nmea;
 

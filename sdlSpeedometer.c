@@ -876,6 +876,24 @@ static int nmeaNetCollector(void* conf)
                         continue;
                     }
                 }
+ 
+                // Format: GPENV,volt,bank,current,bank,temp,where*cs
+                // "$P". These extended messages are not standardized. 
+                if (NMPARSE(buffer, "ENV")) {
+                    cnmea.volt=         atof(getf(1, buffer));
+                    cnmea.volt_bank=    atoi(getf(2, buffer));
+                    if(cnmea.volt >=8)  cnmea.volt_ts = ts;
+
+                    cnmea.curr=         atof(getf(3, buffer));
+                    cnmea.curr_bank=    atoi(getf(4, buffer));
+                    if(cnmea.curr != 0) cnmea.curr_ts = ts;
+
+                    cnmea.temp=         atof(getf(5, buffer));
+                    cnmea.temp_loc=     atoi(getf(6, buffer));
+                    if(cnmea.temp != 100) cnmea.temp_ts = ts;
+
+                    continue;
+                }
 
             } else {
                 configParams->netStat = 0;
@@ -1055,11 +1073,13 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
             return WNDPAGE;
         if (x > 662 && x < 708)
            return GPSPAGE;
-        if (event->user.code == 1)  // Not allowed for RFB
-            return 0;
-        if (x > 718 && x < 765)
-           return CALPAGE;
-        if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+        if (x > 718 && x < 765) {
+            if (sdlApp->curPage == COGPAGE && event->user.code != 1 /* not for RFB */)
+                return CALPAGE;
+            else
+                return PWRPAGE;
+        }
+        if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
             if (x > 30 && x < 80)
                 return TSKPAGE;
         }
@@ -1067,30 +1087,30 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     return 0;
 }
 
-static void addMenuItems(SDL_Renderer *renderer, TTF_Font *font)
+static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
 
     SDL_Texture* textM1;
     SDL_Rect M1_rect;
 
-    get_text_and_rect(renderer, 440, 416, 0, "COG", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 440, 416, 0, "COG", font, &textM1, &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 
-    get_text_and_rect(renderer, 498, 416, 0, "SOG", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 498, 416, 0, "SOG", font, &textM1, &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 
-    get_text_and_rect(renderer, 556, 416, 0, "DPT", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 556, 416, 0, "DPT", font, &textM1, &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 
-    get_text_and_rect(renderer, 610, 416, 0, "WND", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 610, 416, 0, "WND", font, &textM1, &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 
-    get_text_and_rect(renderer, 668, 416, 0, "GPS", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 668, 416, 0, "GPS", font, &textM1, &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
     
-    get_text_and_rect(renderer, 726, 416, 0, "CAL", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &textM1, &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 }
 
 static void setUTCtime(void)
@@ -1370,7 +1390,7 @@ static int doCompass(sdl2_app *sdlApp)
         }
        
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp->renderer, fontSrc);
+        addMenuItems(sdlApp, fontSrc);
 
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -1399,6 +1419,10 @@ static int doCompass(sdl2_app *sdlApp)
         } 
 
         SDL_Delay(40);       
+    }
+
+    if (subTaskbar != NULL) {
+        SDL_DestroyTexture(subTaskbar);
     }
 
     SDL_DestroyTexture(compassRose);
@@ -1594,7 +1618,7 @@ static int doSumlog(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
 
-        addMenuItems(sdlApp->renderer, fontSrc);
+        addMenuItems(sdlApp, fontSrc);
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -1620,6 +1644,10 @@ static int doSumlog(sdl2_app *sdlApp)
         }
         
         SDL_Delay(40);
+    }
+
+    if (subTaskbar != NULL) {
+        SDL_DestroyTexture(subTaskbar);
     }
 
     SDL_DestroyTexture(gaugeSumlog);
@@ -1803,7 +1831,7 @@ static int doGps(sdl2_app *sdlApp)
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp->renderer, fontSrc);
+        addMenuItems(sdlApp, fontSrc);
 
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -1834,6 +1862,9 @@ static int doGps(sdl2_app *sdlApp)
         SDL_Delay(500);
     }
 
+    if (subTaskbar != NULL) {
+        SDL_DestroyTexture(subTaskbar);
+    }
     SDL_DestroyTexture(gaugeGps);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
@@ -2024,7 +2055,7 @@ static int doDepth(sdl2_app *sdlApp)
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp->renderer, fontSrc);
+        addMenuItems(sdlApp, fontSrc);
 
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -2055,6 +2086,9 @@ static int doDepth(sdl2_app *sdlApp)
         SDL_Delay(40);
     }
 
+    if (subTaskbar != NULL) {
+        SDL_DestroyTexture(subTaskbar);
+    }
     SDL_DestroyTexture(gaugeDepth);
     SDL_DestroyTexture(gaugeDepthW);
     SDL_DestroyTexture(gaugeDepthx10);
@@ -2256,7 +2290,7 @@ static int doWind(sdl2_app *sdlApp)
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp->renderer, fontSrc);
+        addMenuItems(sdlApp, fontSrc);
 
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -2287,6 +2321,9 @@ static int doWind(sdl2_app *sdlApp)
         SDL_Delay(40);
     }
 
+    if (subTaskbar != NULL) {
+        SDL_DestroyTexture(subTaskbar);
+    }
     SDL_DestroyTexture(gaugeSumlog);
     SDL_DestroyTexture(gaugeNeedle);
     SDL_DestroyTexture(menuBar);
@@ -2301,6 +2338,243 @@ static int doWind(sdl2_app *sdlApp)
 
     return event.type;
 }
+
+// Present Environmant page (Non standard NMEA)
+static int doEnvironment(sdl2_app *sdlApp)
+{
+    SDL_Event event;
+    SDL_Rect gaugeVoltR, gaugeCurrR, gaugeTempR, voltNeedleR, currNeedleR, tempNeedleR, menuBarR, netStatbarR, subTaskbarR;
+    TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 18);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
+
+    SDL_Texture* gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt.png");
+    SDL_Texture* gaugeCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "curr.png");
+    SDL_Texture* gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp.png");
+    SDL_Texture* needleVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
+    SDL_Texture* needleCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
+    SDL_Texture* needleTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
+
+    sdlApp->curPage = PWRPAGE;
+    SDL_Texture* subTaskbar = NULL;
+
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+        char icon[PATH_MAX];
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
+            subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
+    }
+
+    gaugeVoltR.w = 200;
+    gaugeVoltR.h = 200;
+    gaugeVoltR.x = 80;
+    gaugeVoltR.y = 80;
+
+    gaugeCurrR.w = 200;
+    gaugeCurrR.h = 200;
+    gaugeCurrR.x = 300;
+    gaugeCurrR.y = 80;
+
+    gaugeTempR.w = 200;
+    gaugeTempR.h = 200;
+    gaugeTempR.x = 520;
+    gaugeTempR.y = 80;
+
+    voltNeedleR.w = 100;
+    voltNeedleR.h = 62;
+    voltNeedleR.x = 131;
+    voltNeedleR.y = 160;
+
+    currNeedleR.w = 100;
+    currNeedleR.h = 62;
+    currNeedleR.x = 349;
+    currNeedleR.y = 160;
+
+    tempNeedleR.w = 100;
+    tempNeedleR.h = 62;
+    tempNeedleR.x = 572;
+    tempNeedleR.y = 160;
+
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
+
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
+
+    subTaskbarR.w = 50;
+    subTaskbarR.h = 50;
+    subTaskbarR.x = 30;
+    subTaskbarR.y = 400;
+
+    SDL_Texture* textField;
+    SDL_Rect textField_rect;
+
+    // Scale adjustments
+    float v_maxangle = 102;
+    float v_offset = 6;
+    float v_max = 16;
+    float v_min = 8;
+    float v_scaleoffset = 8;
+
+    float c_maxangle = 120;
+    float c_offset = 58;
+    float c_max = 30;
+    float c_scaleoffset = 0;
+
+    float t_maxangle = 136;
+    float t_offset = 33;
+    float t_max = 50;
+    float t_scaleoffset = 5;
+
+    int toggle = 1;
+
+    char msg_volt[20] = {"0.0"};
+    char msg_curr[20] = {"0.0"};
+    char msg_temp[20] = {"0.0"};
+
+    char msg_volt_bank[20] = {"Bank -"};
+    char msg_curr_bank[20] = {"Bank -"};
+    char msg_temp_loca[20] = {"--"};
+
+    while (1) {
+
+        char msg_tod[40];
+        float v_angle, c_angle, t_angle;
+        float volt_value, curr_value, temp_value;
+        time_t ct;
+
+        if (sdlApp->conf->onHold) {
+            SDL_Delay(4000);
+            continue;
+        }
+
+        SDL_PollEvent(&event);
+
+        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
+            break;
+
+        if(event.type == SDL_FINGERDOWN)
+        {
+            if ((event.type=pageSelect(sdlApp, &event)))
+                break;
+        }
+
+        ct = time(NULL);    // Get a timestamp for this turn
+        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
+
+        if (!(ct - cnmea.volt_ts > S_TIMEOUT)) {
+            sprintf(msg_volt, "%.1f", cnmea.volt);
+            volt_value = cnmea.volt;
+            sprintf(msg_volt_bank, "Bank %d", cnmea.volt_bank);
+        }
+
+        if (!(ct - cnmea.curr_ts > S_TIMEOUT)) {
+            sprintf(msg_curr, "%.1f", cnmea.curr);
+            curr_value = cnmea.curr;
+            sprintf(msg_curr_bank, "Bank %d", cnmea.curr_bank);
+        }
+
+        if (!(ct - cnmea.temp_ts > S_TIMEOUT)) {
+            sprintf(msg_temp, "%.1f", cnmea.temp);
+            temp_value = cnmea.temp;
+            if (cnmea.temp_loc == 1)
+                sprintf(msg_temp_loca, "Indoor");
+        }
+ 
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeVolt, NULL, &gaugeVoltR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeCurr, NULL, &gaugeCurrR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeTemp, NULL, &gaugeTempR, 0, NULL, SDL_FLIP_NONE);
+
+        if (!(ct - cnmea.volt_ts > S_TIMEOUT || volt_value < v_min || volt_value > v_max )) {
+            v_angle = ((volt_value-v_scaleoffset) * (v_maxangle/v_max) *2)+v_offset;
+            SDL_RenderCopyEx(sdlApp->renderer, needleVolt, NULL, &voltNeedleR, v_angle, NULL, SDL_FLIP_NONE);
+
+            get_text_and_rect(sdlApp->renderer, 164, 220, 0, msg_volt, fontSmall, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            get_text_and_rect(sdlApp->renderer, 146, 50, 0, msg_volt_bank, fontLarge, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        }
+
+        if (!(ct -  cnmea.curr_ts > S_TIMEOUT)) {
+            c_angle = (((curr_value*0.5)-c_scaleoffset) * (c_maxangle/c_max)*2)+c_offset;
+            SDL_RenderCopyEx(sdlApp->renderer, needleCurr, NULL, &currNeedleR, c_angle, NULL, SDL_FLIP_NONE);
+
+            get_text_and_rect(sdlApp->renderer, 386, 220, 0, msg_curr, fontSmall, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            get_text_and_rect(sdlApp->renderer, 370, 50, 0, msg_curr_bank, fontLarge, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        }
+
+        if (!(ct -  cnmea.temp_ts > S_TIMEOUT)) {
+            t_angle = ((temp_value-t_scaleoffset) * (t_maxangle/t_max)*1.2)+t_offset;
+            SDL_RenderCopyEx(sdlApp->renderer, needleTemp, NULL, &tempNeedleR, t_angle, NULL, SDL_FLIP_NONE);
+
+            get_text_and_rect(sdlApp->renderer, 605, 220, 0, msg_temp, fontSmall, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            get_text_and_rect(sdlApp->renderer, 586, 50, 0, msg_temp_loca, fontLarge, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        }
+
+        if (sdlApp->conf->netStat == 1) {
+           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp, fontSmall);
+
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+
+        if (subTaskbar != NULL) {
+            SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        SDL_RenderPresent(sdlApp->renderer);
+ 
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
+            // Read the pixels from the current render target and save them onto the surface
+            // This will slow down the application a bit.
+            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
+                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+        }
+        
+        SDL_Delay(500);
+
+    }
+
+    if (subTaskbar != NULL) {
+        SDL_DestroyTexture(subTaskbar);
+    }
+    SDL_DestroyTexture(gaugeVolt);
+    SDL_DestroyTexture(gaugeCurr);
+    SDL_DestroyTexture(gaugeTemp);
+    SDL_DestroyTexture(needleVolt);
+    SDL_DestroyTexture(needleCurr);
+    SDL_DestroyTexture(needleTemp);
+    SDL_DestroyTexture(menuBar);
+    SDL_DestroyTexture(netStatBar);    
+    TTF_CloseFont(fontTod);
+    TTF_CloseFont(fontSmall);
+    TTF_CloseFont(fontLarge);
+    IMG_Quit();
+
+    return event.type;
+}
+
 
 static int threadCalibrator(void *ptr)
 {
@@ -2478,7 +2752,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp->renderer, fontSrc);
+        addMenuItems(sdlApp, fontSrc);
 
         SDL_RenderPresent(sdlApp->renderer); 
         
@@ -2681,7 +2955,6 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
 // Give up all resources in favor of a subtask execution.
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
-
     int runners[3];
     int status, i=0;
     char *args[20];
@@ -2830,6 +3103,8 @@ int main(int argc, char *argv[])
             case WNDPAGE: sdlApp.nextPage = doWind(&sdlApp);
                 break;
             case GPSPAGE: sdlApp.nextPage = doGps(&sdlApp);
+                break;
+            case PWRPAGE: sdlApp.nextPage = doEnvironment(&sdlApp);
                 break;
             case CALPAGE: sdlApp.nextPage = doCalibration(&sdlApp, &configParams);
                 break;
