@@ -14,13 +14,14 @@ The communication mechanism between this application with its GUI and data sourc
 
 This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if it has its own battery backup.
 
-Currently there are five virtual instrument working (data source within brackets):
+Currently there are eight virtual instrument working (data source within brackets):
 
     Compass       : With heading and roll (BerryGPS-IMUv2)
     GPS           : Lo, Lat and Heading (BerryGPS-IMUv2)
     Log           : SOW, SOG (NMEA net)
     Wind          : Real, Relative and speed (NMEA net)
     Depth         : With low water warning and water temp (NMEA net)
+    Environment   : Page with Voltage, Current, Temp and Power plotting (proprietary NMEA net "$P" sentences)
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination)
 
@@ -63,6 +64,8 @@ The packages needed are:
 - libinput-dev
 - libwebp-dev
 - libvncserver-dev
+
+### Other libraries 
 - Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### Application dependencies for running external applications from sdlSpeedometer
