@@ -166,6 +166,12 @@ int  configureDb(configuration *configParams)
                     sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('openvt','sdlSpeedometer-config')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
 
                     rval = sqlite3_finalize(res);
                     break;
@@ -2372,32 +2378,32 @@ static int doEnvironment(sdl2_app *sdlApp)
     gaugeVoltR.w = 200;
     gaugeVoltR.h = 200;
     gaugeVoltR.x = 80;
-    gaugeVoltR.y = 80;
+    gaugeVoltR.y = 30;
 
     gaugeCurrR.w = 200;
     gaugeCurrR.h = 200;
     gaugeCurrR.x = 300;
-    gaugeCurrR.y = 80;
+    gaugeCurrR.y = 30;
 
     gaugeTempR.w = 200;
     gaugeTempR.h = 200;
     gaugeTempR.x = 520;
-    gaugeTempR.y = 80;
+    gaugeTempR.y = 30;
 
     voltNeedleR.w = 100;
     voltNeedleR.h = 62;
     voltNeedleR.x = 131;
-    voltNeedleR.y = 160;
+    voltNeedleR.y = 110;
 
     currNeedleR.w = 100;
     currNeedleR.h = 62;
     currNeedleR.x = 349;
-    currNeedleR.y = 160;
+    currNeedleR.y = 110;
 
     tempNeedleR.w = 100;
     tempNeedleR.h = 62;
     tempNeedleR.x = 572;
-    tempNeedleR.y = 160;
+    tempNeedleR.y = 110;
 
     menuBarR.w = 340;
     menuBarR.h = 50;
@@ -2445,14 +2451,11 @@ static int doEnvironment(sdl2_app *sdlApp)
     char msg_temp_loca[20] = {"--"};
 
 #ifdef PLOTSDL
-	// The captionlist and coordlist lists
-    captionlist caption_list;
-    coordlist coordinate_list;
+    float powerBuf[25];
 
-	//populate plot parameter object
 	plot_params params;
 
-	params.screen_width=430;
+	params.screen_width=760;
 	params.screen_heigth=210;
 	params.font_text_path=DEFAULT_FONT;
 	params.font_text_size=12;
@@ -2461,17 +2464,12 @@ static int doEnvironment(sdl2_app *sdlApp)
 	params.caption_text_x="Time (s)";
 	params.caption_text_y="Watt";
 	params.scale_x = 1;
-	params.scale_y = 2;
-	params.max_x = 10;
-	params.max_y = 30;
+	params.max_x = sizeof(powerBuf)/sizeof(float);
     params.screen = sdlApp->window;
     params.renderer = sdlApp->renderer;
-    params.offset_x = 10;
-    params.offset_y = 240;
-    float powerBuf[20];
-    float awpw = 0;
-    int slot = 0;
-
+    params.offset_x = 0;
+    params.offset_y = 190;
+    
     memset(powerBuf, 0, sizeof(powerBuf));
 #endif
 
@@ -2533,10 +2531,10 @@ static int doEnvironment(sdl2_app *sdlApp)
             v_angle = ((volt_value-v_scaleoffset) * (v_maxangle/v_max) *2)+v_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleVolt, NULL, &voltNeedleR, v_angle, NULL, SDL_FLIP_NONE);
 
-            get_text_and_rect(sdlApp->renderer, 164, 220, 0, msg_volt, fontSmall, &textField, &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 164, 170, 0, msg_volt, fontSmall, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-            get_text_and_rect(sdlApp->renderer, 146, 50, 0, msg_volt_bank, fontLarge, &textField, &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 146, 240, 0, msg_volt_bank, fontLarge, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
             doPlot++;
@@ -2546,10 +2544,10 @@ static int doEnvironment(sdl2_app *sdlApp)
             c_angle = (((curr_value*0.5)-c_scaleoffset) * (c_maxangle/c_max)*2)+c_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleCurr, NULL, &currNeedleR, c_angle, NULL, SDL_FLIP_NONE);
 
-            get_text_and_rect(sdlApp->renderer, 386, 220, 0, msg_curr, fontSmall, &textField, &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 386, 170, 0, msg_curr, fontSmall, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-            get_text_and_rect(sdlApp->renderer, 370, 50, 0, msg_curr_bank, fontLarge, &textField, &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 370, 240, 0, msg_curr_bank, fontLarge, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
             doPlot++;
@@ -2559,10 +2557,10 @@ static int doEnvironment(sdl2_app *sdlApp)
             t_angle = ((temp_value-t_scaleoffset) * (t_maxangle/t_max)*1.2)+t_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleTemp, NULL, &tempNeedleR, t_angle, NULL, SDL_FLIP_NONE);
 
-            get_text_and_rect(sdlApp->renderer, 605, 220, 0, msg_temp, fontSmall, &textField, &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 605, 170, 0, msg_temp, fontSmall, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-            get_text_and_rect(sdlApp->renderer, 586, 50, 0, msg_temp_loca, fontLarge, &textField, &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 586, 240, 0, msg_temp_loca, fontLarge, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
 
@@ -2580,45 +2578,44 @@ static int doEnvironment(sdl2_app *sdlApp)
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
-#ifdef PLOTSDL
 
+#ifdef PLOTSDL
         if (doPlot == 2)
         {
-            coordinate_list = NULL;
-            caption_list = NULL;
-            slot = 0;
+	        // The captionlist and coordlist lists
+            captionlist caption_list = NULL;
+            coordlist coordinate_list = NULL;
+            int j=0;
 
             // Hidden but must be defined
             caption_list=push_back_caption(caption_list,"Power consumption",0,0x0000FF);
 
-            powerBuf[9] = fabs(cnmea.volt * cnmea.curr);
-	        coordinate_list=push_back_coord(coordinate_list,0,0,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,1,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,2,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,3,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,4,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,5,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,6,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,7,powerBuf[slot++]);
-	        coordinate_list=push_back_coord(coordinate_list,0,8,powerBuf[slot++]);
-            coordinate_list=push_back_coord(coordinate_list,0,9,powerBuf[slot++]); 
+            int avtp = 0;
+            float avpw = 0;
 
-            int awt = 0;
-            for (int j=0; j < slot; j+=1) { // Roll the history
-                powerBuf[j] = powerBuf[j+1];
+	        // Populate plot parameter object
+            powerBuf[0] = fabs(cnmea.volt * cnmea.curr);
+
+            for (int i=sizeof(powerBuf)/sizeof(float); i >0; i--)
+            {
+                coordinate_list=push_back_coord(coordinate_list, 0, j, powerBuf[j]);
                 if (powerBuf[j]) {
-                    awpw += powerBuf[j];
-                    awt++;
+                    avpw += powerBuf[j];
+                    avtp++;
                 }
+                if (j++)
+                    powerBuf[i] = powerBuf[i-1];    // History shift
             }
 
-            awpw /= awt;
-         
-            params.max_y = 50; params.scale_y = 5;
-            if (awpw < 100) {params.max_y = 120;    params.scale_y = 10;}
-            if (awpw < 40)  {params.max_y = 50;     params.scale_y = 5;}
-            if (awpw < 20)  {params.max_y = 30;     params.scale_y = 3;}
-            if (awpw < 6)   {params.max_y = 8;      params.scale_y = 1;}
+            avpw /= avtp;
+
+            // Adjust y-scale according to sampled average watt
+            params.max_y = 500; params.scale_y = 50;    // Default
+            if (avpw < 200) {params.max_y = 220;    params.scale_y = 20;}
+            if (avpw < 100) {params.max_y = 120;    params.scale_y = 10;}
+            if (avpw < 40)  {params.max_y = 50;     params.scale_y = 5;}
+            if (avpw < 20)  {params.max_y = 30;     params.scale_y = 3;}
+            if (avpw < 6)   {params.max_y = 8;      params.scale_y = 1;}
            
             params.caption_list = caption_list;
 	        params.coordinate_list = coordinate_list;

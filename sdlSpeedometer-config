@@ -44,7 +44,7 @@ calc_wt_size() {
   # NOTE: it's tempting to redirect stderr to /dev/null, so supress error
   # output from tput. However in this case, tput detects neither stdout or
   # stderr is a tty and so only gives default 80, 24 values
-  WT_HEIGHT=17
+  WT_HEIGHT=18
   WT_WIDTH=$(tput cols)
 
   if [ -z "$WT_WIDTH" ] || [ "$WT_WIDTH" -lt 60 ]; then
@@ -366,9 +366,10 @@ do_config_menu() {
     "5 NMEA Network" "Enter NMEA-0183 server name" \
     "6 NMEA Net port" "Enter NMEA-0183 server port" \
     "7 VNC Server port" "Enter VNC server port" \
-    "8 Application 1" "Enter External Application 1" \
-    "9 Application 2" "Enter External Application 2" \
-    "10 Configuration" "Run raspi-config" \
+    "8 Application 1" "Enter External Application for page SOG" \
+    "9 Application 2" "Enter External Application for page DPT" \
+    "10 Application 3" "Enter External Application for page PWR" \
+    "11 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -384,7 +385,8 @@ do_config_menu() {
       7\ *) do_set_vnc_port ;;
       8\ *) do_set_external_app 2 ;;
       9\ *) do_set_external_app 3 ;;
-      10\ *) do_raspi_config ;;
+      10\ *) do_set_external_app 7 ;;
+      11\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi
