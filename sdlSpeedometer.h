@@ -129,6 +129,9 @@ typedef struct {
     float   temp;       // Sensor Temp
     int     temp_loc;   // Sensor location i.e, indoor ...
     time_t  temp_ts;    // Temp Timestamp
+    float   kWhp;       // Kilowatt hour - charged
+    float   kWhn;       // Kilowatt hour - consumed
+    time_t  startTime;  // Server's starttime
     // Misc
     float   declination;  // from NOAA
 } collected_nmea;

@@ -92,7 +92,7 @@ The packages needed are:
 <img src="http://hedmanshome.se/sdlspeedometer24.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer9.png" width=100%>
 <img src="http://hedmanshome.se/sdlspeedometer10.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer26.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer27.png" width=100%>
 - zyGrib just launched on a 7" touch display
 <img src="http://hedmanshome.se/sdlspeedometer11.png" width=100%>
 - sdlSpeedometers' configurator

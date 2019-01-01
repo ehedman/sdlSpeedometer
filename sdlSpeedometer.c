@@ -883,7 +883,7 @@ static int nmeaNetCollector(void* conf)
                     }
                 }
  
-                // Format: GPENV,volt,bank,current,bank,temp,where*cs
+                // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
                 // "$P". These extended messages are not standardized. 
                 if (NMPARSE(buffer, "ENV")) {
                     cnmea.volt=         atof(getf(1, buffer));
@@ -898,6 +898,9 @@ static int nmeaNetCollector(void* conf)
                     cnmea.temp_loc=     atoi(getf(6, buffer));
                     if(cnmea.temp != 100) cnmea.temp_ts = ts;
 
+                    cnmea.kWhp=         atof(getf(7, buffer));
+                    cnmea.kWhn=         atof(getf(8, buffer));
+                    cnmea.startTime=    atol(getf(9, buffer));
                     continue;
                 }
 
@@ -1731,8 +1734,6 @@ static int doGps(sdl2_app *sdlApp)
 
     int boxItems[] = {120,170,220,270};
 
-    int toggle = 1;
-
     while (1) {
         int boxItem = 0;
         char msg_hdm[40];
@@ -1857,7 +1858,7 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
             // Read the pixels from the current render target and save them onto the surface
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
@@ -2440,8 +2441,6 @@ static int doEnvironment(sdl2_app *sdlApp)
     float t_max = 50;
     float t_scaleoffset = 5;
 
-    int toggle = 1;
-
     char msg_volt[20] = {"0.0"};
     char msg_curr[20] = {"0.0"};
     char msg_temp[20] = {"0.0"};
@@ -2453,34 +2452,36 @@ static int doEnvironment(sdl2_app *sdlApp)
 #ifdef PLOTSDL
     float powerBuf[25];
 
-	plot_params params;
+    plot_params params;
 
-	params.screen_width=760;
-	params.screen_heigth=210;
-	params.font_text_path=DEFAULT_FONT;
-	params.font_text_size=12;
+    params.screen_width=760;
+    params.screen_heigth=210;
+    params.font_text_path=DEFAULT_FONT;
+    params.font_text_size=12;
     params.hide_backgroud = 1;
     params.hide_caption = 1;
-	params.caption_text_x="Time (s)";
-	params.caption_text_y="Watt";
-	params.scale_x = 1;
-	params.max_x = sizeof(powerBuf)/sizeof(float);
+    params.caption_text_x="Time (s)";
+    params.caption_text_y="Watt";
+    params.scale_x = 1;
+    params.max_x = sizeof(powerBuf)/sizeof(float);
     params.screen = sdlApp->window;
     params.renderer = sdlApp->renderer;
     params.offset_x = 0;
     params.offset_y = 190;
-    
+
     memset(powerBuf, 0, sizeof(powerBuf));
 #endif
 
     while (1) {
 
         char msg_tod[40];
+        char msg_stm[40];
+        char msg_kWhp[60];
+        char msg_kWhn[60];
         float v_angle, c_angle, t_angle;
         float volt_value = 0;
         float curr_value = 0;
         float temp_value = 0;
-        int doPlot = 0;
         time_t ct;
 
         if (sdlApp->conf->onHold) {
@@ -2520,6 +2521,19 @@ static int doEnvironment(sdl2_app *sdlApp)
             if (cnmea.temp_loc == 1)
                 sprintf(msg_temp_loca, "Indoor");
         }
+
+        if (cnmea.startTime) {
+            strftime(msg_stm, sizeof(msg_stm),"%x:%H:%M", localtime(&cnmea.startTime));
+            if (cnmea.kWhn < 1.0)
+                sprintf(msg_kWhn, "%.3f kWh consumed since %s", cnmea.kWhn, msg_stm);
+            else
+                sprintf(msg_kWhn, "%.1f kWh consumed since %s", cnmea.kWhn, msg_stm);
+            
+            if (cnmea.kWhp < 1.0)
+                sprintf(msg_kWhp, "%.3f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
+            else
+                sprintf(msg_kWhp, "%.1f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
+        }
  
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
@@ -2537,7 +2551,6 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 146, 240, 0, msg_volt_bank, fontLarge, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-            doPlot++;
         }
 
         if (!(ct -  cnmea.curr_ts > S_TIMEOUT)) {
@@ -2550,7 +2563,6 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 370, 240, 0, msg_curr_bank, fontLarge, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-            doPlot++;
         }
 
         if (!(ct -  cnmea.temp_ts > S_TIMEOUT)) {
@@ -2574,32 +2586,39 @@ static int doEnvironment(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
+        if (cnmea.startTime)
+        {
+            get_text_and_rect(sdlApp->renderer, 104, 416, 0, msg_kWhn, fontSmall, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 104, 432, 0, msg_kWhp, fontSmall, &textField, &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        }
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
 #ifdef PLOTSDL
-        if (doPlot == 2)
+        if (cnmea.startTime)
         {
-	        // The captionlist and coordlist lists
+            // The captionlist and coordlist lists
             captionlist caption_list = NULL;
             coordlist coordinate_list = NULL;
             int j=0;
 
             // Hidden but must be defined
-            caption_list=push_back_caption(caption_list,"Power consumption",0,0x0000FF);
+            caption_list=push_back_caption(caption_list,"Power consumption", 0, (curr_value >=0? 0x00FF00 : 0xFF0000));
 
             int avtp = 0;
             float avpw = 0;
 
-	        // Populate plot parameter object
+            // Populate plot parameter object
             powerBuf[0] = fabs(cnmea.volt * cnmea.curr);
 
             for (int i=sizeof(powerBuf)/sizeof(float); i >0; i--)
             {
                 coordinate_list=push_back_coord(coordinate_list, 0, j, powerBuf[j]);
-                if (powerBuf[j]) {
+                if (powerBuf[j] && avtp < 6) {
                     avpw += powerBuf[j];
                     avtp++;
                 }
@@ -2616,6 +2635,7 @@ static int doEnvironment(sdl2_app *sdlApp)
             if (avpw < 40)  {params.max_y = 50;     params.scale_y = 5;}
             if (avpw < 20)  {params.max_y = 30;     params.scale_y = 3;}
             if (avpw < 6)   {params.max_y = 8;      params.scale_y = 1;}
+            if (avpw < 3)   {params.max_y = 5;      params.scale_y = 1;}
            
             params.caption_list = caption_list;
 	        params.coordinate_list = coordinate_list;
@@ -2626,7 +2646,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
  
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
             // Read the pixels from the current render target and save them onto the surface
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
