@@ -13,14 +13,20 @@ if [ -z "${app}" ]; then
     exit 1
 fi
 
-trap doQuit INT
-
 function doQuit() {
+
     if [ -n "${XPID}" ]; then
-        kill -INT "${XPID}"
+        kill -INT "${XPID}" &>/dev/null
     fi
+
+    if [ -n "${APPID}" ]; then
+        kill -INT "${APPID}" &>/dev/null
+    fi
+
     exit 0
 }
+
+trap doQuit EXIT
 
 if [ "$(basename "${app}")" == "openvt" ]; then
     shift
@@ -58,6 +64,13 @@ fi
 
 setDisplay &
 
-${app} "$@" &>/dev/null
+function  startChild()
+{
+    exec ${app} "$@" &>/dev/null
+}
+
+startChild "$@" &
+APPID=$!
+wait
 
 doQuit

@@ -10,7 +10,7 @@ Examples for 1 800x480 touch screen device:
 
 OpenCPN:
 ~/.opencpn/opencpn.conf:
-  lientPosX=0
+  ClientPosX=0
   ClientPosY=0
   ClientSzX=800
   ClientSzY=480

@@ -32,6 +32,7 @@
 #include <curl/curl.h>
 #include <termios.h>
 #include <libgen.h>
+#include <sys/prctl.h>
 #include <time.h>
 #include <syslog.h>
 #include <errno.h>
@@ -269,7 +270,7 @@ static int threadMonstat(void *conf)
     configParams->onHold = 0;
     
     // Use get EDID to determine if the display is present i.e. on/off
-    while (1) {
+    while (configParams->runMon) {
         memset(buf, 0, sizeof(buf));
         if ((fd = popen(cmd, "r")) != NULL) {
             if ((fread(buf, 1, sizeof(buf), fd)) > 7) {
@@ -284,6 +285,9 @@ static int threadMonstat(void *conf)
         }
         SDL_Delay(5000);
     }
+
+    SDL_Log("threadMonstat stopped");
+
     return 0;
 }
 
@@ -2482,6 +2486,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         float volt_value = 0;
         float curr_value = 0;
         float temp_value = 0;
+        int doPlot = 0;
         time_t ct;
 
         if (sdlApp->conf->onHold) {
@@ -2507,12 +2512,14 @@ static int doEnvironment(sdl2_app *sdlApp)
             sprintf(msg_volt, "%.1f", cnmea.volt);
             volt_value = cnmea.volt;
             sprintf(msg_volt_bank, "Bank %d", cnmea.volt_bank);
+            doPlot++;
         }
 
         if (!(ct - cnmea.curr_ts > S_TIMEOUT)) {
             sprintf(msg_curr, "%.1f", cnmea.curr);
             curr_value = cnmea.curr;
             sprintf(msg_curr_bank, "Bank %d", cnmea.curr_bank);
+            doPlot++;
         }
 
         if (!(ct - cnmea.temp_ts > S_TIMEOUT)) {
@@ -2638,7 +2645,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             if (avpw < 3)   {params.max_y = 5;      params.scale_y = 1;}
            
             params.caption_list = caption_list;
-	        params.coordinate_list = coordinate_list;
+            if(doPlot)
+	            params.coordinate_list = coordinate_list;
 
             plot_graph(&params);
         }
@@ -3094,6 +3102,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     if (configParams->subTaskPID == 0) {
         // Child
         setpgid(0, 0);
+        prctl(PR_SET_PDEATHSIG, SIGINT);
         execv ("/bin/bash", args);
     }
 
@@ -3235,7 +3244,7 @@ int main(int argc, char *argv[])
             SDL_FreeSurface(configParams.vncPixelBuffer);
     }
 
-    configParams.runGps = configParams.runi2c = configParams.runNet = 0;
+    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runMon = 0;
 
     // .. and let them close cleanly
     while(configParams.numThreads)
