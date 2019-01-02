@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [ "$DISPLAY" == ":0.0" ]; then
+    xvkbd -window xterm -no-keypad -no-functionkey -geometry 800x230+0+250 &>/dev/null  &
+fi
+
 # Inherited from raspi-config https://github.com/RPi-Distro/raspi-config
 # Copyright (c) 2012 Alex Bradbury <asb@asbradbury.org>
 #

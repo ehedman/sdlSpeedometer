@@ -71,6 +71,8 @@ The packages needed are:
 ### Application dependencies for running external applications from sdlSpeedometer
 - xorg
 - dirmngr
+- xterm
+- xvkbd
 - feh
 
 ### Software used
@@ -96,4 +98,4 @@ The packages needed are:
 - zyGrib just launched on a 7" touch display
 <img src="http://hedmanshome.se/sdlspeedometer11.png" width=100%>
 - sdlSpeedometers' configurator
-<img src="http://hedmanshome.se/sdlspeedometer13.png" width=100%>
+<img src="http://hedmanshome.se/sdlspeedometer28.png" width=100%>
