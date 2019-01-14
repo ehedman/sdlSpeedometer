@@ -1282,6 +1282,7 @@ static int doCompass(sdl2_app *sdlApp)
     int boxItems[] = {120,170,220,270};
 
     int toggle = 1;
+    float dynUpd;
 
     while (1) {
         int boxItem = 0;
@@ -1359,7 +1360,6 @@ static int doCompass(sdl2_app *sdlApp)
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
 
-
         if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
         else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
 
@@ -1429,9 +1429,13 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
-        } 
+        }
 
-        SDL_Delay(40);       
+        // Reduce CPU load if only short scale movements
+        dynUpd = (1/fabsf(angle -t_angle))*200;
+        dynUpd = dynUpd > 200? 200:dynUpd;
+
+        SDL_Delay(30+(int)dynUpd);
     }
 
     if (subTaskbar != NULL) {
@@ -1518,6 +1522,7 @@ static int doSumlog(sdl2_app *sdlApp)
     float angle = 0;
     int boxItems[] = {120,170,220};
     int toggle = 1;
+    float dynUpd;
 
     while (1) {
         int boxItem = 0;
@@ -1655,8 +1660,11 @@ static int doSumlog(sdl2_app *sdlApp)
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
-        
-        SDL_Delay(40);
+        // Reduce CPU load if only short scale movements
+        dynUpd = (1/fabsf(angle -t_angle))*200;
+        dynUpd = dynUpd > 200? 200:dynUpd;
+
+        SDL_Delay(30+(int)dynUpd);  
     }
 
     if (subTaskbar != NULL) {
@@ -1963,6 +1971,8 @@ static int doDepth(sdl2_app *sdlApp)
 
     int toggle = 1;
 
+    float dynUpd;
+
     while (1) {
         int boxItem = 0;
         float depth;
@@ -2041,7 +2051,7 @@ static int doDepth(sdl2_app *sdlApp)
     
         SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0) && cnmea.dbt < 110)
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &textField, &textField_rect, BLACK);
@@ -2094,7 +2104,11 @@ static int doDepth(sdl2_app *sdlApp)
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
-        SDL_Delay(40);
+        // Reduce CPU load if only short scale movements
+        dynUpd = (1/fabsf(angle -t_angle))*200;
+        dynUpd = dynUpd > 200? 200:dynUpd;
+
+        SDL_Delay(30+(int)dynUpd);
     }
 
     if (subTaskbar != NULL) {
@@ -2185,6 +2199,8 @@ static int doWind(sdl2_app *sdlApp)
     int res = 1;
 
     int toggle = 1;
+
+    float dynUpd;
 
     const float offset = 131; // For scale
 
@@ -2329,7 +2345,11 @@ static int doWind(sdl2_app *sdlApp)
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
-        SDL_Delay(40);
+        // Reduce CPU load if only short scale movements
+        dynUpd = (1/fabsf(angle -t_angle))*200;
+        dynUpd = dynUpd > 200? 200:dynUpd;
+
+        SDL_Delay(30+(int)dynUpd);
     }
 
     if (subTaskbar != NULL) {
@@ -2839,7 +2859,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
     SDL_Thread *threadCalib = NULL;
 
     sprintf(msg_cal, "Calibration about to begin in %d seconds", progress);
-    SDL_Log(msg_cal);
+    SDL_Log("%s", msg_cal);
 
     while (1) {
 
