@@ -509,6 +509,30 @@ static int threadSerial(void *conf)
                 continue;
             }
         }
+
+        if (ct - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
+
+            // HDT - Heading - True
+            if (NMPARSE(buffer, "HDT")) {
+                cnmea.hdm=atof(getf(1, buffer));
+                cnmea.hdm_ts = ct;
+                continue;
+            }
+
+            // HDG - Heading - Deviation and Variation 
+            if (NMPARSE(buffer, "HDG")) {
+                cnmea.hdm=atof(getf(1, buffer));
+                cnmea.hdm_ts = ct;
+                continue;
+            }
+
+            // HDM Heading - Heading Magnetic
+            if (NMPARSE(buffer, "HDM")) {
+                cnmea.hdm=atof(getf(1, buffer));
+                cnmea.hdm_ts = ct;
+                continue;
+            }
+        }
     }
 
     close(fd);
