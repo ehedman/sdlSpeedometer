@@ -49,7 +49,7 @@
 #define WINDOW_H 480
 
 #define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
-#define TRGPS       1.0     // Min speed to be trusted as real movement from GPS RMC
+#define TRGPS       2.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
@@ -438,6 +438,7 @@ static int threadSerial(void *conf)
     {
         time_t ct;
         int cnt;
+        float hdm;
 
         if (configParams->onHold) {
             SDL_Delay(4000);
@@ -470,8 +471,10 @@ static int threadSerial(void *conf)
             cnmea.rmc_gps_ts = ct;
             if ((cnmea.rmc=atof(getf(7, buffer))) >= TRGPS) {   // SOG
                 cnmea.rmc_ts = ct;
-                if ((cnmea.hdm=atof(getf(8, buffer))) != 0)     // Track made good
+                if ((hdm=atof(getf(8, buffer))) != 0)  {   // Track made good
+                    cnmea.hdm=hdm;
                     cnmea.hdm_ts = ct;
+                }
             }
             strcpy(cnmea.gll, getf(3, buffer));
             strcpy(cnmea.glo, getf(5, buffer));
@@ -502,10 +505,13 @@ static int threadSerial(void *conf)
         // VTG - Track made good and ground speed
         if (ct - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
             if (NMPARSE(buffer, "VTG")) {
-                cnmea.rmc=atof(getf(5, buffer));
-                cnmea.net_ts = cnmea.rmc_ts = ct;
-                if ((cnmea.hdm=atof(getf(1, buffer))) != 0) // Track made good
-                    cnmea.hdm_ts = ct;
+                if ((cnmea.rmc=atof(getf(5, buffer))) >= TRGPS) {   // SOG
+                    cnmea.net_ts = cnmea.rmc_ts = ct;
+                    if ((hdm=atof(getf(1, buffer))) != 0) { // Track made good
+                        cnmea.hdm=hdm;
+                        cnmea.hdm_ts = ct;
+                    }
+                }
                 continue;
             }
         }
@@ -663,7 +669,8 @@ static int i2cCollector(void *conf)
 
         // Take over if no NMEA
         if (ct - cnmea.hdm_ts > S_TIMEOUT) {
-            cnmea.hdm=hdm;
+            //cnmea.hdm=hdm;
+            cnmea.hdm = hdm;
             cnmea.hdm_i2cts = ct;
         }      
     }
@@ -786,6 +793,7 @@ static int nmeaNetCollector(void* conf)
             static char buffer[2048];
             time_t ts;
             int cnt = 0;
+            float hdm;
 
             if (configParams->onHold)
                 break;
@@ -813,8 +821,10 @@ static int nmeaNetCollector(void* conf)
                     cnmea.rmc_gps_ts = ts;
                     if ((cnmea.rmc=atof(getf(7, buffer))) >= TRGPS) {   // SOG
                         cnmea.rmc_ts = ts;
-                        if ((cnmea.hdm=atof(getf(8, buffer))) != 0)     // Track made good
+                        if ((hdm=atof(getf(8, buffer))) != 0)  {   // Track made good
+                            cnmea.hdm=hdm;
                             cnmea.hdm_ts = ts;
+                        }
                     }
                     strcpy(cnmea.gll, getf(3, buffer));
                     strcpy(cnmea.glo, getf(5, buffer));
@@ -844,10 +854,13 @@ static int nmeaNetCollector(void* conf)
                 // VTG - Track made good and ground speed
                 if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
                     if (NMPARSE(buffer, "VTG")) {
-                        cnmea.rmc=atof(getf(5, buffer));
-                        cnmea.net_ts = cnmea.rmc_ts = ts;
-                        if ((cnmea.hdm=atof(getf(1, buffer))) != 0) // Track made good
-                            cnmea.hdm_ts = ts;
+                        if ((cnmea.rmc=atof(getf(5, buffer))) >= TRGPS) {   // SOG
+                            cnmea.net_ts = cnmea.rmc_ts = ts;
+                            if ((hdm=atof(getf(1, buffer))) != 0) { // Track made good
+                                cnmea.hdm=hdm;
+                                cnmea.hdm_ts = ts;
+                            }
+                        }
                         continue;
                     }
                 }
@@ -1156,14 +1169,14 @@ static void setUTCtime(void)
     time_t rawtime, sys_rawtime;
     char buf[40];
     static int fails;
-;
+
     if (++fails > 20) {
         // No luck - give up this
         cnmea.rmc_tm_set = 2;
         return;
     }
     // UTC of position in hhmmss.sss format + UTC date of position fix, ddmmyy format 
-    if (16 != strlen(cnmea.time) + strlen(cnmea.date)) {
+    if (strlen(cnmea.time) + strlen(cnmea.date) < 15) {
         cnmea.rmc_tm_set = 0;  // Try again
         return;
     }
