@@ -356,7 +356,7 @@ static int portConfigure(int fd, configuration *configParams)
 }
 
 // Validate an NMEA sentence
-static int nmeaChecksum(char * buffer, int cnt)
+static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 {
     uint8_t checksum;
     int i, cs;
@@ -365,21 +365,28 @@ static int nmeaChecksum(char * buffer, int cnt)
     cs = checksum = 0;
 
     for (i = 0; i < cnt; i++) {
-        if (buffer[i] == '*') cs=i+1;
-        if (buffer[i] == '\r' || buffer[i] == '\n') { buffer[i] = '\0'; break; }
+        if (str_p1[i] == '*') cs=i+1;
+        if (str_p1[i] == '\r' || str_p1[i] == '\n') {
+            str_p1[i] = '\0';
+            if (str_p2 !=NULL && strnlen(&str_p1[i+2], cnt-i)) {
+                // There is more sentence(s) in the buffer.
+                memcpy(str_p2, &str_p1[i+2], cnt-i);
+            }
+            break;
+        }
     }
 
     if (cs > 0) {
         for (i=0; i < cs-1; i++) {
-            if (buffer[i] == '$' || buffer[i] == '!') continue;
-            checksum ^= (uint8_t)buffer[i];
+            if (str_p1[i] == '$' || str_p1[i] == '!') continue;
+            checksum ^= (uint8_t)str_p1[i];
         }
     }  
 
-    if ( !cs || (checksum != (uint8_t)strtol(&buffer[cs], NULL, 16))) {
+    if ( !cs || (checksum != (uint8_t)strtol(&str_p1[cs], NULL, 16))) {
         if (debug) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Checksum error in nmea sentence: 0x%02x/0x%02x - '%s'/'%s', pos %d", \
-                checksum, (uint8_t)strtol(&buffer[cs], NULL, 16), buffer, &buffer[cs], cs);
+                checksum, (uint8_t)strtol(&str_p1[cs], NULL, 16), str_p1, &str_p1[cs], cs);
         }
         return 1;
     }
@@ -462,7 +469,7 @@ static int threadSerial(void *conf)
         buffer[strlen(buffer)-1] = '\0';
         if (!strlen(buffer)) continue;
 
-        if(nmeaChecksum(buffer, strlen(buffer))) continue;
+        if(nmeaChecksum(buffer, NULL, strlen(buffer))) continue;
 
         ct = time(NULL);    // Get a timestamp for this turn 
 
@@ -790,7 +797,9 @@ static int nmeaNetCollector(void* conf)
         // Now start collect data
         while (configParams->runNet)
         {
-            static char buffer[2048];
+            static char nmeastr_p1[2048];
+            static char nmeastr_p2[2048];
+            
             time_t ts;
             int cnt = 0;
             float hdm;
@@ -805,34 +814,40 @@ static int nmeaNetCollector(void* conf)
             // Check if we got an NMEA response from the server
             if (SDLNet_CheckSockets(socketSet, 3000) > 0)
             {
+                memset(nmeastr_p1, 0, sizeof(nmeastr_p1));
 
-                if ((cnt = SDLNet_TCP_Recv(clientSocket, buffer, sizeof(buffer))) <= 0) {
-                    SDL_Delay(30);
-                    continue;
+                if ((cnt=strnlen(nmeastr_p2, sizeof(nmeastr_p2)))) { // There is p2 sentence(s) to take care of.
+                    memcpy(nmeastr_p1, nmeastr_p2, sizeof(nmeastr_p1));
+                    memset(nmeastr_p2, 0, sizeof(nmeastr_p2));
+                } else {
+                    if ((cnt = SDLNet_TCP_Recv(clientSocket, nmeastr_p1, sizeof(nmeastr_p1))) <= 0) {
+                        SDL_Delay(30);
+                        continue;
+                    }
                 }
 
                 retry = 0;
                 configParams->netStat = 1;
 
-                if (nmeaChecksum(buffer, cnt)) continue;
+                if (nmeaChecksum(nmeastr_p1, nmeastr_p2, cnt)) continue;
 
                 // RMC - Recommended minimum specific GPS/Transit data
-                if (NMPARSE(buffer, "RMC")) {
+                if (NMPARSE(nmeastr_p1, "RMC")) {
                     cnmea.rmc_gps_ts = ts;
-                    if ((cnmea.rmc=atof(getf(7, buffer))) >= TRGPS) {   // SOG
+                    if ((cnmea.rmc=atof(getf(7, nmeastr_p1))) >= TRGPS) {   // SOG
                         cnmea.rmc_ts = ts;
-                        if ((hdm=atof(getf(8, buffer))) != 0)  {   // Track made good
+                        if ((hdm=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
                             cnmea.hdm=hdm;
                             cnmea.hdm_ts = ts;
                         }
                     }
-                    strcpy(cnmea.gll, getf(3, buffer));
-                    strcpy(cnmea.glo, getf(5, buffer));
-                    strcpy(cnmea.glns, getf(4, buffer));
-                    strcpy(cnmea.glne, getf(6, buffer));
+                    strcpy(cnmea.gll, getf(3, nmeastr_p1));
+                    strcpy(cnmea.glo, getf(5, nmeastr_p1));
+                    strcpy(cnmea.glns, getf(4, nmeastr_p1));
+                    strcpy(cnmea.glne, getf(6, nmeastr_p1));
                     if (cnmea.rmc_tm_set == 0) {
-                        strcpy(cnmea.time, getf(1, buffer));
-                        strcpy(cnmea.date, getf(9, buffer));
+                        strcpy(cnmea.time, getf(1, nmeastr_p1));
+                        strcpy(cnmea.date, getf(9, nmeastr_p1));
                         cnmea.rmc_tm_set = 1;
                     }
                     cnmea.net_ts = cnmea.gll_ts = ts;
@@ -841,11 +856,11 @@ static int nmeaNetCollector(void* conf)
 
                 // GLL - Geographic Position, Latitude / Longitude
                 if (ts - cnmea.gll_ts > S_TIMEOUT/2) { // If not from RMC
-                    if (NMPARSE(buffer, "GLL")) {
-                        strcpy(cnmea.gll, getf(1, buffer));
-                        strcpy(cnmea.glo, getf(3, buffer));
-                        strcpy(cnmea.glns, getf(2, buffer));
-                        strcpy(cnmea.glne, getf(4, buffer));
+                    if (NMPARSE(nmeastr_p1, "GLL")) {
+                        strcpy(cnmea.gll, getf(1, nmeastr_p1));
+                        strcpy(cnmea.glo, getf(3, nmeastr_p1));
+                        strcpy(cnmea.glns, getf(2, nmeastr_p1));
+                        strcpy(cnmea.glne, getf(4, nmeastr_p1));
                         cnmea.net_ts = cnmea.gll_ts = ts;
                         continue;
                     }
@@ -853,10 +868,10 @@ static int nmeaNetCollector(void* conf)
 
                 // VTG - Track made good and ground speed
                 if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-                    if (NMPARSE(buffer, "VTG")) {
-                        if ((cnmea.rmc=atof(getf(5, buffer))) >= TRGPS) {   // SOG
+                    if (NMPARSE(nmeastr_p1, "VTG")) {
+                        if ((cnmea.rmc=atof(getf(5, nmeastr_p1))) >= TRGPS) {   // SOG
                             cnmea.net_ts = cnmea.rmc_ts = ts;
-                            if ((hdm=atof(getf(1, buffer))) != 0) { // Track made good
+                            if ((hdm=atof(getf(1, nmeastr_p1))) != 0) { // Track made good
                                 cnmea.hdm=hdm;
                                 cnmea.hdm_ts = ts;
                             }
@@ -866,48 +881,48 @@ static int nmeaNetCollector(void* conf)
                 }
 
                 // VHW - Water speed
-                if(NMPARSE(buffer, "VHW")) {
-                    if ((cnmea.stw=atof(getf(5, buffer))) != 0)
+                if(NMPARSE(nmeastr_p1, "VHW")) {
+                    if ((cnmea.stw=atof(getf(5, nmeastr_p1))) != 0)
                         cnmea.stw_ts = ts;
                     continue;
                 }
 
                 // DPT - Depth (Depth of transponder added)
-                if (NMPARSE(buffer, "DPT")) {
-                    cnmea.dbt=atof(getf(1, buffer))+atof(getf(2, buffer));
+                if (NMPARSE(nmeastr_p1, "DPT")) {
+                    cnmea.dbt=atof(getf(1, nmeastr_p1))+atof(getf(2, nmeastr_p1));
                     cnmea.dbt_ts = ts;
                     continue;
                 }
 
                 // DBT - Depth Below Transponder
                 if (ts - cnmea.dbt_ts > S_TIMEOUT/2) { // If not from DPT
-                    if (NMPARSE(buffer, "DBT")) {
-                        cnmea.dbt=atof(getf(3, buffer));
+                    if (NMPARSE(nmeastr_p1, "DBT")) {
+                        cnmea.dbt=atof(getf(3, nmeastr_p1));
                         cnmea.dbt_ts = ts;
                         continue;
                     }
                 }
 
                 // MTW - Water temperature in C
-                if (NMPARSE(buffer, "MTW")) {
-                    cnmea.mtw=atof(getf(1, buffer));
+                if (NMPARSE(nmeastr_p1, "MTW")) {
+                    cnmea.mtw=atof(getf(1, nmeastr_p1));
                     cnmea.mtw_ts = ts;
                     continue;
                 }
 
                 // MWV - Wind Speed and Angle (report VWR style)
-                if (NMPARSE(buffer, "MWV")) {
-                    if (strncmp(getf(2, buffer),"R",1) + strncmp(getf(4, buffer),"N",1) == 0) {
-                        cnmea.vwra=atof(getf(1, buffer));
-                        cnmea.vwrs=atof(getf(3, buffer))/1.94; // kn 2 m/s;
+                if (NMPARSE(nmeastr_p1, "MWV")) {
+                    if (strncmp(getf(2, nmeastr_p1),"R",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
+                        cnmea.vwra=atof(getf(1, nmeastr_p1));
+                        cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
                         if (cnmea.vwra > 180) {
                             cnmea.vwrd = 1;
                             cnmea.vwra = 360 - cnmea.vwra;
                         } else cnmea.vwrd = 0;
                         cnmea.vwr_ts = ts;
-                    } else if (strncmp(getf(2, buffer),"T",1) + strncmp(getf(4, buffer),"N",1) == 0) {
-                        cnmea.vwta=atof(getf(1, buffer));
-                        cnmea.vwts=atof(getf(3, buffer))/1.94; // kn 2 m/s;
+                    } else if (strncmp(getf(2, nmeastr_p1),"T",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
+                        cnmea.vwta=atof(getf(1, nmeastr_p1));
+                        cnmea.vwts=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
                         cnmea.vwt_ts = ts;
                     }
                     continue;
@@ -915,10 +930,10 @@ static int nmeaNetCollector(void* conf)
 
                 // VWR - Relative Wind Speed and Angle (obsolete)
                 if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
-                    if (NMPARSE(buffer, "VWR")) {
-                        cnmea.vwra=atof(getf(1, buffer));
-                        cnmea.vwrs=atof(getf(3, buffer))/1.94; // kn 2 m/s
-                        cnmea.vwrd=strncmp(getf(2, buffer),"R",1)==0? 0:1;
+                    if (NMPARSE(nmeastr_p1, "VWR")) {
+                        cnmea.vwra=atof(getf(1, nmeastr_p1));
+                        cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s
+                        cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
                         cnmea.vwr_ts = ts;
                         continue;
                     }
@@ -926,22 +941,22 @@ static int nmeaNetCollector(void* conf)
  
                 // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
                 // "$P". These extended messages are not standardized. 
-                if (NMPARSE(buffer, "ENV")) {
-                    cnmea.volt=         atof(getf(1, buffer));
-                    cnmea.volt_bank=    atoi(getf(2, buffer));
+                if (NMPARSE(nmeastr_p1, "ENV")) {
+                    cnmea.volt=         atof(getf(1, nmeastr_p1));
+                    cnmea.volt_bank=    atoi(getf(2, nmeastr_p1));
                     if(cnmea.volt >=8)  cnmea.volt_ts = ts;
 
-                    cnmea.curr=         atof(getf(3, buffer));
-                    cnmea.curr_bank=    atoi(getf(4, buffer));
+                    cnmea.curr=         atof(getf(3, nmeastr_p1));
+                    cnmea.curr_bank=    atoi(getf(4, nmeastr_p1));
                     if(cnmea.curr != 0) cnmea.curr_ts = ts;
 
-                    cnmea.temp=         atof(getf(5, buffer));
-                    cnmea.temp_loc=     atoi(getf(6, buffer));
+                    cnmea.temp=         atof(getf(5, nmeastr_p1));
+                    cnmea.temp_loc=     atoi(getf(6, nmeastr_p1));
                     if(cnmea.temp != 100) cnmea.temp_ts = ts;
 
-                    cnmea.kWhp=         atof(getf(7, buffer));
-                    cnmea.kWhn=         atof(getf(8, buffer));
-                    cnmea.startTime=    atol(getf(9, buffer));
+                    cnmea.kWhp=         atof(getf(7, nmeastr_p1));
+                    cnmea.kWhn=         atof(getf(8, nmeastr_p1));
+                    cnmea.startTime=    atol(getf(9, nmeastr_p1));
                     continue;
                 }
 
