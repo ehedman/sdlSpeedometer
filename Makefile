@@ -56,13 +56,15 @@ clean:
 	rm -f $(BIN) *~
 
 stop:
-	-sudo systemctl stop sdlSpeedometer.service
+	-sudo systemctl stop sdlSpeedometer.service || true
+	-sudo systemctl status sdlSpeedometer.service --no-pager -l || true
 
 start:
 	-sudo systemctl start sdlSpeedometer.service
+	-sudo systemctl status sdlSpeedometer.service --no-pager -l || true
 
 status:
-	-sudo systemctl status sdlSpeedometer.service
+	-sudo systemctl status sdlSpeedometer.service --no-pager -l || true
 
 disable:
 	-sudo systemctl disable sdlSpeedometer.service
