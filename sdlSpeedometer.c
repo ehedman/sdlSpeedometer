@@ -948,7 +948,7 @@ static int nmeaNetCollector(void* conf)
 
                     cnmea.curr=         atof(getf(3, nmeastr_p1));
                     cnmea.curr_bank=    atoi(getf(4, nmeastr_p1));
-                    if(cnmea.curr != 0) cnmea.curr_ts = ts;
+                    cnmea.curr_ts = ts;
 
                     cnmea.temp=         atof(getf(5, nmeastr_p1));
                     cnmea.temp_loc=     atoi(getf(6, nmeastr_p1));
@@ -2633,8 +2633,10 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
         if (!(ct -  cnmea.curr_ts > S_TIMEOUT)) {
-            c_angle = (((curr_value*0.5)-c_scaleoffset) * (c_maxangle/c_max)*2)+c_offset;
-            SDL_RenderCopyEx(sdlApp->renderer, needleCurr, NULL, &currNeedleR, c_angle, NULL, SDL_FLIP_NONE);
+            if (fabs(curr_value) < 33 ) {
+                c_angle = (((curr_value*0.5)-c_scaleoffset) * (c_maxangle/c_max)*2)+c_offset;
+                SDL_RenderCopyEx(sdlApp->renderer, needleCurr, NULL, &currNeedleR, c_angle, NULL, SDL_FLIP_NONE);
+            }
 
             get_text_and_rect(sdlApp->renderer, 386, 170, 0, msg_curr, fontSmall, &textField, &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -2708,13 +2710,14 @@ static int doEnvironment(sdl2_app *sdlApp)
             avpw /= avtp;
 
             // Adjust y-scale according to sampled average watt
-            params.max_y = 500; params.scale_y = 50;    // Default
+            params.max_y = 1000; params.scale_y = 75;    // Default
+            if (avpw < 500) {params.max_y = 500;    params.scale_y = 50;}
             if (avpw < 200) {params.max_y = 220;    params.scale_y = 20;}
             if (avpw < 100) {params.max_y = 120;    params.scale_y = 10;}
             if (avpw < 40)  {params.max_y = 50;     params.scale_y = 5;}
             if (avpw < 20)  {params.max_y = 30;     params.scale_y = 3;}
             if (avpw < 6)   {params.max_y = 8;      params.scale_y = 1;}
-            if (avpw < 3)   {params.max_y = 5;      params.scale_y = 1;}
+            //if (avpw < 3)   {params.max_y = 5;      params.scale_y = 1;}
            
             params.caption_list = caption_list;
             if(doPlot)
