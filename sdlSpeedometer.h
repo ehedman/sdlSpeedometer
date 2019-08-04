@@ -3,6 +3,8 @@
 
 #include <sqlite3.h>
 #include <rfb/rfb.h>
+// Use smbus.h if libi2c-dev ge 4.1-1  and add -li2c to LDFLAGS in Makefile
+//#include <i2c/smbus.h>
 
 #ifdef PLOTSDL
 #include <plotsdl/plot.h>
