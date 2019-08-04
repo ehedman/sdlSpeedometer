@@ -2553,7 +2553,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         char msg_tod[40];
         char msg_stm[40];
         char msg_kWhp[80];
-        char msg_kWhn[00];
+        char msg_kWhn[80];
         float v_angle, c_angle, t_angle;
         float volt_value = 0;
         float curr_value = 0;
