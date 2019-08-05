@@ -7,11 +7,16 @@ DEST=/usr/local
 GETC=".git/HEAD"
 SMDB=speedometer.db
 
+ifeq ($(shell test -e /usr/include/i2c/smbus.h && echo -n yes),yes)
+CFLAGS+=-DHAS_SMBUS_H
+LDFLAGS+=-li2c
+endif
+
 ifeq ($(shell test -e $(GETC) && echo -n yes),yes)
 CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
 endif
 
-LDFLAGS=-lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
+LDFLAGS+=-lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
 
 ifeq ($(shell test -e /usr/local/include/plotsdl/plot.h && echo -n yes),yes)
 CFLAGS+=-DPLOTSDL
