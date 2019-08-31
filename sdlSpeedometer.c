@@ -393,6 +393,46 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
     return 0;
 }
 
+// returns the true wind speed given boat speed, apparent wind speed and apparent wind direction in degrees
+// https://github.com/drasgardian/truewind
+double trueWindSpeed(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
+{
+    // convert degres to radians
+    double apparentWindDirectionRadian = apparentWindDirection * (M_PI/180);
+
+    return pow(pow(apparentWindSpeed*cos(apparentWindDirectionRadian) - boatSpeed,2) + (pow(apparentWindSpeed*sin(apparentWindDirectionRadian),2)), 0.5);
+}
+
+// returns the true wind direction given boat speed, apparent wind speed and apparent wind direction in degrees
+// https://github.com/drasgardian/truewind
+double trueWindDirection(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
+{
+
+    int convert180 = 0;
+    double twdRadians;
+    double apparentWindDirectionRadian;
+    double twdDegrees;
+
+    // formula below works with values < 180
+    if (apparentWindDirection > 180) {
+        apparentWindDirection = 360 - apparentWindDirection;
+        convert180 = 1;
+    }
+
+    // convert degres to radians
+    apparentWindDirectionRadian = apparentWindDirection * (M_PI/180);
+
+    twdRadians = (90 * (M_PI/180)) - atan((apparentWindSpeed*cos(apparentWindDirectionRadian) - boatSpeed) / (apparentWindSpeed*sin(apparentWindDirectionRadian)));
+
+    // convert radians back to degrees
+    twdDegrees = twdRadians*(180/M_PI);
+    if (convert180) {
+        twdDegrees = 360 - twdDegrees;
+    }
+
+    return twdDegrees;
+}
+
 #define MAX_LONGITUDE 180
 #define MAX_LATITUDE   90
 
@@ -920,10 +960,15 @@ static int nmeaNetCollector(void* conf)
                             cnmea.vwra = 360 - cnmea.vwra;
                         } else cnmea.vwrd = 0;
                         cnmea.vwr_ts = ts;
-                    } else if (strncmp(getf(2, nmeastr_p1),"T",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
+                    }
+                    if (strncmp(getf(2, nmeastr_p1),"T",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
                         cnmea.vwta=atof(getf(1, nmeastr_p1));
                         cnmea.vwts=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
                         cnmea.vwt_ts = ts;
+                    } else if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
+                            cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
+                            cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
+                            cnmea.vwt_ts = ts;
                     }
                     continue;
                 }
@@ -935,6 +980,11 @@ static int nmeaNetCollector(void* conf)
                         cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s
                         cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
                         cnmea.vwr_ts = ts;
+                        if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
+                            cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
+                            cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
+                            cnmea.vwt_ts = ts;
+                        }
                         continue;
                     }
                 }
@@ -1551,7 +1601,7 @@ static int doSumlog(sdl2_app *sdlApp)
     textBoxR.y = 106;
 
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
-    SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
@@ -1658,7 +1708,7 @@ static int doSumlog(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
         if (wspeed)
-            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_stw, fontLarge, &textField, &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -1724,7 +1774,7 @@ static int doSumlog(sdl2_app *sdlApp)
     }
 
     SDL_DestroyTexture(gaugeSumlog);
-    SDL_DestroyTexture(gaugeNeedle);
+    SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
@@ -1968,7 +2018,7 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");   
-    SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
     SDL_Texture* gauge;
@@ -2104,7 +2154,7 @@ static int doDepth(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0) && cnmea.dbt < 110)
-            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &textField, &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -2169,7 +2219,7 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeDepth);
     SDL_DestroyTexture(gaugeDepthW);
     SDL_DestroyTexture(gaugeDepthx10);
-    SDL_DestroyTexture(gaugeNeedle);
+    SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
@@ -2195,7 +2245,8 @@ static int doWind(sdl2_app *sdlApp)
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
 
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
-    SDL_Texture* gaugeNeedle = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-black.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
@@ -2246,8 +2297,10 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Texture* textField;
     SDL_Rect textField_rect;
 
-    float t_angle = 0;
-    float angle = 0;
+    float t_angle_a = 0;
+    float t_angle_t = 0;
+    float angle_a = 0;
+    float angle_t = 0;
     int res = 1;
 
     int toggle = 1;
@@ -2259,6 +2312,7 @@ static int doWind(sdl2_app *sdlApp)
     while (1) {
         int boxItem = 0;
         char msg_vwrs[40];
+        char msg_vwts[40];
         char msg_vwra[40];
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
@@ -2298,6 +2352,12 @@ static int doWind(sdl2_app *sdlApp)
         else
             sprintf(msg_vwra, "%.0f%c", cnmea.vwra, 0xb0);
 
+        // True wind speed
+         if (ct -  cnmea.vwt_ts > S_TIMEOUT || cnmea.vwts == 0)
+            sprintf(msg_vwts, "----");
+        else
+            sprintf(msg_vwts, "TRUE: %.1f", cnmea.vwts);
+
         // DPT - Depth
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
             sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
@@ -2318,30 +2378,50 @@ static int doWind(sdl2_app *sdlApp)
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
-        angle = cnmea.vwra; // 0-180
+        angle_a = cnmea.vwra; // 0-180
 
-        if (cnmea.vwrd == 1) angle = 360 - angle; // Mirror the needle motion
+        if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
 
-        angle += offset;  
+        angle_a += offset;  
 
-        angle = rotate(angle, res); res=0;
+        angle_a = rotate(angle_a, res); res=0;
         
         // Run needle with smooth acceleration
-        if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
-        else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
+        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
+        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+
+        angle_t = cnmea.vwta; // 0-180
+
+        if (cnmea.vwrd == 1) angle_t = 360 - angle_t; // Mirror the needle motion
+
+        angle_t += offset;  
+
+        angle_t = rotate(angle_t, res); res=0;
+        
+        // Run needle with smooth acceleration
+        if (angle_t > t_angle_t) t_angle_t += 3.2 * (fabsf(angle_t -t_angle_t) / 24) ;
+        else if (angle_t < t_angle_t) t_angle_t -= 3.2 * (fabsf(angle_t -t_angle_t) / 24);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
-            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedle, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle_a, NULL, SDL_FLIP_NONE);
+
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) 
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleTrue, NULL, &needleR, t_angle_t, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(sdlApp->renderer, 216, 100, 4, msg_vwra, fontSmall, &textField, &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &textField, &textField_rect, BLACK);    
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) {
+            get_text_and_rect(sdlApp->renderer, 150, 356, 4, msg_vwts, fontSmall, &textField, &textField_rect, BLACK);    
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        }
         
         if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &textField, &textField_rect, WHITE);
@@ -2398,7 +2478,7 @@ static int doWind(sdl2_app *sdlApp)
         }
         
         // Reduce CPU load if only short scale movements
-        dynUpd = (1/fabsf(angle -t_angle))*200;
+        dynUpd = (1/fabsf(angle_a -t_angle_a))*200;
         dynUpd = dynUpd > 200? 200:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
@@ -2408,7 +2488,8 @@ static int doWind(sdl2_app *sdlApp)
         SDL_DestroyTexture(subTaskbar);
     }
     SDL_DestroyTexture(gaugeSumlog);
-    SDL_DestroyTexture(gaugeNeedle);
+    SDL_DestroyTexture(gaugeNeedleApp);
+    SDL_DestroyTexture(gaugeNeedleTrue);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
