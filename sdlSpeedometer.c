@@ -1231,9 +1231,13 @@ static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 static void setUTCtime(void)
 {
     struct tm *settm = NULL;
+    struct timeval tv;
     time_t rawtime, sys_rawtime;
     char buf[40];
     static int fails;
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
 
     if (++fails > 20) {
         // No luck - give up this
@@ -1278,7 +1282,8 @@ static void setUTCtime(void)
     // This make sense only if net (ntp) time is disabled
     if ((rawtime = mktime(settm)) != (time_t) -1) {
         if (rawtime >= sys_rawtime-10) {    // sys_rawtime-x skew tolerance
-            if (stime(&rawtime) < 0) {
+            tv.tv_sec = rawtime;
+            if (settimeofday(&tv, NULL) < 0) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS: %s", strerror(errno));
             } else {             
                     rawtime = time(NULL);
