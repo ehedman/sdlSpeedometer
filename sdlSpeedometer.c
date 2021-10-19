@@ -3105,9 +3105,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     SDL_Thread *threadMon = NULL;
     SDL_Thread *threadVNC = NULL;
 
-    // This is what this application is built for!
-    setenv("SDL_VIDEODRIVER", "RPI", 1);
-
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
         return SDL_QUIT;
