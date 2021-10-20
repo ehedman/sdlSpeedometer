@@ -4,7 +4,9 @@ README Nov-2018
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design avoid a digital look.
 
-This application is based on a Rasperry Pi and the SDL2 configured for framebuffer access.
+This application is based on a Rasperry Pi 3 and the SDL2 configured for framebuffer access.
+
+For Rasperry Pi 4B the X backen is used. 
 
 The instruments can be accessed one-by-one by clicking on a mouse or directly from the touch screen menu.
 
@@ -26,7 +28,7 @@ Currently there are eight virtual instrument working (data source within bracket
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination)
 
 ### External Applications
-sdlSpeedometer in itself is a very responsive application runing in an embedded system context with framebuffer SDL2. However, sdlSpeedometer can be parametized to launch almost any external application, even X based applications by means of a configuration tool invoked from the GUI.
+sdlSpeedometer in itself is a very responsive application runing in an embedded system context with framebuffer SDL2 (RPI3 only). However, sdlSpeedometer can be parametized to launch almost any external application, even X based applications by means of a configuration tool invoked from the GUI.
 
 Two marine related applications  has been integrated successfully so far:
 
@@ -41,7 +43,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - Raspberry Pi - any model with Debian type OS, in an embedded configuration without X and desktop stuff (see exceptions for external applications).
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 
-Instructions (if needed) of how to build SDL2 libraries for framebuffer (no X) can be found in this article:
+Instructions (if needed) of how to build SDL2 libraries for framebuffer (no X for RPI3 only) can be found in this article:
  [Hardware Accelerated SDL 2 on Raspberry Pi](http://blog.shahada.abubakar.net/post/hardware-accelerated-sdl-2-on-raspberry-pi)
 
 ### SDL2 Software prerequisites
