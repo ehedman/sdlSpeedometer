@@ -25,7 +25,7 @@ endif
 
 all: $(BIN)
 
-override CFLAGS+= -Wall -g -std=gnu99
+override CFLAGS+= -Wall -g -std=gnu99 
 
 $(BIN): $(SRCS) $(HDRS)
 	$(CC) $(SRCS) $(CFLAGS) $(EXTRA_CFLAGS) $(LDFLAGS) -o $(BIN)
@@ -36,6 +36,7 @@ install:
 	sudo install -m 0755 -g root -o root $(BIN) -D $(DEST)/bin/$(BIN)
 	sudo install -m 0755 -g root -o root spawnSubtask -D $(DEST)/bin/spawnSubtask
 	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config
+	sudo install -m 0755 -g root -o root sdlSpeedometer-reset -D $(DEST)/bin/sdlSpeedometer-reset
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
 	sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer

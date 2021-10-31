@@ -39,7 +39,7 @@
 
 #include "sdlSpeedometer.h"
 
-#define DEF_NMEA_SERVER "rpi3.hedmanshome.se"   // A test site running 24/7
+#define DEF_NMEA_SERVER "http://rpi3.hedmanshome.se"   // A test site running 24/7
 #define DEF_NMEA_PORT   10110
 #define DEF_VNC_PORT    5903
 
@@ -620,15 +620,7 @@ static int i2cCollector(void *conf)
         return 0;
     }
 
-    configParams->conn = NULL;
-
     SDL_Log("Starting up i2c collector");
-
-    if (sqlite3_open_v2(SQLDBPATH, &configParams->conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams->conn));
-        (void)sqlite3_close(configParams->conn);
-        configParams->conn = NULL;
-    }
 
     configParams->numThreads++;
 
@@ -1378,7 +1370,7 @@ static int doCompass(sdl2_app *sdlApp)
     textBoxR.x = 470;
     textBoxR.y = 106;
 
-    SDL_Texture* textField;
+    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     float t_angle = 0;
@@ -1555,6 +1547,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
+    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
@@ -1622,7 +1615,7 @@ static int doSumlog(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Texture* textField;
+    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     float t_angle = 0;
@@ -1783,11 +1776,12 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
+    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall); 
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
-    TTF_CloseFont(fontTod);
+    TTF_CloseFont(fontTod);  
     IMG_Quit();
 
     return event.type;
@@ -1823,7 +1817,7 @@ static int doGps(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Texture* textField;
+    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     gaugeR.w = 440;
@@ -1995,6 +1989,7 @@ static int doGps(sdl2_app *sdlApp)
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
+    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontHD);
     TTF_CloseFont(fontLA);
     TTF_CloseFont(fontLO);
@@ -2029,7 +2024,7 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Texture* gauge;
     SDL_Texture* subTaskbar = NULL;
     
-    SDL_Texture* textField;
+    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     gaugeR.w = 440;
@@ -2228,6 +2223,7 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
+    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
@@ -2299,7 +2295,7 @@ static int doWind(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Texture* textField;
+    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     float t_angle_a = 0;
@@ -2498,6 +2494,7 @@ static int doWind(sdl2_app *sdlApp)
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(textBox);
+    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
@@ -2583,7 +2580,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
-    SDL_Texture* textField;
+    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     // Scale adjustments
@@ -2841,7 +2838,8 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_DestroyTexture(needleCurr);
     SDL_DestroyTexture(needleTemp);
     SDL_DestroyTexture(menuBar);
-    SDL_DestroyTexture(netStatBar);    
+    SDL_DestroyTexture(netStatBar); 
+    SDL_DestroyTexture(textField);   
     TTF_CloseFont(fontTod);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontLarge);
@@ -2926,7 +2924,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
     doRun.run = 1;
     doRun.i2cFile = configParams->i2cFile;
 
-    SDL_Texture* textField;
+    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     menuBarR.w = 340;
@@ -3081,6 +3079,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
     SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontCAL);
+    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontPRG);
     TTF_CloseFont(fontSrc);
 
@@ -3104,9 +3103,17 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     SDL_Thread *threadGPS = NULL;
     SDL_Thread *threadMon = NULL;
     SDL_Thread *threadVNC = NULL;
+    configParams->conn = NULL;
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
+        return SDL_QUIT;
+    }
+
+    if (sqlite3_open_v2(SQLDBPATH, &configParams->conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams->conn));
+        (void)sqlite3_close(configParams->conn);
+        configParams->conn = NULL;
         return SDL_QUIT;
     }
 
@@ -3189,15 +3196,15 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
     const char *tail;
 
     if (sdlApp->subAppsCmd[0][0] == NULL) {
-       if (configParams->conn == NULL) {
-            return 0;
+        if (configParams->conn == NULL) {
+           return 0;
         }
 
         int c = 1;
         if ((rval=sqlite3_prepare_v2(configParams->conn, "select task,args from subtasks", -1, &res, &tail)) == SQLITE_OK)
         {
             while (sqlite3_step(res) != SQLITE_DONE) {  
-    
+
                 strcpy((sdlApp->subAppsCmd[c][0]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 0));
                 strcpy((sdlApp->subAppsCmd[c][1]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 1));
 

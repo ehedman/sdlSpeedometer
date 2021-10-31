@@ -1,8 +1,7 @@
-Dec-2018
+Nov-2021
 
-This application is intended to be built on an basic Debian release such as the Raspbian Stretch Lite without any desktop stuff.
-It will probably mess up a desktop based system if the "install" rules in the makefile are executed as is.
-In such case the command "sudo systemctl set-default multi-user.target" could be usefull to bring down the system to runlevel 3 (no desktop) and then continue with this application from that level.
+This application is intended to be built on an basic level Debian release such as the Raspberry Pi OS Lite with Xorg added.
+Further development can then proceed from a host computer via SSH to the Pi.
 
 Since external X based applicatoon will run full screen without any window manager, some adjustment can be made to have them correctly positioned at the screen:
 

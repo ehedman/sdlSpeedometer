@@ -9,8 +9,8 @@ Type=simple
 EnvironmentFile=/etc/default/sdlSpeedometer
 ExecStart=/usr/local/bin/sdlSpeedometer $ARGS
 RemainAfterExit=no
-Restart=on-failure
-RestartSec=3s
+Restart=always
+RestartSec=1s
 User=root
 
 [Install]
