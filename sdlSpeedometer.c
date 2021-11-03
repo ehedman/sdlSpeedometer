@@ -1119,7 +1119,7 @@ static int threadVnc(void *conf)
 - x, y: upper left corner.
 - texture, rect: outputs.
 */
-static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char *text,
+inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char *text,
         TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) {
     int text_width;
     int text_height;
@@ -1194,7 +1194,7 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     return 0;
 }
 
-static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
+inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
 
@@ -1290,7 +1290,7 @@ static void setUTCtime(void)
 }
 
 // Make sure instruments take shortest route over the 0 - 360 scale
-static float rotate(float angle, int res)
+inline static float rotate(float angle, int res)
 {
     float nR = angle;
     static float rot;
@@ -1304,6 +1304,23 @@ static float rotate(float angle, int res)
     rot += (nR - aR);
 
     return(rot);
+}
+
+// Invert red and blue, since Xlib using BGR instead of RGB
+inline static void doRGBconv(SDL_Surface *surface)
+{
+    unsigned char * vncpb = surface->pixels;
+
+    SDL_LockSurface(surface);    unsigned char red, blue;
+
+    for(int i = 0; i < (WINDOW_H*surface->pitch); i+=4) {
+        red = vncpb[i+2];
+        blue = vncpb[i];
+        vncpb[i] = red;
+        vncpb[i+2] = blue;
+    }
+
+    SDL_UnlockSurface(surface);
 }
 
 // Present the compass with heading ant roll
@@ -1527,6 +1544,7 @@ static int doCompass(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
 
@@ -1758,6 +1776,7 @@ static int doSumlog(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         // Reduce CPU load if only short scale movements
@@ -1976,6 +1995,7 @@ static int doGps(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
@@ -2203,6 +2223,7 @@ static int doDepth(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
@@ -2475,6 +2496,7 @@ static int doWind(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
         
@@ -2817,6 +2839,7 @@ static int doEnvironment(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
 
