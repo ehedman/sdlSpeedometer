@@ -32,7 +32,7 @@ $(BIN): $(SRCS) $(HDRS)
 
 install:
 	rm -f $(BIN)
-	make $(BIN)  EXTRA_CFLAGS="-DPATH_INSTALL -O2"
+	make $(BIN)  EXTRA_CFLAGS="-DPATH_INSTALL -O0 -Wno-stringop-truncation"
 	sudo install -m 0755 -g root -o root $(BIN) -D $(DEST)/bin/$(BIN)
 	sudo install -m 0755 -g root -o root spawnSubtask -D $(DEST)/bin/spawnSubtask
 	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config
@@ -46,17 +46,19 @@ endif
 	-sudo systemctl stop sdlSpeedometer.service
 	-sudo systemctl disable sdlSpeedometer.service
 	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
+	-sudo systemctl stop xorg.service splashscreen.service
+	-sudo systemctl disable xorg.service splashscreen.service
+	-sudo systemctl daemon-reload
 	-sudo systemctl enable sdlSpeedometer.service
 
-	-sudo systemctl stop xorg.service
-	-sudo systemctl disable xorg.service
+install_x:
+	-sudo systemctl stop xorg.service splashscreen.service
+	-sudo install -m 0644 -g root -o root sdlSpeedometer_x.env -D /etc/default/sdlSpeedometer
 	-sudo install -m 0644 -g root -o root xorg.service -D /lib/systemd/system/
-	-sudo systemctl enable xorg.service
-
-	-sudo systemctl stop splashscreen.service
-	-sudo systemctl disable splashscreen.service
 	-sudo install -m 0644 -g root -o root splashscreen.service -D /lib/systemd/system/
-	-sudo systemctl enable splashscreen.service
+	-sudo systemctl daemon-reload
+	-sudo systemctl enable xorg.service splashscreen.service
+	-sudo systemctl start xorg.service splashscreen.service
 
 clean:
 	rm -f $(BIN) *~

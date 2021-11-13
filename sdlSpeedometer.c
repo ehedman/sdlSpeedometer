@@ -1306,12 +1306,13 @@ inline static float rotate(float angle, int res)
     return(rot);
 }
 
-// Invert red and blue, since Xlib using BGR instead of RGB
+// Swap red and blue, since Xlib using BGR instead of RGB
 inline static void doRGBconv(SDL_Surface *surface)
 {
     unsigned char * vncpb = surface->pixels;
+    unsigned char red, blue;
 
-    SDL_LockSurface(surface);    unsigned char red, blue;
+    SDL_LockSurface(surface);
 
     for(int i = 0; i < (WINDOW_H*surface->pitch); i+=4) {
         red = vncpb[i+2];

@@ -34,17 +34,15 @@ if [ "$(basename "${app}")" == "openvt" ]; then
     exit 0
 fi
 
-export DISPLAY=:0.0
 
 function setDisplay() {
-    sleep 5
     xset -dpms
     xset s off
     xset s noblank
 }
 
 if ! pidof -s Xorg &>/dev/null; then
-    Xorg -nolisten tcp vt7 -nocursor -novtswitch  -quiet &> /dev/null &
+    Xorg -nolisten tcp vt7 -nocursor -novtswitch -quiet &> /dev/null &
     XPID=$!
 fi
 
@@ -52,8 +50,10 @@ let q=5
 
 shift
 
+export DISPLAY=:0.0
+
 if [ -n "${XPID}" ]; then
-    while xset q &>/dev/null ; [ $? -ne 0 ]; do
+    while xrandr -s 800x480 &>/dev/null ; [ $? -ne 0 ]; do
         sleep 1
         let "q--"
         if [ $q -le 0 ]; then
@@ -71,6 +71,6 @@ function  startChild()
 
 startChild "$@" &
 APPID=$!
-wait
+wait $APPID
 
 doQuit

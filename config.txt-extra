@@ -1,0 +1,11 @@
+# Extra for /boot/config.txt if necessary
+# uncomment to force a specific resolution that is not present in  raspi-config
+hdmi_cvt=800 480 60 6
+hdmi_group=2
+hdmi_mode=87
+hdmi_drive=2
+
+[pi4]
+# Enable DRM VC4 V3D driver on top of the dispmanx display stack
+dtoverlay=vc4-fkms-v3d
+max_framebuffers=2

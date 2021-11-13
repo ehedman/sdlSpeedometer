@@ -34,3 +34,8 @@ Before executing "make install" check these items:
  - runt sudo reboot 
 
 When the Speedometer starts you can still run sdlSpeedometer-config from the GPS GUI page. Click the tools icon.
+
+Notes on Make:
+- The default "make install" will install the SDL_VIDEODRIVER=kmsdrm configuration.
+- To enable the X version, type first "make install" followed by a "make install_x"
+Then type "make start"

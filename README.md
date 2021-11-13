@@ -4,9 +4,10 @@ README Nov-2021
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design avoid a digital look.
 
-This application is based on the Rasperry Pi 4B and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
+This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
 
-For the Rasperry Pi 4B the X video backend is used. 
+For the Rasperry Pi 4B the (default) kmsdrm video backend is used but the X backend will work as well.
+For the Raspberry Pi 3 b+ the X video backend is rather slow so the kmsdrm backend is recommended.
 
 The instruments can be accessed one-by-one by clicking on a mouse or directly from the touch screen menu.
 
@@ -34,14 +35,14 @@ Two marine related applications  has been integrated successfully so far:
 
 If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
 
-Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi Model B+
+Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi.
 
 Kodi can be added as an external application to be used as a Jukebox style player togheter with its [Kore](https://play.google.com/store/apps/details?id=org.xbmc.kore&hl=sv&gl=US) remote control phone app.
 
 sdlSpeedometer has also a built-in RFB (VNC) server function so that an external VNC client can connect a slave instrument on a computer and/or a tablet with a VNC client.
 
 ### Tested runtime environment
-- Raspberry Pi 4B and a 7 inch touch display.
+- Raspberry Pi 3B+ and 4B and a 7 inch touch display.
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 
 ### System Software prerequisites
@@ -78,7 +79,8 @@ The packages needed are:
 - feh
 
 ### Software used
-- [Raspberry Pi OS Lite](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
+- [Raspberry Pi OS Lite - version bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
+- Raspberry Pi OS version buster requires an SDL2-2 recompiled for ksmdrm support.
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)
