@@ -1,9 +1,9 @@
-Nov-2021
+Dec-2021
 
 This application is intended to be built on an basic level Debian release such as the Raspberry Pi OS Lite with Xorg added.
 Further development can then proceed from a host computer via SSH to the Pi.
 
-Since external X based applicatoon will run full screen without any window manager, some adjustment can be made to have them correctly positioned at the screen:
+Since external X based applicatoon will run full screen possibly without any window manager, some adjustment can be made to have them correctly positioned at the screen:
 
 Examples for 1 800x480 touch screen device:
 
@@ -29,13 +29,14 @@ Before executing "make install" check these items:
  - If not done already run (as root) raspi-config to set WiFi, localization, i2c and serial port according to the HOWTOs links in the README.md file.
  - Run sudo ./sdlSpeedometer-config to set your preferences for this application.
 
- - run make install
+ - run make install (x11 config is the default)
+
+ - run make install_kms (kmsdrm installation)
+
+For testing:
+ run make start/stop/status
  
  - runt sudo reboot 
 
 When the Speedometer starts you can still run sdlSpeedometer-config from the GPS GUI page. Click the tools icon.
 
-Notes on Make:
-- The default "make install" will install the SDL_VIDEODRIVER=kmsdrm configuration.
-- To enable the X version, type first "make install" followed by a "make install_x"
-Then type "make start"

@@ -39,26 +39,26 @@ install:
 	sudo install -m 0755 -g root -o root sdlSpeedometer-reset -D $(DEST)/bin/sdlSpeedometer-reset
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
-	sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
+	sudo mkdir -p $(DEST)/etc/devilspie2
+	sudo install -m 0644 -g root -o root ./devilspie2/* -D $(DEST)/etc/devilspie2
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
 	sudo install -m 0644 -g root -o root $(SMDB) -D $(DEST)/etc
 endif
-	-sudo systemctl stop sdlSpeedometer.service
-	-sudo systemctl disable sdlSpeedometer.service
-	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
-	-sudo systemctl stop xorg.service splashscreen.service
-	-sudo systemctl disable xorg.service splashscreen.service
-	-sudo systemctl daemon-reload
-	-sudo systemctl enable sdlSpeedometer.service
-
-install_x:
-	-sudo systemctl stop xorg.service splashscreen.service
+	-sudo systemctl stop xorg.service sdlSpeedometer.service 
 	-sudo install -m 0644 -g root -o root sdlSpeedometer_x.env -D /etc/default/sdlSpeedometer
 	-sudo install -m 0644 -g root -o root xorg.service -D /lib/systemd/system/
-	-sudo install -m 0644 -g root -o root splashscreen.service -D /lib/systemd/system/
+	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
 	-sudo systemctl daemon-reload
-	-sudo systemctl enable xorg.service splashscreen.service
-	-sudo systemctl start xorg.service splashscreen.service
+	-sudo systemctl enable xorg.service sdlSpeedometer.service
+	-sudo systemctl start xorg.service
+
+install_kms:
+	-sudo systemctl stop sdlSpeedometer.service xorg.service
+	-sudo systemctl disable sdlSpeedometer.service xorg.service
+	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
+	-sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
+	-sudo systemctl daemon-reload
+	-sudo systemctl enable sdlSpeedometer.service
 
 clean:
 	rm -f $(BIN) *~

@@ -164,7 +164,7 @@ int  configureDb(configuration *configParams)
                     sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('zyGrib','')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('xterm','-geometry 132x20 -e sdlSpeedometer-config')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('xterm','-geometry 132x20+0+0 -e sdlSpeedometer-config')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
                     sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
@@ -3192,7 +3192,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
             SDL_WINDOWPOS_UNDEFINED,
             SDL_WINDOWPOS_UNDEFINED,
             WINDOW_W, WINDOW_H,
-            SDL_WINDOW_RESIZABLE)) == NULL) {
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP)) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
             configParams->runGps = configParams->runi2c = configParams->runNet = 0;
             return SDL_QUIT;
@@ -3205,6 +3205,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND);
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
+
+    SDL_RaiseWindow(sdlApp->window);
 
     return 0;
 }
@@ -3384,6 +3386,64 @@ int main(int argc, char *argv[])
             configParams.runVnc = 0;
         }
     }
+
+    if (SDL_getenv("DISPLAY") != NULL) {
+
+        SDL_setenv("SDL_VIDEODRIVER", "x11", 0);
+
+        pid_t pid0, pid1, pid2;
+        int status;
+
+        pid0 = fork();
+
+        if (pid0 == 0) {
+            // Disabe decorations from wm.
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start devilspie2");
+            char *args[] = { "/usr/bin/devilspie2", "-f", "/usr/local/etc/devilspie2",  NULL }; 
+            execvp(args[0], args);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
+            _exit(0);
+        }
+
+        sleep(1);
+
+        if (waitpid(pid0,&status,WNOHANG) == 0) {
+
+            pid1 = fork();
+
+            if (pid1 == 0) {
+                // Start a window manager
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start a window manager");
+                char *args[] = { "/usr/bin/xfwm4", "--sm-client-disable", NULL };
+                execvp(args[0], args);
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
+                _exit(0);
+            }
+        }
+
+        sleep(1);
+
+        pid2 = fork();
+
+        if (pid2 == 0) {
+            // Start the splashscreen
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate splashscreen");
+            char *args[] = { "/usr/bin/feh", "-x", "-bg-fill", "/usr/local/share/images/splash.png",  NULL }; 
+            execvp(args[0], args);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
+            _exit(0);
+        }
+
+        if (waitpid(pid1,&status,WNOHANG) != 0) {
+            kill(pid0, SIGINT);
+            sleep(1);
+            waitpid(pid0,&status,WNOHANG);
+        }
+
+    } else {
+        SDL_setenv("SDL_VIDEODRIVER", "kmsdrm", 0);
+    }
+
 
     if (openSDL2(&configParams, &sdlApp))
         exit(EXIT_FAILURE);

@@ -1,15 +1,20 @@
 # sdlSpeedometer
-README Nov-2021
+README Dec-2021
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design avoid a digital look.
 
 This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
 
-For the Rasperry Pi 4B the (default) kmsdrm video backend is used but the X backend will work as well.
+For the Raspberry Pi 4B with OS bullseye the kmsdrm video backend is used, though current bullseye V11 is too buggy to give this application justice.
+
+For the Rasperry Pi 4B with OS buster the x11 video backend is used.
+
 For the Raspberry Pi 3 b+ the X video backend is rather slow so the kmsdrm backend is recommended.
 
-The instruments can be accessed one-by-one by clicking on a mouse or directly from the touch screen menu.
+For the best user experience with all features enabled, a clean x11 configuration is recommended since many graphical subtasks also have this dependency.
+
+The instruments can be accessed one-by-one by a mouse click or directly from the touch screen menu.
 
 The communication mechanism between this application with its GUI and data sources uses two paralell paths:
  - Data collected from a [BerryGPS-IMUv2](http://ozzmaker.com/new-products-berrygps-berrygps-imu) - GPS and 10DOF sensor for The Raspberry Pi - Accelerometer, Gyroscope, Magnetometer and Barometric/Altitude Sensor.
@@ -31,7 +36,7 @@ There is also a page to perform compass calibration includning on-line fetch of 
 ### External Applications
 sdlSpeedometer in itself is a very responsive application runing in an embedded system context with SDL2. However, sdlSpeedometer can be parametized to launch almost any external application by means of a configuration tool invoked from the GUI.
 
-Two marine related applications  has been integrated successfully so far:
+Two marine related applications has been integrated successfully so far:
 
 If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
 
@@ -78,9 +83,14 @@ The packages needed are:
 - xvkbd
 - feh
 
+### Optional application dependencies for improved user experiences for subtasks.
+- devilspie
+- xfwm4 
+
 ### Software used
-- [Raspberry Pi OS Lite - version bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
-- Raspberry Pi OS version buster requires an SDL2-2 recompiled for ksmdrm support.
+- [Raspberry Pi OS Lite - recommended - version 10 buster](https://downloads.raspberrypi.org/raspbian/images/raspbian-2020-02-14/2020-02-13-raspbian-buster.zip)
+- [Raspberry Pi OS Lite - currently immature - version 11 bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
+- Raspberry Pi OS version bullseye requires an SDL2-2 recompiled for x11 support.
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)
