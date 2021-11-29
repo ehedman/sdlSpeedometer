@@ -1159,15 +1159,22 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
 static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 {
     // A simple event handler for touch screen buttons at fixed menu bar localtions
+    
+    int x, y;
 
     // Upside down screen
-    //int x = WINDOW_W -(event->tfinger.x* WINDOW_W);
-    //int y = WINDOW_H -(event->tfinger.y* WINDOW_H);
+    // x = WINDOW_W -(event->tfinger.x* WINDOW_W);
+    // y = WINDOW_H -(event->tfinger.y* WINDOW_H);
 
-    // Normal
-    int x = event->tfinger.x* WINDOW_W;
-    int y = event->tfinger.y* WINDOW_H;
+    if (event->type == SDL_FINGERDOWN) {
+        x = event->tfinger.x* WINDOW_W;
+        y = event->tfinger.y* WINDOW_H;
+    } else if (event->type == SDL_MOUSEBUTTONDOWN) {
+        x = event->button.x;
+        y = event->button.y;
+    } else return 0;
 
+  
     if (y > 400  && y < 450)
     {
         if (x > 433 && x < 483)
@@ -1191,6 +1198,7 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
                 return TSKPAGE;
         }
     }
+    
     return 0;
 }
 
@@ -1418,16 +1426,24 @@ static int doCompass(sdl2_app *sdlApp)
             continue;
         }
 
-        SDL_PollEvent(&event);
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
-            break;
-
-        if(event.type == SDL_FINGERDOWN)
-        {
-            if ((event.type=pageSelect(sdlApp, &event)))
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
                 break;
+            }
+
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
         }
+        if (doBreak == 1) break;
 
         ct = time(NULL);    // Get a timestamp for this turn 
 
@@ -1665,16 +1681,24 @@ static int doSumlog(sdl2_app *sdlApp)
             continue;
         }
 
-        SDL_PollEvent(&event);
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
-            break;
-
-        if(event.type == SDL_FINGERDOWN)
-        {
-            if ((event.type=pageSelect(sdlApp, &event)))
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
                 break;
+            }
+
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
         }
+        if (doBreak == 1) break;
 
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
@@ -1885,17 +1909,25 @@ static int doGps(sdl2_app *sdlApp)
             continue;
         }
 
-        SDL_PollEvent(&event);
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
-            break;
-
-        if(event.type == SDL_FINGERDOWN)
-        {
-            if ((event.type=pageSelect(sdlApp, &event)))
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
                 break;
-        }
+            }
 
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
+        }
+        if (doBreak == 1) break;
+        
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
 
@@ -2118,16 +2150,24 @@ static int doDepth(sdl2_app *sdlApp)
             continue;
         }
 
-        SDL_PollEvent(&event);
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
-            break;
-
-        if(event.type == SDL_FINGERDOWN)
-        {
-            if ((event.type=pageSelect(sdlApp, &event)))
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
                 break;
+            }
+
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
         }
+        if (doBreak == 1) break;
 
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -2350,16 +2390,24 @@ static int doWind(sdl2_app *sdlApp)
             continue;
         }
 
-        SDL_PollEvent(&event);
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
-            break;
-
-        if(event.type == SDL_FINGERDOWN)
-        {
-            if ((event.type=pageSelect(sdlApp, &event)))
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
                 break;
+            }
+
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
         }
+        if (doBreak == 1) break;
 
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -2672,16 +2720,24 @@ static int doEnvironment(sdl2_app *sdlApp)
             continue;
         }
 
-        SDL_PollEvent(&event);
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
-            break;
-
-        if(event.type == SDL_FINGERDOWN)
-        {
-            if ((event.type=pageSelect(sdlApp, &event)))
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
                 break;
+            }
+
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
         }
+        if (doBreak == 1) break;
 
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -2943,7 +2999,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
     calRunner doRun;
 
     if (!configParams->i2cFile)
-        return SDL_MOUSEBUTTONDOWN;
+        return COGPAGE;
 
     doRun.run = 1;
     doRun.i2cFile = configParams->i2cFile;
@@ -3026,16 +3082,24 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
     while (1) {
 
-        SDL_PollEvent(&event);
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
 
-        if(event.type == SDL_QUIT || event.type == SDL_MOUSEBUTTONDOWN)
-            break;
-
-        if(event.type == SDL_FINGERDOWN)
-        {
-            if ((event.type=pageSelect(sdlApp, &event)))
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
                 break;
+            }
+
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
         }
+        if (doBreak == 1) break;
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
@@ -3128,6 +3192,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     SDL_Thread *threadMon = NULL;
     SDL_Thread *threadVNC = NULL;
     configParams->conn = NULL;
+    Uint32 flags;
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
@@ -3186,13 +3251,16 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         configParams->runMon = 2;
     }
 
-    SDL_ShowCursor(SDL_DISABLE);
+    if (configParams->useWm)
+        SDL_ShowCursor(SDL_DISABLE);
+
+    flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
 
     if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
             SDL_WINDOWPOS_UNDEFINED,
             SDL_WINDOWPOS_UNDEFINED,
             WINDOW_W, WINDOW_H,
-            SDL_WINDOW_RESIZABLE | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP)) == NULL) {
+            flags)) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
             configParams->runGps = configParams->runi2c = configParams->runNet = 0;
             return SDL_QUIT;
@@ -3206,7 +3274,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 
-    SDL_RaiseWindow(sdlApp->window);
+    //SDL_RaiseWindow(sdlApp->window);
 
     return 0;
 }
@@ -3318,9 +3386,10 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
 int main(int argc, char *argv[])
 {
-    int c, step;
+    int c;
     configuration configParams;
     sdl2_app sdlApp;
+    char buf[100];
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
@@ -3333,12 +3402,11 @@ int main(int argc, char *argv[])
 
     configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runMon = 1;
         
-    sdlApp.nextPage = COGPAGE; // Start-page for touch
-    step = COGPAGE; // .. mouse
+    sdlApp.nextPage = COGPAGE; // Start-page
 
     (void)configureDb(&configParams);   // Fetch configuration
 
-    while ((c = getopt (argc, argv, "hsvginV")) != -1)
+    while ((c = getopt (argc, argv, "hsvginwV")) != -1)
     {
         switch (c)
             {
@@ -3351,6 +3419,8 @@ int main(int argc, char *argv[])
                 break;
             case 'n':   configParams.runNet = 0;    // Disable NMEA net data collection
                 break;
+            case 'w':   configParams.useWm  = 1;    // Use private WM
+                break;
             case 'V':   configParams.runVnc = 1;    // Enable VNC server
                 break;
             case 'v':
@@ -3359,8 +3429,8 @@ int main(int argc, char *argv[])
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -V -v (version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -n Disabe NMEA Net : -V Enable VNC Server\n");
+                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -f -V -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -n Disabe NMEA Net : -w use WM : -V Enable VNC Server\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -3387,6 +3457,9 @@ int main(int argc, char *argv[])
         }
     }
 
+    sprintf(buf, "%d", WINDOW_W); SDL_setenv("WINDOW_W", buf, 0);
+    sprintf(buf, "%d", WINDOW_H); SDL_setenv("WINDOW_H", buf, 0);
+
     if (SDL_getenv("DISPLAY") != NULL) {
 
         SDL_setenv("SDL_VIDEODRIVER", "x11", 0);
@@ -3394,50 +3467,59 @@ int main(int argc, char *argv[])
         pid_t pid0, pid1, pid2;
         int status;
 
-        pid0 = fork();
+        if (configParams.useWm) {
 
-        if (pid0 == 0) {
-            // Disabe decorations from wm.
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start devilspie2");
-            char *args[] = { "/usr/bin/devilspie2", "-f", "/usr/local/etc/devilspie2",  NULL }; 
-            execvp(args[0], args);
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
-            _exit(0);
-        }
+            sprintf(buf, "xrandr -s %dx%d &>/dev/null", WINDOW_W, WINDOW_H);
+            system(buf);
 
-        sleep(1);
+            pid0 = fork();
 
-        if (waitpid(pid0,&status,WNOHANG) == 0) {
-
-            pid1 = fork();
-
-            if (pid1 == 0) {
-                // Start a window manager
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start a window manager");
-                char *args[] = { "/usr/bin/xfwm4", "--sm-client-disable", NULL };
+            if (pid0 == 0) {
+                // Disabe decorations from wm.
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start devilspie2");
+                char *args[] = { "/usr/bin/devilspie2", "-f", "/usr/local/etc/devilspie2",  NULL }; 
                 execvp(args[0], args);
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
                 _exit(0);
             }
-        }
 
-        sleep(1);
-
-        pid2 = fork();
-
-        if (pid2 == 0) {
-            // Start the splashscreen
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate splashscreen");
-            char *args[] = { "/usr/bin/feh", "-x", "-bg-fill", "/usr/local/share/images/splash.png",  NULL }; 
-            execvp(args[0], args);
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
-            _exit(0);
-        }
-
-        if (waitpid(pid1,&status,WNOHANG) != 0) {
-            kill(pid0, SIGINT);
             sleep(1);
-            waitpid(pid0,&status,WNOHANG);
+
+            if (waitpid(pid0,&status,WNOHANG) == 0) {
+
+                pid1 = fork();
+
+                if (pid1 == 0) {
+                    // Start a window manager
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start a window manager");
+                    char *args[] = { "/usr/bin/xfwm4", "--sm-client-disable", "--compositor=off", NULL };
+                    execvp(args[0], args);
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
+                    _exit(0);
+                }
+            }
+
+            sleep(2);
+
+            pid2 = fork();
+
+            if (pid2 == 0) {
+                // Start the splashscreen
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate splashscreen");
+                char *args[] = { "/usr/bin/feh", "-x", "-bg-fill", "/usr/local/share/images/splash.png",  NULL }; 
+                execvp(args[0], args);
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
+                _exit(0);
+            }
+
+
+            if (waitpid(pid1,&status,WNOHANG) != 0) {
+                kill(pid0, SIGINT);
+                sleep(1);
+                waitpid(pid0,&status,WNOHANG);
+            }
+
+            sleep(1);
         }
 
     } else {
@@ -3473,11 +3555,6 @@ int main(int argc, char *argv[])
             case CALPAGE: sdlApp.nextPage = doCalibration(&sdlApp, &configParams);
                 break;
             case TSKPAGE: sdlApp.nextPage = doSubtask(&sdlApp, &configParams);
-                break;
-            case SDL_MOUSEBUTTONDOWN:
-                    if (++step >6) {
-                        sdlApp.nextPage = step = COGPAGE;
-                    } else{ sdlApp.nextPage = step; }
                 break;
             default: sdlApp.nextPage = COGPAGE;
                 break;

@@ -51,6 +51,7 @@ typedef struct {
     int numThreads;
     short port;
     char server[100];
+    int useWm;
     rfbScreenInfoPtr vncServer;
     SDL_Surface* vncPixelBuffer;
     int vncClients;
