@@ -53,7 +53,7 @@ shift
 export DISPLAY=:0.0
 
 if [ -n "${XPID}" ]; then
-    while xrandr -s 800x480 &>/dev/null ; [ $? -ne 0 ]; do
+    while xrandr -s "${WINDOW_W}"x"${WINDOW_H}" &>/dev/null ; [ $? -ne 0 ]; do
         sleep 1
         let "q--"
         if [ $q -le 0 ]; then
