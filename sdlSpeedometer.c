@@ -3467,7 +3467,7 @@ int main(int argc, char *argv[])
         pid_t pid0, pid1, pid2;
         int status;
 
-        if (configParams.useWm) {
+        if (configParams.useWm  == 1 && system("xprop -root|grep ^_NET_CLIENT_LIST >/dev/null 2>&1") != 0) {
 
             sprintf(buf, "xrandr -s %dx%d &>/dev/null", WINDOW_W, WINDOW_H);
             system(buf);
@@ -3505,13 +3505,12 @@ int main(int argc, char *argv[])
 
             if (pid2 == 0) {
                 // Start the splashscreen
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate splashscreen");
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splashscreen");
                 char *args[] = { "/usr/bin/feh", "-x", "-bg-fill", "/usr/local/share/images/splash.png",  NULL }; 
                 execvp(args[0], args);
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
                 _exit(0);
             }
-
 
             if (waitpid(pid1,&status,WNOHANG) != 0) {
                 kill(pid0, SIGINT);
@@ -3520,6 +3519,10 @@ int main(int argc, char *argv[])
             }
 
             sleep(1);
+        }  else {
+            if (configParams.useWm == 1)
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "A window manager is already running. The -w option is disabled.");
+            configParams.useWm = 0;
         }
 
     } else {
