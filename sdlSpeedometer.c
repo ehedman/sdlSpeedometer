@@ -1534,9 +1534,6 @@ static int doCompass(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
-       
-        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp, fontSrc);
 
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -1553,6 +1550,9 @@ static int doCompass(sdl2_app *sdlApp)
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
+
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp, fontSrc);
 
         SDL_RenderPresent(sdlApp->renderer);
 
