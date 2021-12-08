@@ -42,12 +42,13 @@ install:
 	sudo mkdir -p $(DEST)/etc/devilspie2
 	sudo install -m 0644 -g root -o root ./devilspie2/* -D $(DEST)/etc/devilspie2
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
-	sudo install -m 0644 -g root -o root $(SMDB) -D $(DEST)/etc
+	sudo install -m 0644 -g users -o $$LOGNAME $(SMDB) -D $(DEST)/etc
 endif
 	-sudo systemctl stop xorg.service sdlSpeedometer.service 
 	-sudo install -m 0644 -g root -o root sdlSpeedometer_x.env -D /etc/default/sdlSpeedometer
 	-sudo install -m 0644 -g root -o root xorg.service -D /lib/systemd/system/
-	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
+	 sed s/root/$$LOGNAME/ sdlSpeedometer.service > /tmp/sdlSpeedometer.service
+	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.service -D /lib/systemd/system/
 	-sudo systemctl daemon-reload
 	-sudo systemctl enable xorg.service sdlSpeedometer.service
 	-sudo systemctl start xorg.service
