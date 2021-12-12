@@ -42,10 +42,16 @@ install:
 	sudo mkdir -p $(DEST)/etc/devilspie2
 	sudo install -m 0644 -g root -o root ./devilspie2/* -D $(DEST)/etc/devilspie2
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
-	sudo install -m 0644 -g users -o $$LOGNAME $(SMDB) -D $(DEST)/etc
+	sudo install -m 0664 -g users -o $$LOGNAME $(SMDB) -D $(DEST)/etc
 endif
+
+install_x:
 	-sudo systemctl stop xorg.service sdlSpeedometer.service 
-	-sudo install -m 0644 -g root -o root sdlSpeedometer_x.env -D /etc/default/sdlSpeedometer
+	cp sdlSpeedometer_x.env /tmp
+	echo "XDG_RUNTIME_DIR=/run/user/$$(id -u)" >> /tmp/sdlSpeedometer_x.env
+	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer_x.env -D /etc/default/sdlSpeedometer
+	echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
+	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
 	-sudo install -m 0644 -g root -o root xorg.service -D /lib/systemd/system/
 	 sed s/root/$$LOGNAME/ sdlSpeedometer.service > /tmp/sdlSpeedometer.service
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.service -D /lib/systemd/system/
@@ -70,10 +76,10 @@ stop:
 
 start:
 	-sudo systemctl start sdlSpeedometer.service
-	-sudo systemctl status sdlSpeedometer.service --no-pager -l || true
+	-systemctl status sdlSpeedometer.service --no-pager -l || true
 
 status:
-	-sudo systemctl status sdlSpeedometer.service --no-pager -l || true
+	-systemctl status sdlSpeedometer.service --no-pager -l || true
 
 disable:
 	-sudo systemctl disable sdlSpeedometer.service

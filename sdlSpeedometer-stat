@@ -39,7 +39,7 @@ while (true) do
     echo "--"
     uptime
     echo "--"
-    echo "CPU $(/opt/vc/bin/vcgencmd measure_temp)"
+    echo "CPU temp=$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))"
     echo "--"
     echo "Tap screen to exit"
     sleep 4

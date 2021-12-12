@@ -1,7 +1,7 @@
 /*
  * sdlSpeedometer.c
  *
- *  Copyright (C) 2018 by Erland Hedman <erland@hedmanshome.se>
+ *  Copyright (C) 2021 by Erland Hedman <erland@hedmanshome.se>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

@@ -78,7 +78,6 @@ The packages needed are:
 - Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### Application dependencies for running external applications from sdlSpeedometer
-- dirmngr
 - xterm
 - xvkbd
 - feh

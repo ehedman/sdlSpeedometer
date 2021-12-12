@@ -29,9 +29,13 @@ Before executing "make install" check these items:
  - If not done already run (as root) raspi-config to set WiFi, localization, i2c and serial port according to the HOWTOs links in the README.md file.
  - Run sudo ./sdlSpeedometer-config to set your preferences for this application.
 
- - run make install (x11 config is the default)
+ - run make install : Install the basic run-time files.
 
- - run make install_kms (kmsdrm installation)
+ - run make install_x : Install the autostarted X configuration.
+
+ - run make install_kms  : Install the autostarted kmsdrm configuration.
+
+ - Do NOT run make install_(x/kms) on a desktop system. Instead install desired components manually.
 
 For testing:
  run make start/stop/status
