@@ -52,6 +52,7 @@ typedef struct {
     short port;
     char server[100];
     int useWm;
+    int useKms;
     rfbScreenInfoPtr vncServer;
     SDL_Surface* vncPixelBuffer;
     int vncClients;

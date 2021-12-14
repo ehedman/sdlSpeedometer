@@ -3269,7 +3269,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         configParams->runMon = 2;
     }
 
-    if (configParams->useWm)
+    if (configParams->useWm || configParams->useKms)
         SDL_ShowCursor(SDL_DISABLE);
 
     flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
@@ -3508,11 +3508,38 @@ int main(int argc, char *argv[])
                 pid1 = fork();
 
                 if (pid1 == 0) {
-                    // Start a window manager
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start a window manager");
-                    char *args[] = { "/usr/bin/xfwm4", "--sm-client-disable", "--compositor=off", NULL };
-                    execvp(args[0], args);
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
+
+                    pid_t pidWmMgr;
+
+                    for (int i = 1; i < 4; i++) {
+
+                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start a window manager");
+
+                        pidWmMgr = fork();
+
+                        if (pidWmMgr == 0) {
+
+                            int fdnull;
+
+                            // close stdin, stderr, stdout
+                            if ((fdnull = open("/dev/null", O_RDWR)) > 0)
+                            {
+                                dup2 (fdnull, STDIN_FILENO);
+                                dup2 (fdnull, STDOUT_FILENO);
+                                dup2 (fdnull, STDERR_FILENO);
+                                close(fdnull);
+                            }
+
+                            char *args[] = { "/usr/bin/xfwm4", "--sm-client-disable", "--compositor=off", NULL };
+                            execvp(args[0], args);
+
+                            _exit(1);
+                        }
+
+                        if (waitpid(pidWmMgr,&status,WUNTRACED) != 0) {
+                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "The window manager died unexpectedly. Retry  #%d", i);
+                        }
+                    }
                     _exit(0);
                 }
             }
@@ -3524,7 +3551,7 @@ int main(int argc, char *argv[])
             if (pid2 == 0) {
                 // Start the splashscreen
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splashscreen");
-                char *args[] = { "/usr/bin/feh", "-x", "-bg-fill", "/usr/local/share/images/splash.png",  NULL }; 
+                char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", "/usr/local/share/images/splash.png", NULL };
                 execvp(args[0], args);
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
                 _exit(0);
@@ -3537,6 +3564,7 @@ int main(int argc, char *argv[])
             }
 
             sleep(1);
+
         }  else {
             if (configParams.useWm == 1)
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "A window manager is already running. The -w option is disabled.");
@@ -3546,7 +3574,6 @@ int main(int argc, char *argv[])
     } else {
         SDL_setenv("SDL_VIDEODRIVER", "kmsdrm", 0);
     }
-
 
     if (openSDL2(&configParams, &sdlApp))
         exit(EXIT_FAILURE);
