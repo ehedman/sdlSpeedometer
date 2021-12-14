@@ -3566,14 +3566,16 @@ int main(int argc, char *argv[])
             sleep(1);
 
         }  else {
-            if (configParams.useWm == 1)
+            if (configParams.useWm == 1) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "A window manager is already running. The -w option is disabled.");
-            configParams.useWm = 0;
+                configParams.useWm = 0;
+            }
         }
 
     } else {
         SDL_setenv("SDL_VIDEODRIVER", "kmsdrm", 0);
         configParams.useKms = 1;
+        configParams.useWm = 0;
     }
 
     if (openSDL2(&configParams, &sdlApp))
