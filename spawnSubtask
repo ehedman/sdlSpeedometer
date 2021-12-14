@@ -42,15 +42,18 @@ function setDisplay() {
 }
 
 if ! pidof -s Xorg &>/dev/null; then
+    # This only works if app is running as root (kmsdrm mode)
     Xorg -nolisten tcp vt7 -nocursor -novtswitch -quiet &> /dev/null &
     XPID=$!
+    export DISPLAY=:0.0
+    sleep 2
+    /usr/bin/devilspie2 -f /usr/local/etc/devilspie2 &
+    /usr/bin/xfwm4 --sm-client-disable --compositor=off &
 fi
 
 let q=5
 
 shift
-
-export DISPLAY=:0.0
 
 if [ -n "${XPID}" ]; then
     while xrandr -s "${WINDOW_W}"x"${WINDOW_H}" &>/dev/null ; [ $? -ne 0 ]; do
