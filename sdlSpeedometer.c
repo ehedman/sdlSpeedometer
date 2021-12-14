@@ -3573,6 +3573,7 @@ int main(int argc, char *argv[])
 
     } else {
         SDL_setenv("SDL_VIDEODRIVER", "kmsdrm", 0);
+        configParams.useKms = 1;
     }
 
     if (openSDL2(&configParams, &sdlApp))
