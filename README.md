@@ -80,7 +80,7 @@ The packages needed are:
 ### Application dependencies for running external applications from sdlSpeedometer
 - xterm
 - xvkbd
-- feh
+- xloadimage
 
 ### Optional application dependencies for improved user experiences for subtasks.
 - devilspie
