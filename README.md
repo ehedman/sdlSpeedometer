@@ -40,7 +40,7 @@ Two marine related applications has been integrated successfully so far:
 
 If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
 
-Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi.
+Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi OS Buster.
 
 Kodi can be added as an external application to be used as a Jukebox style player togheter with its [Kore](https://play.google.com/store/apps/details?id=org.xbmc.kore&hl=sv&gl=US) remote control phone app.
 
@@ -87,7 +87,7 @@ The packages needed are:
 - xfwm4 
 
 ### Software used
-- [Raspberry Pi OS Lite - recommended - version 10 buster](https://downloads.raspberrypi.org/raspbian/images/raspbian-2020-02-14/2020-02-13-raspbian-buster.zip)
+- [Raspberry Pi OS Lite - recommended - version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
 - [Raspberry Pi OS Lite - currently immature - version 11 bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
 - Raspberry Pi OS version bullseye requires an SDL2-2 recompiled for x11 support.
 
