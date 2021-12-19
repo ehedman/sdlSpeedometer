@@ -1,49 +1,47 @@
 #!/bin/bash
 
 if [ "$1" == "init" ]; then
-    exec xterm -fullscreen -fa 'Monospace' -fs 9 -e sdlSpeedometer-stat
+
+    bash "$(dirname $(readlink -f $0))/$(basename $0)" &
+    sleep 2
+
+    while pidof yad &>/dev/null; do sleep 1;  done
+
+    rm -f /tmp/$(basename $0).tmp
+
+    kill -TERM $(ps -x | grep $0 | grep -v $$ | awk '{printf $1 " "}') &> /dev/null
+
+    exit 0
+
 fi
 
-tmpfile=$(mktemp /tmp/stat.XXXXXX)
-
-doTouch()
-{
-    while (true) do 
-        evtest --query  /dev/input/event0 EV_KEY BTN_TOUCH
-        if [ $? -ne 0 ]; then
-            rm -f $tmpfile
-            exit 0
+(
+    tmpfile=/tmp/$(basename $0).tmp
+    bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\nUP"}')"
+    while true; do
+        awk NF "$tmpfile" 2>/dev/null
+        top -n 2 -b | egrep -v 'top|yad' | grep -A 4 PID | awk '{print $NF "\n" $9}' | awk '/--/{x=NR+20;next}(NR<=x){print}' > "$tmpfile" &
+        echo -e "-----\n-----"
+        echo -e "Network I.F\nI.P Address:"
+        echo "$(ip -o addr show scope global | grep -v secondary | awk '{split($4, a, "/"); printf $2  "\n"a[1] "\n"}')"
+        if [ -n "${bt}" ]; 
+            echo -e "-----\n-----"
+            echo -e "Bluetooth\nStatus"
+            then echo "${bt}";
         fi
-        sleep 0.5
+        echo -e "-----\n-----"
+        echo "CPU temp"
+        echo "$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C"
+        echo "$(uptime -p | awk '{print "Uptime\n" $0}')"
+        sleep 3.4
+        echo -e '\f'
     done
+)  | yad  --title="System Status"\
+             --borders=8 \
+             --image="info" \
+             --list \
+             --column="PRPOERTY":text \
+             --column="VALUE":text \
+             --button="QUIT" \
+             --fullscreen
 
-}
-
-doTouch &
-
-if [ -n "$(/usr/bin/which hciconfig)" ]; then
-    if hciconfig hci0 &>/dev/null; then
-        hcicmd="true"
-    fi
-fi
-
-while (true) do 
-    clear
-    top -n 1 | grep -A5 PID | egrep -v 'top|0,0   0'
-    echo "--"
-    ifconfig | grep -A3 flags |  egrep -v 'inet6|lo:|127|loop'
-    if [ -n "$hcicmd" ]; then
-        echo "--"
-        hciconfig lestates | egrep -v 'BD'
-    fi
-    echo "--"
-    uptime
-    echo "--"
-    echo "CPU temp=$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))"
-    echo "--"
-    echo "Tap screen to exit"
-    sleep 4
-    if [ ! -e $tmpfile ]; then
-        break
-    fi
-done

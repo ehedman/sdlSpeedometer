@@ -85,6 +85,7 @@ The packages needed are:
 ### Optional application dependencies for improved user experiences for subtasks.
 - devilspie
 - xfwm4 
+- yad
 
 ### Software used
 - [Raspberry Pi OS Lite - recommended - version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
