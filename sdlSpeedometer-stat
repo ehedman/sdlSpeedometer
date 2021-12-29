@@ -17,31 +17,37 @@ fi
 
 (
     tmpfile=/tmp/$(basename $0).tmp
-    bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\nUP"}')"
+    bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\n"}')"
+    ncores="$(grep processor /proc/cpuinfo | wc -l)"
+    osrel="$(awk -F= '/VERSION=/{ print "OS " $1 " " $2}' /etc/os-release)"
+     
     while true; do
         awk NF "$tmpfile" 2>/dev/null
-        top -n 2 -b | egrep -v 'top|yad' | grep -A 4 PID | awk '{print $NF "\n" $9}' | awk '/--/{x=NR+20;next}(NR<=x){print}' > "$tmpfile" &
+        top -n 2 -b | egrep -v 'top|yad' | grep -A 4 PID | awk '{print $NF "\n" $9 "\t\t" $10}' | awk '/--/{x=NR+20;next}(NR<=x){print}' > "$tmpfile" &
         echo -e "-----\n-----"
         echo -e "Network I.F\nI.P Address:"
-        echo "$(ip -o addr show scope global | grep -v secondary | awk '{split($4, a, "/"); printf $2  "\n"a[1] "\n"}')"
+        echo "$(ip -o addr show scope global | grep -v secondary | awk '{split($4, a, "/"); printf $2  "\n"a[1] "\t# Connected="}; system("iw dev "$2" station dump | grep Station | wc -l")')"
         if [ -n "${bt}" ]; 
             echo -e "-----\n-----"
-            echo -e "Bluetooth\nStatus"
+            echo -e "Bluetooth\nConnection"
             then echo "${bt}";
+            echo "$(bluetoothctl devices | cut -f2 -d' ' | while read uuid; do bluetoothctl info $uuid; done| awk -F: '/Connected|Name/ {print $1 " " $2}' | grep -B 1 yes | awk NF=NF RS= OFS=' ')"
         fi
         echo -e "-----\n-----"
         echo "CPU temp"
-        echo "$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C"
-        echo "$(uptime -p | awk '{print "Uptime\n" $0}')"
+        echo -n "$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C on"
+        echo "$(grep "model name" /proc/cpuinfo  | awk -F: 'NR==1{ print $2}') with ${ncores} cores"
+        echo "$(uptime -p | awk '{printf "Uptime\n" $0 " on "}') ${osrel}"
         sleep 3.4
         echo -e '\f'
     done
-)  | yad  --title="System Status"\
+)  | yad  --title="System Status" \
              --borders=8 \
-             --image="info" \
+             --image="emblem-system" \
              --list \
              --column="PRPOERTY":text \
              --column="VALUE":text \
              --button="QUIT" \
              --fullscreen
+
 
