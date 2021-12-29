@@ -3511,7 +3511,7 @@ int main(int argc, char *argv[])
 
                     pid_t pidWmMgr;
 
-                    for (int i = 1; i < 4; i++) {
+                    for (int i = 1; i < 8; i++) {
 
                         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start a window manager");
 
@@ -3536,8 +3536,17 @@ int main(int argc, char *argv[])
                             _exit(1);
                         }
 
+                        for (int i = 0; i < 5; i++) {
+                            sleep(1);
+                            // Make sure to be on top if wm restarts
+                            if (!system("wmctrl -a sdlSpeedometer >/dev/null 2>&1;")) {
+                                break;
+                            }
+                        }
+
                         if (waitpid(pidWmMgr,&status,WUNTRACED) != 0) {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "The window manager died unexpectedly. Retry  #%d", i);
+                            sleep(2);
                         }
                     }
                     _exit(0);
