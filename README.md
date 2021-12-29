@@ -83,6 +83,7 @@ The packages needed are:
 - xterm
 - xvkbd
 - xloadimage
+- wmctrl
 
 ### Optional application dependencies for improved user experiences for subtasks.
 - devilspie
@@ -93,7 +94,7 @@ The packages needed are:
 - apt install libsdl2-dev libsdl2-image-dev libsdl2-net-dev libsdl2-ttf-dev
 - apt install libcurl4-gnutls-dev i2c-tools libi2c-dev libsqlite3-dev libpng-dev
 - apt libjpeg-dev libfreetype6-dev libts-dev libinput-dev libwebp-dev libvncserver-dev
-- apt install sqlite3 devilspie2 xfwm4 yad xloadimage xvkbd xterm
+- apt install sqlite3 devilspie2 xfwm4 yad xloadimage xvkbd xterm wmctrl
 
 ### Software used
 - [Raspberry Pi OS Lite - recommended - version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
