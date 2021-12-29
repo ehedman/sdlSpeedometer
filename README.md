@@ -47,11 +47,13 @@ Kodi can be added as an external application to be used as a Jukebox style playe
 sdlSpeedometer has also a built-in RFB (VNC) server function so that an external VNC client can connect a slave instrument on a computer and/or a tablet with a VNC client.
 
 ### Tested runtime environment
+- Note this this is mainly an EMBEDDED solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
 - Raspberry Pi 3B+ and 4B and a 7 inch touch display.
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 
 ### System Software prerequisites
 - xorg
+- sqlite3
 
 ### SDL2 Software prerequisites
 The packages needed are:
@@ -86,6 +88,12 @@ The packages needed are:
 - devilspie
 - xfwm4 
 - yad
+
+### Install all dependencies
+- apt install libsdl2-dev libsdl2-image-dev libsdl2-net-dev libsdl2-ttf-dev
+- apt install libcurl4-gnutls-dev i2c-tools libi2c-dev libsqlite3-dev libpng-dev
+- apt libjpeg-dev libfreetype6-dev libts-dev libinput-dev libwebp-dev libvncserver-dev
+- apt install sqlite3 devilspie2 xfwm4 yad xloadimage xvkbd xterm
 
 ### Software used
 - [Raspberry Pi OS Lite - recommended - version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
