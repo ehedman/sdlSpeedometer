@@ -1,27 +1,18 @@
 #!/bin/bash
 
-if [ "$1" == "init" ]; then
-
-    bash "$(dirname $(readlink -f $0))/$(basename $0)" &
-    sleep 2
-
-    while pidof yad &>/dev/null; do sleep 1;  done
-
-    rm -f /tmp/$(basename $0).tmp
-
-    kill -TERM $(ps -x | grep $0 | grep -v $$ | awk '{printf $1 " "}') &> /dev/null
-
-    exit 0
-
-fi
-
 (
     tmpfile=/tmp/$(basename $0).tmp
     bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\n"}')"
     ncores="$(grep processor /proc/cpuinfo | wc -l)"
     osrel="$(awk -F= '/VERSION=/{ print "OS " $1 " " $2}' /etc/os-release)"
+    usage="$(df -h |  awk '/root/{printf "%s=%s Usage=%s", $1, $2, $5}')"
      
     while true; do
+
+        if ! pidof -c yad  &>/dev/null; then
+           break
+        fi
+
         awk NF "$tmpfile" 2>/dev/null
         top -n 2 -b | egrep -v 'top|yad' | grep -A 4 PID | awk '{print $NF "\n" $9 "\t\t" $10}' | awk '/--/{x=NR+20;next}(NR<=x){print}' > "$tmpfile" &
         echo -e "-----\n-----"
@@ -38,6 +29,7 @@ fi
         echo -n "$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C on"
         echo "$(grep "model name" /proc/cpuinfo  | awk -F: 'NR==1{ print $2}') with ${ncores} cores"
         echo "$(uptime -p | awk '{printf "Uptime\n" $0 " on "}') ${osrel}"
+        echo -e "Disk usage\n ${usage}"
         sleep 3.4
         echo -e '\f'
     done
@@ -47,7 +39,28 @@ fi
              --list \
              --column="PRPOERTY":text \
              --column="VALUE":text \
-             --button="QUIT" \
+             --button="REBOOT":1 \
+             --button="HALT":2 \
+             --button="QUIT":0 \
              --fullscreen
 
+case $? in
+    1)
+        reboot
+    ;;
+    2)
+        halt
+    ;;
+    *)
+        exit 0
+    ;;
+esac
+if [ $? -eq 1 ]; then
+    reboot
+fi
 
+if [ $? -eq 2 ]; then
+    halt
+fi
+
+exit 0
