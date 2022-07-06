@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# shellcheck disable=SC2181
+
 if [ "$DISPLAY" == ":0.0" ]; then
     xvkbd -window xterm -no-keypad -no-functionkey -geometry 800x230+0+250 &>/dev/null  &
 fi
@@ -68,9 +70,9 @@ do_set_external_app() {
     fi
 
     whiptail --msgbox "\
-Enter an application and and its arguments here. \n
+Enter an application and and its arguments here.\\n
 A new tools icon will appear on one of the GUI screens.
-To disable an application, enter 'notyet'. \n
+To disable an application, enter 'notyet'.\\n
 To run a terminal appication (nox-X), prefix the commant with 'openvt'. $RMGS
 " 20 70 1
 
@@ -88,9 +90,9 @@ To run a terminal appication (nox-X), prefix the commant with 'openvt'. $RMGS
 
 do_set_serial_device() {
     whiptail --msgbox "\
-Enter a serial device name for the GPS. \n
+Enter a serial device name for the GPS.\\n
 For a Raspberry Pi model 3 with the BerryGPS it should be /dev/ttyS0 and for \
-other Raspberrys' /dev/tyAMA0. \n
+other Raspberrys' /dev/tyAMA0.\\n
 If KPLEX is present in the system it is reccomended that KPLEX owns the serial device and that device name is set to 'none'.
 " 20 70 1
 
@@ -106,7 +108,7 @@ If KPLEX is present in the system it is reccomended that KPLEX owns the serial d
 
 do_set_serial_speed() {
     whiptail --msgbox "\
-Enter serial baudrate for the GPS device. \n
+Enter serial baudrate for the GPS device. \\n
 For a BerryGPS default is 9600.
 " 20 70 1
 
@@ -169,7 +171,7 @@ Enter the manual compass offset, Max -10 to + 10 degrees
 
 do_set_compass_roll_offset() {
     whiptail --msgbox "\
-Enter the manual compass roll offset, Max -4 to + 4 degrees
+Enter the manual compass roll offset, Max -4 to + 4 degrees.\\nThis is for the clinometer symbol.
 " 20 70 1
 
   CURRENT_COMPASS_ROLL_OFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT rOffset FROM calib;')
@@ -195,12 +197,12 @@ Hostname labels cannot begin or end with a hyphen.
 No other symbols, punctuation characters, or blank spaces are permitted.\
 " 20 70 1
 
-  CURRENT_HOSTNAME=$(tr  -d " \t\n\r" </etc/hostname)
+  CURRENT_HOSTNAME=$(hostnamectl --static status | tr -d ' \t\n\r')
   NEW_HOSTNAME=$(whiptail --inputbox "Please enter a hostname" 20 60 "$CURRENT_HOSTNAME" 3>&1 1>&2 2>&3)
 
   if [ $? -eq 0 ]; then
-    echo "$NEW_HOSTNAME" > /etc/hostname
-    sed -i "s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\t$NEW_HOSTNAME/g" /etc/hosts
+    hostnamectl set-hostname "$NEW_HOSTNAME"
+    sed -i "s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\\t$NEW_HOSTNAME/g" /etc/hosts
     ASK_TO_REBOOT=1
   fi
 }
@@ -259,7 +261,7 @@ fi
 
     whiptail --yesno --defaultno "\
 The raspi-config tool helps you to configure your Raspberry Pi; several \
-settings can be changed with this tool without having to know the correct commands to use.\n 
+settings can be changed with this tool without having to know the correct commands to use.\\n 
 Enter YES to run raspi-config.
 " 20 70 1
 
@@ -274,6 +276,13 @@ do_wifi_ssid_passphrase() {
 if [ "$(id -u)" -ne 0 ]; then
     whiptail --msgbox "\
 Ony root can do this.
+" 20 70 1
+    return
+fi
+
+if pidof -s hostapd &>/dev/null; then
+    whiptail --msgbox "\
+This system is configured as an access point that cannot be configured here.
 " 20 70 1
     return
 fi
@@ -318,7 +327,7 @@ fi
       IP=$(ip -4 addr show "$IFACE" | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
       if [ -n "$IP" ]; then IP="($IP)"; fi 
       # shellcheck disable=SC2086
-      SSID="$(whiptail --title "Add SSID" --radiolist "Current connection is $CSSID $IP\nWhat is the SSID of your choice?" 15 60 7 ${SSID_LIST} 3>&1 1>&2 2>&3)"
+      SSID="$(whiptail --title "Add SSID" --radiolist "Current connection is $CSSID $IP\\nWhat is the SSID of your choice?" 15 60 7 ${SSID_LIST} 3>&1 1>&2 2>&3)"
       
     else
        SSID=$(whiptail --inputbox "Please enter SSID" 20 60 3>&1 1>&2 2>&3)
@@ -351,7 +360,7 @@ fi
 
   while [ "$IDS" -ge 0 ]; do
       wpa_cli -i "$IFACE" remove_network "$IDS" &>/dev/null
-      let IDS=$IDS-1
+      IDS=$((IDS -1))
   done
 
   wpa_cli -i "$IFACE" save_config &>/dev/null
