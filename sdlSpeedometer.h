@@ -30,6 +30,8 @@ typedef struct {
     int magYmin;
     int magZmin;
     float declval;
+    int coffset;
+    int roffset;
 } calibration;
 
 
@@ -89,7 +91,7 @@ typedef struct {
 
 extern int i2cinit(int bus);
 extern float i2cReadHdm(int file, calibration *calib);
-extern float i2cReadRoll(int file, int dt);
+extern float i2cReadRoll(int file, int dt, calibration *calib);
 extern void i2creadMAG(int  m[], int file);
 
 typedef struct {

@@ -155,6 +155,30 @@ Enter the port number of the VNC Server
   fi
 }
 
+do_set_compass_offset() {
+    whiptail --msgbox "\
+Enter the manual compass offset, Max -10 to + 10 degrees
+" 20 70 1
+
+  CURRENT_COMPASSOFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT cOffset FROM calib;')
+  NEW_COMPASSOFFSET=$(whiptail --inputbox "Please the compass offset" 20 60 -- "$CURRENT_COMPASSOFFSET" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_COMPASSOFFSET" ]; then
+    echo "UPDATE calib SET cOffset = '$NEW_COMPASSOFFSET' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
+do_set_compass_roll_offset() {
+    whiptail --msgbox "\
+Enter the manual compass roll offset, Max -4 to + 4 degrees
+" 20 70 1
+
+  CURRENT_COMPASS_ROLL_OFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT rOffset FROM calib;')
+  NEW_COMPASS_ROLL_OFFSET=$(whiptail --inputbox "Please the compass roll offset" 20 60 -- "$CURRENT_COMPASS_ROLL_OFFSET" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_COMPASS_ROLL_OFFSET" ]; then
+    echo "UPDATE calib SET rOffset = '$NEW_COMPASS_ROLL_OFFSET' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
 do_hostname() {
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -373,12 +397,14 @@ do_config_menu() {
     "8 Application 1" "Enter External Application for page SOG" \
     "9 Application 2" "Enter External Application for page DPT" \
     "10 Application 3" "Enter External Application for page PWR" \
-    "11 Configuration" "Run raspi-config" \
+    "11 Compass offset" "Enter manual compass offset" \
+    "12 Compass roll offset" "Enter manual compass roll offset" \
+    "13 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
     return 1
-  elif [ $RET -eq 0 ]; then
+  elif [ $RET -eq 0 ]; then 
     case "$FUN" in
       1\ *) do_hostname ;;
       2\ *) do_wifi_ssid_passphrase ;;
@@ -390,7 +416,9 @@ do_config_menu() {
       8\ *) do_set_external_app 2 ;;
       9\ *) do_set_external_app 3 ;;
       10\ *) do_set_external_app 7 ;;
-      11\ *) do_raspi_config ;;
+      11\ *) do_set_compass_offset ;;
+      12\ *) do_set_compass_roll_offset ;;
+      13\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi

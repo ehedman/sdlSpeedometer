@@ -39,9 +39,10 @@
 #define ACC_LPF_FACTOR  0.1
 
 #define G_GAIN 0.070    // [deg/s/LSB]
-#define RAD_TO_DEG 57.29578
-//#define DT 0.2         	// [s/loop] loop period.  0.2  = 200ms
-#define AA 0.97         // complementary filter constan
+#define RAD_TO_DEG      57.29578
+//#define DT 0.2          // [s/loop] loop period.  0.2  = 200ms
+#define AA      0.97    // complementary filter constan
+#define RDEV    2       // Return heading results within +/- RDEV range
 
 static int LSM9DS0 = 0;
 static int LSM9DS1 = 0;
@@ -69,14 +70,14 @@ static int readBlock(uint8_t command, uint8_t size, uint8_t *data, int file)
 static void writeGyrReg(uint8_t reg, uint8_t value, int file)
 {
     if (LSM9DS0)
-		selectDevice(file,LSM9DS0_GYR_ADDRESS);
-	else if (LSM9DS1)
-		selectDevice(file,LSM9DS1_GYR_ADDRESS);
+        selectDevice(file,LSM9DS0_GYR_ADDRESS);
+    else if (LSM9DS1)
+        selectDevice(file,LSM9DS1_GYR_ADDRESS);
   
-	int result = i2c_smbus_write_byte_data(file, reg, value);
-	if (result == -1){
+    int result = i2c_smbus_write_byte_data(file, reg, value);
+    if (result == -1){
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Failed to write byte to I2C Gyr.");
-	}
+    }
 }
 
 static void readGYR(int g[], int file)
@@ -99,59 +100,59 @@ static void readGYR(int g[], int file)
 
 static int writeAccReg(uint8_t reg, uint8_t value, int file)
 {
-	if (LSM9DS0)
-		selectDevice(file,LSM9DS0_ACC_ADDRESS);
-	else if (LSM9DS1)
-		selectDevice(file,LSM9DS1_ACC_ADDRESS);
+    if (LSM9DS0)
+        selectDevice(file,LSM9DS0_ACC_ADDRESS);
+    else if (LSM9DS1)
+        selectDevice(file,LSM9DS1_ACC_ADDRESS);
 
-	int result = i2c_smbus_write_byte_data(file, reg, value);
-	if (result == -1){
-		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to write byte to I2C Acc.");
-		return result;
-	}
+    int result = i2c_smbus_write_byte_data(file, reg, value);
+    if (result == -1){
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to write byte to I2C Acc.");
+        return result;
+    }
     return 0;
 }
 
 static int readACC(int  a[], int file)
 {
-	uint8_t block[6];
+    uint8_t block[6];
     int result = 0;
 
-	if (LSM9DS0){
-		selectDevice(file,LSM9DS0_ACC_ADDRESS);
-		result = readBlock(0x80 |  LSM9DS0_OUT_X_L_A, sizeof(block), block, file);
-	}
-	else if (LSM9DS1){
-		selectDevice(file,LSM9DS1_ACC_ADDRESS);
-		result = readBlock(0x80 |  LSM9DS1_OUT_X_L_XL, sizeof(block), block, file);       
-	}
+    if (LSM9DS0){
+        selectDevice(file,LSM9DS0_ACC_ADDRESS);
+        result = readBlock(0x80 |  LSM9DS0_OUT_X_L_A, sizeof(block), block, file);
+    }
+    else if (LSM9DS1){
+        selectDevice(file,LSM9DS1_ACC_ADDRESS);
+        result = readBlock(0x80 |  LSM9DS1_OUT_X_L_XL, sizeof(block), block, file);       
+    }
 
-	// Combine readings for each axis.
-	a[0] = (int16_t)(block[0] | block[1] << 8);
-	a[1] = (int16_t)(block[2] | block[3] << 8);
-	a[2] = (int16_t)(block[4] | block[5] << 8);
+    // Combine readings for each axis.
+    a[0] = (int16_t)(block[0] | block[1] << 8);
+    a[1] = (int16_t)(block[2] | block[3] << 8);
+    a[2] = (int16_t)(block[4] | block[5] << 8);
 
     return result;
 }
 
 static int readMAG(int  m[], int file)
 {
-	uint8_t block[6];
+    uint8_t block[6];
     int result = 0;
 
-	if (LSM9DS0){
-		selectDevice(file,LSM9DS0_MAG_ADDRESS);
-		result = readBlock(0x80 |  LSM9DS0_OUT_X_L_M, sizeof(block), block, file);
-	}
-	else if (LSM9DS1){
-		selectDevice(file,LSM9DS1_MAG_ADDRESS);
-		result = readBlock(0x80 |  LSM9DS1_OUT_X_L_M, sizeof(block), block, file);    
-	}
+    if (LSM9DS0){
+        selectDevice(file,LSM9DS0_MAG_ADDRESS);
+        result = readBlock(0x80 |  LSM9DS0_OUT_X_L_M, sizeof(block), block, file);
+    }
+    else if (LSM9DS1){
+        selectDevice(file,LSM9DS1_MAG_ADDRESS);
+        result = readBlock(0x80 |  LSM9DS1_OUT_X_L_M, sizeof(block), block, file);    
+    }
 
-	// Combine readings for each axis.
-	m[0] = (int16_t)(block[0] | block[1] << 8);
-	m[1] = (int16_t)(block[2] | block[3] << 8);
-	m[2] = (int16_t)(block[4] | block[5] << 8);
+    // Combine readings for each axis.
+    m[0] = (int16_t)(block[0] | block[1] << 8);
+    m[1] = (int16_t)(block[2] | block[3] << 8);
+    m[2] = (int16_t)(block[4] | block[5] << 8);
 
     return result;
 
@@ -164,16 +165,16 @@ void i2creadMAG(int  m[], int file)
 
 static int writeMagReg(uint8_t reg, uint8_t value, int file)
 {
-	if (LSM9DS0)
-		selectDevice(file,LSM9DS0_MAG_ADDRESS);
-	else if (LSM9DS1)
-		selectDevice(file,LSM9DS1_MAG_ADDRESS);;
+    if (LSM9DS0)
+        selectDevice(file,LSM9DS0_MAG_ADDRESS);
+    else if (LSM9DS1)
+        selectDevice(file,LSM9DS1_MAG_ADDRESS);;
 
     int result = i2c_smbus_write_byte_data(file, reg, value);
     if (result == -1)
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to write byte to I2C Mag %d - %s", reg, strerror(errno));
-	    return result;
+        return result;
     }
     return 0;
 }
@@ -181,37 +182,37 @@ static int writeMagReg(uint8_t reg, uint8_t value, int file)
 static void enableIMU(int file)
 {
 
-	if (LSM9DS0){//For BerryIMUv1
-		// Enable accelerometer.
-		writeAccReg(LSM9DS0_CTRL_REG1_XM, 0b01100111, file); //  z,y,x axis enabled, continuous update,  100Hz data rate
-		writeAccReg(LSM9DS0_CTRL_REG2_XM, 0b00100000, file); // +/- 16G full scale
+    if (LSM9DS0){//For BerryIMUv1
+        // Enable accelerometer.
+        writeAccReg(LSM9DS0_CTRL_REG1_XM, 0b01100111, file); //  z,y,x axis enabled, continuous update,  100Hz data rate
+        writeAccReg(LSM9DS0_CTRL_REG2_XM, 0b00100000, file); // +/- 16G full scale
 
-		//Enable the magnetometer
-		writeMagReg(LSM9DS0_CTRL_REG5_XM, 0b11110000, file); // Temp enable, M data rate = 50Hz
-		writeMagReg(LSM9DS0_CTRL_REG6_XM, 0b01100000, file); // +/-12gauss
-		writeMagReg(LSM9DS0_CTRL_REG7_XM, 0b00000000, file); // Continuous-conversion mode
+        //Enable the magnetometer
+        writeMagReg(LSM9DS0_CTRL_REG5_XM, 0b11110000, file); // Temp enable, M data rate = 50Hz
+        writeMagReg(LSM9DS0_CTRL_REG6_XM, 0b01100000, file); // +/-12gauss
+        writeMagReg(LSM9DS0_CTRL_REG7_XM, 0b00000000, file); // Continuous-conversion mode
 
-		// Enable Gyro
-		writeGyrReg(LSM9DS0_CTRL_REG1_G, 0b00001111, file); // Normal power mode, all axes enabled
-		writeGyrReg(LSM9DS0_CTRL_REG4_G, 0b00110000, file); // Continuos update, 2000 dps full scale
-	}
+        // Enable Gyro
+        writeGyrReg(LSM9DS0_CTRL_REG1_G, 0b00001111, file); // Normal power mode, all axes enabled
+        writeGyrReg(LSM9DS0_CTRL_REG4_G, 0b00110000, file); // Continuos update, 2000 dps full scale
+    }
 
-	if (LSM9DS1){//For BerryIMUv2
-		// Enable the gyroscope
-		writeGyrReg(LSM9DS1_CTRL_REG4,0b00111000, file);      // z, y, x axis enabled for gyro
-		writeGyrReg(LSM9DS1_CTRL_REG1_G,0b10111000, file);    // Gyro ODR = 476Hz, 2000 dps
-		writeGyrReg(LSM9DS1_ORIENT_CFG_G,0b10111000, file);   // Swap orientation 
+    if (LSM9DS1){//For BerryIMUv2
+        // Enable the gyroscope
+        writeGyrReg(LSM9DS1_CTRL_REG4,0b00111000, file);      // z, y, x axis enabled for gyro
+        writeGyrReg(LSM9DS1_CTRL_REG1_G,0b10111000, file);    // Gyro ODR = 476Hz, 2000 dps
+        writeGyrReg(LSM9DS1_ORIENT_CFG_G,0b10111000, file);   // Swap orientation 
 
-		// Enable the accelerometer
-		writeAccReg(LSM9DS1_CTRL_REG5_XL,0b00111000, file);   // z, y, x axis enabled for accelerometer
-		writeAccReg(LSM9DS1_CTRL_REG6_XL,0b00101000, file);   // +/- 16g
+        // Enable the accelerometer
+        writeAccReg(LSM9DS1_CTRL_REG5_XL,0b00111000, file);   // z, y, x axis enabled for accelerometer
+        writeAccReg(LSM9DS1_CTRL_REG6_XL,0b00101000, file);   // +/- 16g
 
-		//Enable the magnetometer
-		writeMagReg(LSM9DS1_CTRL_REG1_M, 0b10011100, file);   // Temp compensation enabled,Low power mode mode,80Hz ODR
-		writeMagReg(LSM9DS1_CTRL_REG2_M, 0b01000000, file);   // +/-12gauss
-		writeMagReg(LSM9DS1_CTRL_REG3_M, 0b00000000, file);   // continuos update
-		writeMagReg(LSM9DS1_CTRL_REG4_M, 0b00000000, file);   // lower power mode for Z axis
-	}
+        //Enable the magnetometer
+        writeMagReg(LSM9DS1_CTRL_REG1_M, 0b10011100, file);   // Temp compensation enabled,Low power mode mode,80Hz ODR
+        writeMagReg(LSM9DS1_CTRL_REG2_M, 0b01000000, file);   // +/-12gauss
+        writeMagReg(LSM9DS1_CTRL_REG3_M, 0b00000000, file);   // continuos update
+        writeMagReg(LSM9DS1_CTRL_REG4_M, 0b00000000, file);   // lower power mode for Z axis
+    }
 
 }
 
@@ -228,29 +229,29 @@ int i2cinit(int bus)
         return -1;
     }
 
-	//Detect if BerryIMUv1 (Which uses a LSM9DS0) is connected
-	selectDevice(file,LSM9DS0_ACC_ADDRESS);
-	int LSM9DS0_WHO_XM_response = i2c_smbus_read_byte_data(file, LSM9DS0_WHO_AM_I_XM);
+    //Detect if BerryIMUv1 (Which uses a LSM9DS0) is connected
+    selectDevice(file,LSM9DS0_ACC_ADDRESS);
+    int LSM9DS0_WHO_XM_response = i2c_smbus_read_byte_data(file, LSM9DS0_WHO_AM_I_XM);
 
-	selectDevice(file,LSM9DS0_GYR_ADDRESS);	
-	int LSM9DS0_WHO_G_response = i2c_smbus_read_byte_data(file, LSM9DS0_WHO_AM_I_G);
+    selectDevice(file,LSM9DS0_GYR_ADDRESS);    
+    int LSM9DS0_WHO_G_response = i2c_smbus_read_byte_data(file, LSM9DS0_WHO_AM_I_G);
 
-	if (LSM9DS0_WHO_G_response == 0xd4 && LSM9DS0_WHO_XM_response == 0x49){
-		SDL_Log("BerryIMUv1/LSM9DS0  DETECTED");
-		LSM9DS0 = 1;
-	}
+    if (LSM9DS0_WHO_G_response == 0xd4 && LSM9DS0_WHO_XM_response == 0x49){
+        SDL_Log("BerryIMUv1/LSM9DS0  DETECTED");
+        LSM9DS0 = 1;
+    }
 
-	//Detect if BerryIMUv2 (Which uses a LSM9DS1) is connected
-	selectDevice(file,LSM9DS1_MAG_ADDRESS);
-	int LSM9DS1_WHO_M_response = i2c_smbus_read_byte_data(file, LSM9DS1_WHO_AM_I_M);
+    //Detect if BerryIMUv2 (Which uses a LSM9DS1) is connected
+    selectDevice(file,LSM9DS1_MAG_ADDRESS);
+    int LSM9DS1_WHO_M_response = i2c_smbus_read_byte_data(file, LSM9DS1_WHO_AM_I_M);
 
-	selectDevice(file,LSM9DS1_GYR_ADDRESS);	
-	int LSM9DS1_WHO_XG_response = i2c_smbus_read_byte_data(file, LSM9DS1_WHO_AM_I_XG);
+    selectDevice(file,LSM9DS1_GYR_ADDRESS);    
+    int LSM9DS1_WHO_XG_response = i2c_smbus_read_byte_data(file, LSM9DS1_WHO_AM_I_XG);
 
     if (LSM9DS1_WHO_XG_response == 0x68 && LSM9DS1_WHO_M_response == 0x3d){
         SDL_Log("BerryIMUv2/LSM9DS1  DETECTED");
-		LSM9DS1 = 1;
-	}
+        LSM9DS1 = 1;
+    }
 
     enableIMU(file);
 
@@ -269,9 +270,15 @@ float i2cReadHdm(int file, calibration *calib)
     static int oldXAccRawValue;
     static int oldYAccRawValue;
     static int oldZAccRawValue;
+    static int sampleCnt;
 
-    float heading = 0.0;
+    static float heading, curHeading;
     int result = 0;
+
+    if (sampleCnt++ < 5) {
+        return curHeading;
+    }
+    sampleCnt = 0;
 
     result += readMAG(magRaw, file);
     result += readACC(accRaw, file);
@@ -308,8 +315,8 @@ float i2cReadHdm(int file, calibration *calib)
 #endif
 
     //If your IMU is upside down, comment out the two lines below which we correct the tilt calculation
-    //accRaw[0] = -accRaw[0];
-    //accRaw[1] = -accRaw[1];
+//    accRaw[0] = -accRaw[0];
+//    accRaw[1] = -accRaw[1];
 
     //Normalize accelerometer raw values.
     accXnorm = accRaw[0]/sqrt(accRaw[0] * accRaw[0] + accRaw[1] * accRaw[1] + accRaw[2] * accRaw[2]);
@@ -327,16 +334,25 @@ float i2cReadHdm(int file, calibration *calib)
        magYcomp = magRaw[0]*sin(roll)*sin(pitch)+magRaw[1]*cos(roll)+magRaw[2]*sin(roll)*cos(pitch); // LSM9DS1
 
     //Calculate heading with declination
-    heading = (180*atan2(magYcomp,magXcomp)/M_PI) + calib->declval;;
+    heading = (180*atan2(magYcomp,magXcomp)/M_PI) + calib->declval + calib->coffset;
 
     //Convert heading to 0 - 360
     if(heading < 0)
         heading += 360;
 
-    return heading;
+    if (!curHeading) curHeading = heading;
+
+    if (!(heading > curHeading+RDEV || heading < curHeading-RDEV)) {
+        heading = curHeading;
+    } else {
+        curHeading = heading;
+    }
+
+    return roundf(heading);
+
 }
 
-float i2cReadRoll(int file, int dt)
+float i2cReadRoll(int file, int dt, calibration *calib)
 {
     //Each (dt) loop should be at least 20ms.
 
@@ -348,61 +364,56 @@ float i2cReadRoll(int file, int dt)
     static float CFangleX;
     static float CFangleY;
 
-	static float rate_gyr_y;    // [deg/s]
-	static float rate_gyr_x;    // [deg/s]
-	static float rate_gyr_z;    // [deg/s]
+    static float rate_gyr_y;    // [deg/s]
+    static float rate_gyr_x;    // [deg/s]
+    static float rate_gyr_z;    // [deg/s]
 
-	int  acc_raw[3];
-	int  gyr_raw[3];
+    int  acc_raw[3];
+    int  gyr_raw[3];
 
-	//read ACC and GYR data
-	readACC(acc_raw, file);
-	readGYR(gyr_raw, file);
+    //read ACC and GYR data
+    readACC(acc_raw, file);
+    readGYR(gyr_raw, file);
 
-	//Convert Gyro raw to degrees per second
-	rate_gyr_x = (float) gyr_raw[0] * G_GAIN;
-	rate_gyr_y = (float) gyr_raw[1]  * G_GAIN;
-	rate_gyr_z = (float) gyr_raw[2]  * G_GAIN;
+    //Convert Gyro raw to degrees per second
+    rate_gyr_x = (float) gyr_raw[0] * G_GAIN;
+    rate_gyr_y = (float) gyr_raw[1]  * G_GAIN;
+    rate_gyr_z = (float) gyr_raw[2]  * G_GAIN;
 
-	//Calculate the angles from the gyro
-	gyroXangle+=rate_gyr_x*(float)dt/1000;
-	gyroYangle+=rate_gyr_y*(float)dt/1000;
-	gyroZangle+=rate_gyr_z*(float)dt/1000;;
+    //Calculate the angles from the gyro
+    gyroXangle+=rate_gyr_x*(float)dt/1000;
+    gyroYangle+=rate_gyr_y*(float)dt/1000;
+    gyroZangle+=rate_gyr_z*(float)dt/1000;;
 
-	//Convert Accelerometer values to degrees
-	AccXangle = (float) (atan2(acc_raw[1],acc_raw[2])+M_PI)*RAD_TO_DEG;
-	AccYangle = (float) (atan2(acc_raw[2],acc_raw[0])+M_PI)*RAD_TO_DEG;
+    //Convert Accelerometer values to degrees
+    AccXangle = (float) (atan2(acc_raw[1],acc_raw[2])+M_PI)*RAD_TO_DEG;
+    AccYangle = (float) (atan2(acc_raw[2],acc_raw[0])+M_PI)*RAD_TO_DEG;
 
-	//Change the rotation value of the accelerometer to -/+ 180 and move the Y axis '0' point to up.
-	//Two different pieces of code are used depending on how your IMU is mounted.
-	//If IMU is upside down
-	/*
-	if (AccXangle >180)
-		AccXangle -= (float)360.0;
+    //Change the rotation value of the accelerometer to -/+ 180 and move the Y axis '0' point to up.
+    //Two different pieces of code are used depending on how your IMU is mounted.
+    //If IMU is upside down
+    /*
+    if (AccXangle >180)
+        AccXangle -= (float)360.0;
 
-	AccYangle-=90;
-	if (AccYangle >180)
-	A	ccYangle -= (float)360.0;
-	*/
+    AccYangle-=90;
+    if (AccYangle >180)
+    A    ccYangle -= (float)360.0;
+    */
 
-	//If IMU is up the correct way, use these lines
-	AccXangle -= (float)180.0;
-	if (AccYangle > 90)
-		AccYangle -= (float)270;
-	else
-		AccYangle += (float)90;
+    //If IMU is up the correct way, use these lines
+    AccXangle -= (float)180.0;
+    if (AccYangle > 90)
+        AccYangle -= (float)270;
+    else
+        AccYangle += (float)90;
 
-	//Complementary filter used to combine the accelerometer and gyro values.
-	CFangleX=AA*(CFangleX+rate_gyr_x*(float)dt/1000) +(1 - AA) * AccXangle;
-	CFangleY=AA*(CFangleY+rate_gyr_y*(float)dt/1000) +(1 - AA) * AccYangle;
+    //Complementary filter used to combine the accelerometer and gyro values.
+    CFangleX=AA*(CFangleX+rate_gyr_x*(float)dt/1000) +(1 - AA) * AccXangle;
+    CFangleY=AA*(CFangleY+rate_gyr_y*(float)dt/1000) +(1 - AA) * AccYangle;
 
-	//printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n",gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
+    //printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n",gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
 
-    return AccXangle;
+    return roundf(AccXangle)+calib->roffset;
 }
-
-
-
-
-
 
