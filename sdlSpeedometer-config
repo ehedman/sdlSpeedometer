@@ -91,7 +91,7 @@ To run a terminal appication (nox-X), prefix the commant with 'openvt'. $RMGS
 do_set_serial_device() {
     whiptail --msgbox "\
 Enter a serial device name for the GPS.\\n
-For a Raspberry Pi model 3 with the BerryGPS it should be /dev/ttyS0 and for \
+For a Raspberry Pi model 3 and 4 with the BerryGPS it should be /dev/ttyS0 and for \
 other Raspberrys' /dev/tyAMA0.\\n
 If KPLEX is present in the system it is reccomended that KPLEX owns the serial device and that device name is set to 'none'.
 " 20 70 1
