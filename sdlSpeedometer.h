@@ -14,13 +14,13 @@
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
-#define dmagXmax 1707
-#define dmagYmax 717
-#define dmagZmax -618
-#define dmagXmin -681
-#define dmagYmin -1414
-#define dmagZmin -2719
-#define ddeclval 0.11
+#define dmagXmax 2029
+#define dmagYmax 1297
+#define dmagZmax 579
+#define dmagXmin -324
+#define dmagYmin -1066
+#define dmagZmin -1338
+#define ddeclval 0.13
 
 typedef struct {
     int magXmax;
@@ -31,7 +31,7 @@ typedef struct {
     int magZmin;
     float declval;
     int coffset;
-    int roffset;
+    float roffset;
 } calibration;
 
 

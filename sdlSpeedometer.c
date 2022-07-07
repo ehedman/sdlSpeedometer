@@ -143,9 +143,9 @@ int  configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset INTEGER)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL)", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0)", \
+                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0)", \
                         dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval); 
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
@@ -674,7 +674,7 @@ static int i2cCollector(void *conf)
                         calib.magZmin = sqlite3_column_int(res, 5);
                         calib.declval = sqlite3_column_double(res, 6);
                         calib.coffset = sqlite3_column_int(res, 7);
-                        calib.roffset = sqlite3_column_int(res, 8);
+                        calib.roffset = sqlite3_column_double(res, 8);
                     } else {
                         if (connOk) {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to look up calibration data - using defults : %s", \
