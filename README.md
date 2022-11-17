@@ -18,8 +18,8 @@ The instruments can be accessed one-by-one by a mouse click or directly from the
 
 The communication mechanism between this application with its GUI and data sources uses two paralell paths:
  - Data collected from a [BerryGPS-IMUv2](http://ozzmaker.com/new-products-berrygps-berrygps-imu) - GPS and 10DOF sensor for The Raspberry Pi - Accelerometer, Gyroscope, Magnetometer and Barometric/Altitude Sensor.
- - Alternatively data from a NMEA-0183 network server data from a NMEA-0183 network server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
- - Alternatively data from NMEA-2K (SeatalkNG) to NMEA-0183 USB dongle.
+ - Alternatively data from an NMEA-0183 network server data from an NMEA-0183 network server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
+ - Alternatively data from an NMEA-2K (SeatalkNG) to an NMEA-0183 USB dongle.
 
 This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if it has its own battery backup.
 
