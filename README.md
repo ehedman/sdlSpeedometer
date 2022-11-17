@@ -35,13 +35,7 @@ Currently there are eight virtual instrument working (data source within bracket
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 
 ### External Applications
-sdlSpeedometer in itself is a very responsive application runing in an embedded system context with SDL2. However, sdlSpeedometer can be parametized to launch almost any external application by means of a configuration tool invoked from the GUI.
-
-Two marine related applications has been integrated successfully so far:
-
-If [OpenCPN](https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:opencpn_user_manual:getting_started:opencpn_installation:raspberrypi_rpi2) is found in the run-time PATH, an extra launch icon will appear in the GUI.
-
-Likewise has [zyGrib](http://www.zygrib.org) been integrated after being built from source on a Raspberry Pi OS Buster.
+sdlSpeedometer in itself is a very responsive application runing in an embedded system context with SDL2. However, sdlSpeedometer can be parametized to launch almost any external application by means of a configuration tool invoked from the GUI or from a shell. Run sdlSpeedometer-config to add XyGrip and/or Opencpn.
 
 Kodi can be added as an external application to be used as a Jukebox style player togheter with its [Kore](https://play.google.com/store/apps/details?id=org.xbmc.kore&hl=sv&gl=US) remote control phone app.
 
@@ -75,8 +69,14 @@ The SDL2 packages needed are:
 ### Optional application dependencies for improved user experiences for subtasks.
 - sudo apt install devilspie2 xfwm4 yad
 
+### External applications to be launched from sdlSpeedometer
+- sudo apt install XyGrib
+- sudo apt install opencpn
+- sudo apt install kodi
+- Use sdlSpeedometer-config to add these applications and also add sdlSpeedometer-stat (included) to show system status.
+
 ### Software used
-- [Raspberry Pi OS Lite - recommended - version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
+- [Raspberry Pi OS Lite version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
 - [Raspberry Pi OS Lite version 11 bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
 
 ### Build and install on a Pi
@@ -100,15 +100,15 @@ hdmi_drive=2<br>
 [An Open Source Yacht Glass Cockpit](https://github.com/ehedman/websocketNmea)
 
 ### Screenshots
-<img src="http://hedmanshome.se/sdlspeedometer20.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer21.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer22.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer23.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer24.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer9.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer10.png" width=100%>
-<img src="http://hedmanshome.se/sdlspeedometer27.png" width=100%>
-- zyGrib just launched on a 7" touch display
-<img src="http://hedmanshome.se/sdlspeedometer11.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer20.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer21.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer22.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer23.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer24.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer9.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer10.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer27.png" width=100%>
+- XyGrib just launched on a 7" touch display
+<img src="https://hedmanshome.se/sdlspeedometer11.png" width=100%>
 - sdlSpeedometers' configurator
-<img src="http://hedmanshome.se/sdlspeedometer28.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer28.png" width=100%>
