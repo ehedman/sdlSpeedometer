@@ -1,7 +1,7 @@
 Dec-2021
 
 This application is intended to be built on an basic level Debian release such as the Raspberry Pi OS Lite with Xorg added.
-Further development can then proceed from a host computer via SSH to the Pi.
+Further development can then proceed from a host computer via SSH (-X) to the Pi.
 
 Since external X based applicatoon will run full screen possibly without any window manager, some adjustment can be made to have them correctly positioned at the screen:
 
@@ -27,13 +27,14 @@ cp ~/zyGrib/zyGrib /usr/local/bin/zyGrib
 Before executing "make install" check these items:
 
  - If not done already run (as root) raspi-config to set WiFi, localization, i2c and serial port according to the HOWTOs links in the README.md file.
- - Run sudo ./sdlSpeedometer-config to set your preferences for this application.
 
  - run make install : Install the basic run-time files.
 
  - run make install_x : Install the autostarted X configuration.
 
  - run make install_kms  : Install the autostarted kmsdrm configuration.
+
+ - Run sudo ./sdlSpeedometer-config to set your preferences for this application.
 
  - Do NOT run make install_(x/kms) on a desktop system. Instead install desired components manually.
 

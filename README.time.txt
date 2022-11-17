@@ -5,4 +5,4 @@ You may consider this if GPS UTC time setting is expected to work properly.
 Check with:
 # timedatectl
 
-sdlSpeedometer is capable to set system time only when running as root.
+sdlSpeedometer is capable to set system time from GPS only when running as root.

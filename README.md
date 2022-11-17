@@ -1,14 +1,14 @@
 # sdlSpeedometer
-README Dec-2021
+README Nov-2022
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
-The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design avoid a digital look.
+The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
 
 This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
 
-For the Raspberry Pi 4B with OS bullseye the kmsdrm video backend is used, though current bullseye V11 is too buggy to give this application justice.
+For the Raspberry Pi 4B with OS bullseye the kmsdrm video can is used, though some features will not be available by not using X.
 
-For the Rasperry Pi 4B with OS buster the x11 video backend is used.
+For the Rasperry Pi 4B with OS buster/bullseye the x11 video backend is preferred.
 
 For the Raspberry Pi 3 b+ the X video backend is rather slow so the kmsdrm backend is recommended.
 
@@ -18,17 +18,17 @@ The instruments can be accessed one-by-one by a mouse click or directly from the
 
 The communication mechanism between this application with its GUI and data sources uses two paralell paths:
  - Data collected from a [BerryGPS-IMUv2](http://ozzmaker.com/new-products-berrygps-berrygps-imu) - GPS and 10DOF sensor for The Raspberry Pi - Accelerometer, Gyroscope, Magnetometer and Barometric/Altitude Sensor.
- - Optionally data from a NMEA net Server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
+ - Alternative data from a NMEA-0183 network Server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
 
 This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if it has its own battery backup.
 
 Currently there are eight virtual instrument working (data source within brackets):
 
-    Compass       : With heading and roll (BerryGPS-IMUv2)
-    GPS           : Lo, Lat and Heading (BerryGPS-IMUv2)
-    Log           : SOW, SOG (NMEA net)
-    Wind          : Real, Relative and speed (NMEA net)
-    Depth         : With low water warning and water temp (NMEA net)
+    Compass       : With heading and roll (BerryGPS-IMUv2) and/or heading from NMEA-net
+    GPS           : Lo, Lat and Heading (BerryGPS-IMUv2) and/or heading from NMEA-net
+    Log           : SOW, SOG (NMEA-net)
+    Wind          : Real, Relative and speed (NMEA-net)
+    Depth         : With low water warning and water temp (NMEA-net)
     Environment   : Page with Voltage, Current, Temp and Power plotting (proprietary NMEA net "$P" sentences)
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
@@ -52,59 +52,48 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 
 ### System Software prerequisites
-- xorg
-- sqlite3
+- An updated Raspberry Pi OS Lite to start with
+- Build and testing can also be performed on a Debian based work station (./sdlSpeedometer -i -g)
+- sudo apt install xorg (not on a workstation)
 
 ### SDL2 Software prerequisites
-The packages needed are:
-- SDL2-2.*
-- SDL2_image-2.*
-- SDL2_net-2.*
-- SDL2_ttf-2.*
+The SDL2 packages needed are:
+- sudo apt install libsdl2-dev libsdl2-image-dev libsdl2-net-dev libsdl2-ttf-dev
 
 ### Library dependencies from Debian repos
-- libcurl4-gnutls-dev
-- i2c-tools
-- libi2c-dev
-- libsqlite3-dev
-- libpng-dev
-- libtiff5-dev
-- libjpeg-dev
-- libfreetype6-dev
-- libts-dev
-- libinput-dev
-- libwebp-dev
-- libvncserver-dev
+- sudo apt install libcurl4-gnutls-dev i2c-tools libi2c-dev libsqlite3-dev libpng-dev
+- sudo apt install libtiff5-dev libjpeg-dev libfreetype6-dev libts-dev libinput-dev
+- sudo apt install libwebp-dev libvncserver-dev 
 
 ### Other libraries 
 - Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### Application dependencies for running external applications from sdlSpeedometer
-- xterm
-- xvkbd
-- xloadimage
-- wmctrl
+- sudo apt install xterm xvkbd xloadimage wmctrl
 
 ### Optional application dependencies for improved user experiences for subtasks.
-- devilspie
-- xfwm4 
-- yad
-
-### Install all dependencies
-- apt install libsdl2-dev libsdl2-image-dev libsdl2-net-dev libsdl2-ttf-dev
-- apt install libcurl4-gnutls-dev i2c-tools libi2c-dev libsqlite3-dev libpng-dev
-- apt libjpeg-dev libfreetype6-dev libts-dev libinput-dev libwebp-dev libvncserver-dev
-- apt install sqlite3 devilspie2 xfwm4 yad xloadimage xvkbd xterm wmctrl
+- sudo apt install devilspie2 xfwm4 yad
 
 ### Software used
 - [Raspberry Pi OS Lite - recommended - version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
-- [Raspberry Pi OS Lite - currently immature - version 11 bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
-- Raspberry Pi OS version bullseye requires an SDL2-2 recompiled for x11 support.
+- [Raspberry Pi OS Lite version 11 bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
+
+### Build and install on a Pi
+- make
+- make install_x
+- systemclt start sdlSpeedometer.service (will be enabled at boot time) or make start
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)
 - [BerryGPS setup Guide for Raspberry Pi](http://ozzmaker.com/berrygps-setup-guide-raspberry-pi)
 - [Create a Digital Compass with the Raspberry Pi](http://ozzmaker.com/compass1)
+
+### Embedded display settings
+This is an example to set up a 7 inch HDMI display by adding these lines into /boot/config.txt:<br>
+hdmi_cvt=800 480 60 6<br>
+hdmi_group=2<br>
+hdmi_mode=87<br>
+hdmi_drive=2<br>
 
 ### See also
 [An Open Source Yacht Glass Cockpit](https://github.com/ehedman/websocketNmea)
