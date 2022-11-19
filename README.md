@@ -48,7 +48,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite to start with
-- Build and testing can also be performed on a Debian based work station (./sdlSpeedometer -i -g)
+- sudo apt install whiptail gcc git make
 - sudo apt install xorg (not on a workstation)
 
 ### SDL2 Software prerequisites
@@ -81,8 +81,16 @@ The SDL2 packages needed are:
 
 ### Build and install on a Pi
 - make
+- ./sdlSpeedometer -i -g (first time to create the config database)
+- ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
+- make install
 - make install_x
 - systemclt start sdlSpeedometer.service (will be enabled at boot time) or make start
+
+### Build and test on the host (Mint, Ubuntu, Debian)
+- make
+- ./sdlSpeedometer -i -g (first time to create the config database)
+- ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)
