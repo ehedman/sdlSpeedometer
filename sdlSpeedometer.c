@@ -1209,8 +1209,8 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
 
-    SDL_Texture* textM1;
-    SDL_Rect M1_rect;
+    static SDL_Texture* textM1;
+    static SDL_Rect M1_rect;
 
     get_text_and_rect(sdlApp->renderer, 440, 416, 0, "COG", font, &textM1, &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
@@ -1777,6 +1777,7 @@ static int doSumlog(sdl2_app *sdlApp)
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp, fontSrc);
 
         get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
@@ -1785,8 +1786,6 @@ static int doSumlog(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 186, 366, 8, msg_sog, fontSmall, &textField, &textField_rect, BLACK);       
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
         }
-
-        addMenuItems(sdlApp, fontSrc);
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
