@@ -1,7 +1,8 @@
 [Unit]
 Description=Xorg Service
 DefaultDependencies=no
-After=local-fs.target
+after=networking.service
+Before=sdlSpeedometer wsocknmea
 
 [Service]
 ExecStart=/usr/bin/Xorg -nolisten tcp vt7 -nocursor -novtswitch  -quiet
