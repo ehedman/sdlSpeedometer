@@ -50,7 +50,6 @@ typedef struct {
     int runi2c;
     int runNet;
     int runVnc;
-    int runMon;
     int runWrn;
     int numThreads;
     short port;
@@ -66,7 +65,6 @@ typedef struct {
     int i2cFile;
     sqlite3 *conn;
     int netStat;
-    int onHold;
     int subTaskPID;
 } configuration;
 

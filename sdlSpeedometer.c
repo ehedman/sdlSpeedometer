@@ -270,45 +270,6 @@ static char *getf(int pos, char *str)
     return (out);
 }
 
-
-// Watch the presence of an HDMI display
-static int threadMonstat(void *conf)
-{
-    configuration *configParams = conf;
-    char *cmd = {"/opt/vc/bin/tvservice -d /dev/null 2>/dev/null"};
-    char buf[40];
-    FILE *fd;
-
-    SDL_Log("threadMonstat started");
-
-    configParams->numThreads++;
-
-    configParams->onHold = 0;
-    
-    // Use get EDID to determine if the display is present i.e. on/off
-    while (configParams->runMon) {
-        memset(buf, 0, sizeof(buf));
-        if ((fd = popen(cmd, "r")) != NULL) {
-            if ((fread(buf, 1, sizeof(buf), fd)) > 7) {
-                if (!strncmp("Written", buf, 7)) {
-                    configParams->onHold = 0;
-                }
-                else {
-                    configParams->onHold = 1;
-                }
-            }
-            pclose(fd);
-        }
-        SDL_Delay(5000);
-    }
-
-    configParams->numThreads--;
-
-    SDL_Log("threadMonstat stopped");
-
-    return 0;
-}
-
 // Configure the BerryGPS-IMUv2 GPS Serial port
 static int portConfigure(int fd, configuration *configParams)
 {
@@ -505,11 +466,6 @@ static int threadSerial(void *conf)
         int cnt;
         float hdm;
 
-        if (configParams->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         // The vessels network has precedence
         if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
             SDL_Delay(1000);
@@ -646,11 +602,6 @@ static int i2cCollector(void *conf)
     {
         time_t ct;
         float hdm;
-
-        if (configParams->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
 
         SDL_Delay(dt);
 
@@ -799,11 +750,6 @@ static int nmeaNetCollector(void* conf)
         int rretry = 0;
         int activeSockets;
 
-        if (configParams->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         // Join a socket server whenever found.
         while (!(clientSocket = SDLNet_TCP_Open(&serverIP))) {
             if (retry ++ < 3) {
@@ -856,9 +802,6 @@ static int nmeaNetCollector(void* conf)
             time_t ts;
             int cnt = 0;
             float hdm;
-
-            if (configParams->onHold)
-                break;
 
             if (++retry > 10) break;
 
@@ -1037,7 +980,7 @@ static int nmeaNetCollector(void* conf)
         SDLNet_FreeSocketSet(socketSet);
         configParams->netStat = 0;
 
-        if (configParams->runNet && configParams->onHold == 0)
+        if (configParams->runNet == 0)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Server %s possibly gone, awaiting its return", configParams->server);
     }
 
@@ -1398,11 +1341,6 @@ static int threadWarn(void *conf)
 
     while(configParams->runWrn) {
 
-        if (configParams->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         ct = time(NULL);    // Get a timestamp for this turn
 
         if (cnmea.dbt <= warn.depthw) {
@@ -1513,11 +1451,6 @@ static int doCompass(sdl2_app *sdlApp)
         char msg_src[40] = { "" };
         char msg_tod[40];
         time_t ct;
-
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
 
         int doBreak = 0;
         
@@ -1772,11 +1705,6 @@ static int doSumlog(sdl2_app *sdlApp)
         const float maxangle = 237; // Scale end
         const float maxspeed = 10;
 
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         int doBreak = 0;
         
         while (SDL_PollEvent(&event)) {
@@ -2001,11 +1929,6 @@ static int doGps(sdl2_app *sdlApp)
         char msg_stw[40] = { "" };
         char msg_tod[40];
         time_t ct;
-
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
 
         int doBreak = 0;
         
@@ -2245,12 +2168,6 @@ static int doDepth(sdl2_app *sdlApp)
         const float minangle = 12;  // Scale start
         const float maxangle = 236; // Scale end
         const float maxsdepth = 10;
-
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         int doBreak = 0;
         
         while (SDL_PollEvent(&event)) {
@@ -2491,12 +2408,6 @@ static int doWind(sdl2_app *sdlApp)
         char msg_rmc[40] = { "" };
         char msg_tod[40];
         time_t ct;
-
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         int doBreak = 0;
         
         while (SDL_PollEvent(&event)) {
@@ -2824,12 +2735,6 @@ static int doEnvironment(sdl2_app *sdlApp)
         float temp_value = 0;
         int doPlot = 0;
         time_t ct;
-
-        if (sdlApp->conf->onHold) {
-            SDL_Delay(4000);
-            continue;
-        }
-
         int doBreak = 0;
         
         while (SDL_PollEvent(&event)) {
@@ -3301,7 +3206,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     SDL_Thread *threadNmea = NULL;
     SDL_Thread *threadI2C = NULL;
     SDL_Thread *threadGPS = NULL;
-    SDL_Thread *threadMon = NULL;
     SDL_Thread *threadVNC = NULL;
     SDL_Thread *threadWrn = NULL;
     configParams->conn = NULL; 
@@ -3357,14 +3261,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
     }
 
-     if (configParams->runMon == 1) {
-        threadMon = SDL_CreateThread(threadMonstat, "threadMonstat", configParams);
-        if (threadMon != NULL) {
-            SDL_DetachThread(threadMon);
-        } else
-            configParams->runMon = 0;
-    }
-
     if (configParams->runWrn) {
         if (SDL_getenv("SDL_AUDIODRIVER") == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_AUDIODRIVER (alsa/pulse) not set in environment. Cannot play warnings");
@@ -3379,7 +3275,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         }
     }
 
-
     if (configParams->useWm || configParams->useKms)
         SDL_ShowCursor(SDL_DISABLE);
 
@@ -3391,7 +3286,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
             WINDOW_W, WINDOW_H,
             flags)) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
-            configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runMon = configParams->runWrn = 0;
+            configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
             return SDL_QUIT;
     }
 
@@ -3745,7 +3640,7 @@ int main(int argc, char *argv[])
             SDL_FreeSurface(configParams.vncPixelBuffer);
     }
 
-    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runMon = configParams.runWrn = 0;
+    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runWrn = 0;
 
     // .. and let them close cleanly
     while(configParams.numThreads)
