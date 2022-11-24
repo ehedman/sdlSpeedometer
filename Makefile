@@ -40,6 +40,8 @@ install:
 	sudo install -m 0755 -g root -o root sdlSpeedometer-stat -D $(DEST)/bin/sdlSpeedometer-stat
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
+	sudo mkdir -p $(DEST)/share/sounds
+	sudo install -m 0644 -g root -o root ./sounds/* -D $(DEST)/share/sounds
 	sudo mkdir -p $(DEST)/etc/devilspie2
 	sudo install -m 0644 -g root -o root ./devilspie2/* -D $(DEST)/etc/devilspie2
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)

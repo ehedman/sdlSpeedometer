@@ -181,6 +181,19 @@ Enter the manual compass roll offset, Max -4 to + 4 degrees.\\nThis is for the c
   fi
 }
 
+
+do_set_depth_warning() {
+    whiptail --msgbox "\
+Enter the audible depth warning message level in decimal meters
+" 20 70 1
+
+  CURRENT_DEPTH_WARNING=$(sqlite3 $SPEEDOMETER_DB 'SELECT depthw FROM calib;')
+  NEW_DEPTH_WARNING=$(whiptail --inputbox "Please enter the depth warning in meters" 20 60 -- "$CURRENT_DEPTH_WARNING" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_DEPTH_WARNING" ]; then
+    echo "UPDATE calib SET depthw = '$NEW_DEPTH_WARNING' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
 do_hostname() {
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -408,7 +421,8 @@ do_config_menu() {
     "10 Application 3" "Enter External Application for page PWR" \
     "11 Compass offset" "Enter manual compass offset" \
     "12 Compass roll offset" "Enter manual compass roll offset" \
-    "13 Configuration" "Run raspi-config" \
+    "13 Depth waring" "Enter the audible depth level warning" \
+    "14 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -427,7 +441,8 @@ do_config_menu() {
       10\ *) do_set_external_app 7 ;;
       11\ *) do_set_compass_offset ;;
       12\ *) do_set_compass_roll_offset ;;
-      13\ *) do_raspi_config ;;
+      13\ *) do_set_depth_warning ;;
+      14\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi

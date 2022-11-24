@@ -32,6 +32,7 @@ typedef struct {
     float declval;
     int coffset;
     float roffset;
+    float depthw;
 } calibration;
 
 
@@ -50,6 +51,7 @@ typedef struct {
     int runNet;
     int runVnc;
     int runMon;
+    int runWrn;
     int numThreads;
     short port;
     char server[100];
@@ -88,6 +90,11 @@ typedef struct {
     int curPage;
     configuration *conf;
 } sdl2_app;
+
+
+typedef struct {
+    float depthw;
+} warnings;
 
 extern int i2cinit(int bus);
 extern float i2cReadHdm(int file, calibration *calib);

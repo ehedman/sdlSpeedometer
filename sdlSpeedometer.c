@@ -65,10 +65,12 @@
 #define SQLCONFIG "/tmp/sqlConfig.txt"  // Internal or External inject into config db.
 
 #ifndef PATH_INSTALL
+#define SOUND_PATH  "./sounds/"
 #define IMAGE_PATH  "./img/"
 #define SQLDBPATH   "speedometer.db"
 #define SPAWNCMD    "./spawnSubtask"
 #else
+#define SOUND_PATH  "/usr/local/share/sounds/"
 #define IMAGE_PATH  "/usr/local/share/images/"
 #define SQLDBPATH   "/usr/local/etc/speedometer.db"
 #define SPAWNCMD    "/usr/local/bin/spawnSubtask"
@@ -86,6 +88,8 @@ static int useSyslog = 0;
 static SDL_Texture* Background_Tx;
 
 static collected_nmea cnmea;
+
+static warnings warn;
 
 void logCallBack(char *userdata, int category, SDL_LogPriority priority, const char *message)
 {
@@ -143,9 +147,9 @@ int  configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL, depthw REAL)", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0)", \
+                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,depthw) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,5.0)", \
                         dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval); 
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
@@ -211,6 +215,14 @@ int  configureDb(configuration *configParams)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
 
+    // Fetch warnings
+    rval = sqlite3_prepare_v2(conn, "select depthw from calib", -1, &res, &tail);        
+    if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
+        warn.depthw = sqlite3_column_double(res, 0);
+    } else {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch warning values from database: %s", (char*)sqlite3_errmsg(conn));
+    }
+
     rval = SQLITE_BUSY;
     
     while(rval == SQLITE_BUSY) { // make sure ! busy ! db locked 
@@ -267,6 +279,10 @@ static int threadMonstat(void *conf)
     char buf[40];
     FILE *fd;
 
+    SDL_Log("threadMonstat started");
+
+    configParams->numThreads++;
+
     configParams->onHold = 0;
     
     // Use get EDID to determine if the display is present i.e. on/off
@@ -285,6 +301,8 @@ static int threadMonstat(void *conf)
         }
         SDL_Delay(5000);
     }
+
+    configParams->numThreads--;
 
     SDL_Log("threadMonstat stopped");
 
@@ -1335,6 +1353,77 @@ inline static void doRGBconv(SDL_Surface *surface)
     SDL_UnlockSurface(surface);
 }
 
+// Play audible warning message
+static void playWarnSound(char *wavFile)
+{
+
+    SDL_AudioSpec wavSpec;
+    Uint32 wavLength;
+    Uint8 *wavBuffer;
+    SDL_AudioDeviceID deviceId;
+    char soundPath[4096];
+    strcpy(soundPath, SOUND_PATH);
+    strncat(soundPath, wavFile, sizeof(soundPath));
+
+    // load WAV file
+    if (SDL_LoadWAV(soundPath, &wavSpec, &wavBuffer, &wavLength) == NULL)
+        return;
+    
+    // open audio device
+    if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0)) == 0)
+        return;
+    
+    // play audio
+    if (SDL_QueueAudio(deviceId, wavBuffer, wavLength) == 0) {
+        SDL_PauseAudioDevice(deviceId, 0);
+        SDL_Delay(1200);
+    }
+
+    // Clean up
+    SDL_CloseAudioDevice(deviceId);
+    SDL_FreeWAV(wavBuffer);
+}
+
+// Check for warnings and play sound file periodically
+static int threadWarn(void *conf)
+{
+    configuration *configParams = conf;
+    time_t ct;
+
+    SDL_Log("Sound Server started");
+
+    configParams->numThreads++;
+
+    SDL_Init(SDL_INIT_AUDIO);
+
+    while(configParams->runWrn) {
+
+        if (configParams->onHold) {
+            SDL_Delay(4000);
+            continue;
+        }
+
+        ct = time(NULL);    // Get a timestamp for this turn
+
+        if (cnmea.dbt <= warn.depthw) {
+            playWarnSound("shallow-water.wav");
+            SDL_Delay(2000);
+        }
+        if (!(ct - cnmea.volt_ts > S_TIMEOUT)) { 
+            if (cnmea.volt <= 11.5) {
+                playWarnSound("low-voltage.wav");
+                SDL_Delay(2000);
+            }
+        } else SDL_Delay(4000);
+    }
+
+    SDL_Log("Sound Server stopped");
+
+    configParams->numThreads--;
+
+    return 0;
+}
+
 // Present the compass with heading ant roll
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -2205,11 +2294,13 @@ static int doDepth(sdl2_app *sdlApp)
              sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
         
         // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
-        
+
         gauge = gaugeDepth;
-        if (cnmea.dbt < 5) gauge = gaugeDepthW;
+        if (cnmea.dbt < 5) {
+            gauge = gaugeDepthW;
+        }
         if (cnmea.dbt > 10) gauge = gaugeDepthx10;
 
         depth = cnmea.dbt;
@@ -2292,6 +2383,7 @@ static int doDepth(sdl2_app *sdlApp)
     if (subTaskbar != NULL) {
         SDL_DestroyTexture(subTaskbar);
     }
+
     SDL_DestroyTexture(gaugeDepth);
     SDL_DestroyTexture(gaugeDepthW);
     SDL_DestroyTexture(gaugeDepthx10);
@@ -2463,7 +2555,7 @@ static int doWind(sdl2_app *sdlApp)
         // VHW - Water speed and Heading
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
-        
+   
         angle_a = cnmea.vwra; // 0-180
 
         if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
@@ -3211,7 +3303,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     SDL_Thread *threadGPS = NULL;
     SDL_Thread *threadMon = NULL;
     SDL_Thread *threadVNC = NULL;
-    configParams->conn = NULL;
+    SDL_Thread *threadWrn = NULL;
+    configParams->conn = NULL; 
     Uint32 flags;
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -3266,10 +3359,26 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
 
      if (configParams->runMon == 1) {
         threadMon = SDL_CreateThread(threadMonstat, "threadMonstat", configParams);
-        if (threadMon != NULL)
+        if (threadMon != NULL) {
             SDL_DetachThread(threadMon);
-        configParams->runMon = 2;
+        } else
+            configParams->runMon = 0;
     }
+
+    if (configParams->runWrn) {
+        if (SDL_getenv("SDL_AUDIODRIVER") == NULL) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_AUDIODRIVER (alsa/pulse) not set in environment. Cannot play warnings");
+            configParams->runWrn = 0;
+        } else {
+            threadWrn = SDL_CreateThread(threadWarn, "threadWarn", configParams);
+
+            if (NULL == threadWrn) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadWarn failed: %s", SDL_GetError());
+                configParams->runWrn = 0;
+            } else SDL_DetachThread(threadWrn);
+        }
+    }
+
 
     if (configParams->useWm || configParams->useKms)
         SDL_ShowCursor(SDL_DISABLE);
@@ -3282,7 +3391,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
             WINDOW_W, WINDOW_H,
             flags)) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
-            configParams->runGps = configParams->runi2c = configParams->runNet = 0;
+            configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runMon = configParams->runWrn = 0;
             return SDL_QUIT;
     }
 
@@ -3348,7 +3457,7 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
 // Give up all resources in favor of a subtask execution.
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
-    int runners[3];
+    int runners[4];
     int status, i=0;
     char *args[20];
     char cmd[1024];
@@ -3369,7 +3478,8 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     runners[0] = configParams->runGps;
     runners[1] = configParams->runi2c;
     runners[2] = configParams->runNet;
-    configParams->runGps = configParams->runi2c = configParams->runNet = 0;
+    runners[3] = configParams->runWrn;
+    configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
 
     while(configParams->numThreads)
         SDL_Delay(100);
@@ -3396,6 +3506,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     configParams->runGps = runners[0];
     configParams->runi2c = runners[1];
     configParams->runNet = runners[2];
+    configParams->runWrn = runners[3];
     status = openSDL2(configParams, sdlApp);
 
     if (status == 0)    
@@ -3420,13 +3531,13 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
-    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runMon = 1;
+    configParams.runGps = configParams.runi2c = configParams.runNet = 1;
         
     sdlApp.nextPage = COGPAGE; // Start-page
 
     (void)configureDb(&configParams);   // Fetch configuration
 
-    while ((c = getopt (argc, argv, "hsvginwV")) != -1)
+    while ((c = getopt (argc, argv, "hsvginwVp")) != -1)
     {
         switch (c)
             {
@@ -3443,14 +3554,16 @@ int main(int argc, char *argv[])
                 break;
             case 'V':   configParams.runVnc = 1;    // Enable VNC server
                 break;
+            case 'p':   configParams.runWrn = 1;    // Play warning sounds
+                break;
             case 'v':
                 fprintf(stderr, "revision: %s\n", SWREV);
                 exit(EXIT_SUCCESS);
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -f -V -v (version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -n Disabe NMEA Net : -w use WM : -V Enable VNC Server\n");
+                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -p -V -v -(version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -p Play warnings: -n Disabe NMEA Net : -w use WM : -V Enable VNC Server\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -3632,7 +3745,7 @@ int main(int argc, char *argv[])
             SDL_FreeSurface(configParams.vncPixelBuffer);
     }
 
-    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runMon = 0;
+    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runMon = configParams.runWrn = 0;
 
     // .. and let them close cleanly
     while(configParams.numThreads)
