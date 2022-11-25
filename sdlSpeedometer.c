@@ -599,6 +599,7 @@ static int i2cCollector(void *conf)
 
     if( (configParams->i2cFile = i2cinit(bus)) < 0) {
 	    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to run the i2c system!");
+        configParams->i2cFile = 0;
         return 0;
     }
 
@@ -988,7 +989,7 @@ static int nmeaNetCollector(void* conf)
         SDLNet_FreeSocketSet(socketSet);
         configParams->netStat = 0;
 
-        if (configParams->runNet == 0)
+        if (configParams->runNet != 0)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Server %s possibly gone, awaiting its return", configParams->server);
     }
 
@@ -1160,7 +1161,7 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
         if (x > 662 && x < 708)
            return GPSPAGE;
         if (x > 718 && x < 765) {
-            if (sdlApp->curPage == COGPAGE && event->user.code != 1 /* not for RFB */)
+            if (sdlApp->curPage == COGPAGE && sdlApp->conf->i2cFile != 0 && event->user.code != 1 /* not for RFB */)
                 return CALPAGE;
             else
                 return PWRPAGE;
@@ -1196,7 +1197,11 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
     get_text_and_rect(sdlApp->renderer, 668, 416, 0, "GPS", font, &textM1, &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
     
-    get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &textM1, &M1_rect, BLACK);
+    if (sdlApp->conf->i2cFile == 0) {
+        get_text_and_rect(sdlApp->renderer, 726, 416, 0, "PWR", font, &textM1, &M1_rect, BLACK);
+    } else {
+        get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &textM1, &M1_rect, BLACK);   
+    }
     SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 }
 

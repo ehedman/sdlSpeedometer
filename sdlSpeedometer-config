@@ -17,16 +17,10 @@ ASK_TO_REBOOT=0
 
 SQLFILE=$(mktemp)
 SPEEDOMETER_DB=speedometer.db
-CURDIR=$(pwd)
 
 if [ ! -f $SPEEDOMETER_DB ]; then
-    if [ -d /usr/local/etc/speedometer ]; then
-        cd /usr/local/etc/speedometer
-    fi
-    if [ ! -f $SPEEDOMETER_DB ]; then
-        if ! "${CURDIR}"/sdlSpeedometer -c; then
-            exit 1
-        fi
+    if ! ./sdlSpeedometer -c; then
+        exit 1
     fi
 fi
 
