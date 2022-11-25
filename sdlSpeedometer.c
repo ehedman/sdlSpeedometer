@@ -2619,6 +2619,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
 
     SDL_Texture* gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt.png");
+    SDL_Texture* gaugeVolt24 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-24.png");
     SDL_Texture* gaugeCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "curr.png");
     SDL_Texture* gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp.png");
     SDL_Texture* needleVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
@@ -2688,7 +2689,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     float v_offset = 6;
     float v_max = 16;
     float v_min = 8;
-    float v_scaleoffset = 8;
+    float v_scaleoffset = 7.9;
 
     float c_maxangle = 120;
     float c_offset = 58;
@@ -2767,7 +2768,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.volt_ts > S_TIMEOUT)) {
             sprintf(msg_volt, "%.1f", cnmea.volt);
-            volt_value = cnmea.volt;
+            volt_value = cnmea.volt > v_max? cnmea.volt/2: cnmea.volt;
             sprintf(msg_volt_bank, "Bank %d", cnmea.volt_bank);
             doPlot++;
         }
@@ -2801,7 +2802,7 @@ static int doEnvironment(sdl2_app *sdlApp)
  
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
-        SDL_RenderCopyEx(sdlApp->renderer, gaugeVolt, NULL, &gaugeVoltR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, cnmea.volt < v_max? gaugeVolt:gaugeVolt24, NULL, &gaugeVoltR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, gaugeCurr, NULL, &gaugeCurrR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, gaugeTemp, NULL, &gaugeTempR, 0, NULL, SDL_FLIP_NONE);
 
@@ -2937,6 +2938,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     plot_graph(&params);
 #endif
     SDL_DestroyTexture(gaugeVolt);
+    SDL_DestroyTexture(gaugeVolt24);
     SDL_DestroyTexture(gaugeCurr);
     SDL_DestroyTexture(gaugeTemp);
     SDL_DestroyTexture(needleVolt);
