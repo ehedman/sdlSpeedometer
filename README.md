@@ -81,16 +81,21 @@ The SDL2 packages needed are:
 
 ### Build and install on a Pi
 - make
-- ./sdlSpeedometer -i -g (first time to create the config database)
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
+- ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat)
 - make install
 - make install_x
 - systemclt start sdlSpeedometer.service (will be enabled at boot time) or make start
 
 ### Build and test on the host (Mint, Ubuntu, Debian)
 - make
-- ./sdlSpeedometer -i -g (first time to create the config database)
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
+- ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat)
+
+### Enable audible warnings
+- Set preferences with sdlSPeedometer-config
+- Start sdlSpeedometer with "SDL_AUDIODRIVER=alsa ./sdlSpeedometer -p" and possible -i -g as well
+- Eventually set these preferences in /etc/default/sdlSpeedometer after "make install_x" has been executed on a Pi
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)

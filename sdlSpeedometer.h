@@ -92,6 +92,7 @@ typedef struct {
 
 typedef struct {
     float depthw;
+    float lowvoltw;
 } warnings;
 
 extern int i2cinit(int bus);

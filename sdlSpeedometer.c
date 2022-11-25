@@ -72,7 +72,7 @@
 #else
 #define SOUND_PATH  "/usr/local/share/sounds/"
 #define IMAGE_PATH  "/usr/local/share/images/"
-#define SQLDBPATH   "/usr/local/etc/speedometer.db"
+#define SQLDBPATH   "/usr/local/etc/speedometer/speedometer.db"
 #define SPAWNCMD    "/usr/local/bin/spawnSubtask"
 #endif
 
@@ -109,6 +109,7 @@ int  configureDb(configuration *configParams)
     const char *tail;
     char buf[250];
     int rval = 0;
+    int bval = 0;
     struct stat sb;
 
     /*
@@ -147,11 +148,17 @@ int  configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL, depthw REAL)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL)", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,depthw) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,5.0)", \
+                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,depthw) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0)", \
                         dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval); 
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
+                    sqlite3_step(res);
+
+                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, depthw REAL, lowvoltw REAL)", -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO warnings (depthw, lowvoltw) VALUES(5.0, 11.7)");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE subtasks (Id INTEGER PRIMARY KEY, task TEXT, args TEXT)", -1, &res, &tail);
@@ -216,28 +223,29 @@ int  configureDb(configuration *configParams)
     }
 
     // Fetch warnings
-    rval = sqlite3_prepare_v2(conn, "select depthw from calib", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select depthw,lowvoltw from warnings", -1, &res, &tail);        
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
-        warn.depthw = sqlite3_column_double(res, 0);
+        warn.depthw =   sqlite3_column_double(res, 0);
+        warn.lowvoltw = sqlite3_column_double(res, 1);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch warning values from database: %s", (char*)sqlite3_errmsg(conn));
     }
 
-    rval = SQLITE_BUSY;
+    bval = SQLITE_BUSY;
     
-    while(rval == SQLITE_BUSY) { // make sure ! busy ! db locked 
-        rval = SQLITE_OK;
+    while(bval == SQLITE_BUSY) { // make sure ! busy ! db locked 
+        bval = SQLITE_OK;
         sqlite3_stmt * res = sqlite3_next_stmt(conn, NULL);
         if (res != NULL) {
-            rval = sqlite3_finalize(res);
-            if (rval == SQLITE_OK) {
-                rval = sqlite3_close(conn);
+            bval = sqlite3_finalize(res);
+            if (bval == SQLITE_OK) {
+                bval = sqlite3_close(conn);
             }
         }
     }
     (void)sqlite3_close(conn);
 
-    return 0;
+    return rval;
 }
 
  // Extract an item from an NMEA sentence
@@ -1343,16 +1351,16 @@ static int threadWarn(void *conf)
 
         ct = time(NULL);    // Get a timestamp for this turn
 
-        if (cnmea.dbt <= warn.depthw) {
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw) {
             playWarnSound("shallow-water.wav");
             SDL_Delay(2000);
         }
-        if (!(ct - cnmea.volt_ts > S_TIMEOUT)) { 
-            if (cnmea.volt <= 11.5) {
-                playWarnSound("low-voltage.wav");
-                SDL_Delay(2000);
-            }
+
+        if (!(ct - cnmea.volt_ts > S_TIMEOUT) && cnmea.volt <= warn.lowvoltw ) { 
+            playWarnSound("low-voltage.wav");
+            SDL_Delay(2000);
         } else SDL_Delay(4000);
+
     }
 
     SDL_Log("Sound Server stopped");
@@ -3430,14 +3438,18 @@ int main(int argc, char *argv[])
         
     sdlApp.nextPage = COGPAGE; // Start-page
 
-    (void)configureDb(&configParams);   // Fetch configuration
+    if (configureDb(&configParams) != SQLITE_OK) {  // Fetch configuration
+        exit(EXIT_FAILURE);
+    }
 
-    while ((c = getopt (argc, argv, "hsvginwVp")) != -1)
+    while ((c = getopt (argc, argv, "chsvginwVp")) != -1)
     {
         switch (c)
             {
             case 's':
                 useSyslog = 1;
+                break;
+            case 'c':   exit(EXIT_SUCCESS);         // Check/Create databasse only and exit
                 break;
             case 'g':   configParams.runGps = 0;    // Diable GPS data collection
                 break;
@@ -3457,8 +3469,8 @@ int main(int argc, char *argv[])
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -g -i -n -p -V -v -(version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -g Disable GPS : -i Disable i2c : -p Play warnings: -n Disabe NMEA Net : -w use WM : -V Enable VNC Server\n");
+                fprintf(stderr, "Usage: %s -s (use syslog) -c -g -i -n -p -V -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -c Create database only: -g Disable GPS : -i Disable i2c : -p Play warnings: -n Disabe NMEA Net : -w use WM : -V Enable VNC Server\n");
                 exit(EXIT_FAILURE);
                 break;
             }

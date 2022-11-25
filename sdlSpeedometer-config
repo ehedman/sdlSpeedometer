@@ -17,14 +17,18 @@ ASK_TO_REBOOT=0
 
 SQLFILE=$(mktemp)
 SPEEDOMETER_DB=speedometer.db
+CURDIR=$(pwd)
 
 if [ ! -f $SPEEDOMETER_DB ]; then
-    cd /usr/local/etc || exit 1
+    if [ -d /usr/local/etc/speedometer ]; then
+        cd /usr/local/etc/speedometer
+    fi
     if [ ! -f $SPEEDOMETER_DB ]; then
-        exit 0
+        if ! "${CURDIR}"/sdlSpeedometer -c; then
+            exit 1
+        fi
     fi
 fi
-
 
 do_finish() {
 
@@ -187,10 +191,22 @@ do_set_depth_warning() {
 Enter the audible depth warning message level in decimal meters
 " 20 70 1
 
-  CURRENT_DEPTH_WARNING=$(sqlite3 $SPEEDOMETER_DB 'SELECT depthw FROM calib;')
+  CURRENT_DEPTH_WARNING=$(sqlite3 $SPEEDOMETER_DB 'SELECT depthw FROM warnings;')
   NEW_DEPTH_WARNING=$(whiptail --inputbox "Please enter the depth warning in meters" 20 60 -- "$CURRENT_DEPTH_WARNING" 3>&1 1>&2 2>&3)
   if [ -n "$NEW_DEPTH_WARNING" ]; then
-    echo "UPDATE calib SET depthw = '$NEW_DEPTH_WARNING' WHERE Id=1;" >> "$SQLFILE"
+    echo "UPDATE warnings SET depthw = '$NEW_DEPTH_WARNING' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
+do_set_voltage_warning() {
+    whiptail --msgbox "\
+Enter the audible low voltage level warning message 
+" 20 70 1
+
+  CURRENT_VOLTAGE_WARNING=$(sqlite3 $SPEEDOMETER_DB 'SELECT lowvoltw FROM warnings;')
+  NEW_VOLTAGE_WARNING=$(whiptail --inputbox "Please enter the depth warning in meters" 20 60 -- "$CURRENT_VOLTAGE_WARNING" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_VOLTAGE_WARNING" ]; then
+    echo "UPDATE warnings SET lowvoltw = '$NEW_VOLTAGE_WARNING' WHERE Id=1;" >> "$SQLFILE"
   fi
 }
 
@@ -421,8 +437,9 @@ do_config_menu() {
     "10 Application 3" "Enter External Application for page PWR" \
     "11 Compass offset" "Enter manual compass offset" \
     "12 Compass roll offset" "Enter manual compass roll offset" \
-    "13 Depth waring" "Enter the audible depth level warning" \
-    "14 Configuration" "Run raspi-config" \
+    "13 Depth warning" "Enter the audible depth level warning" \
+    "14 Voltage warning" "Enter the audible low voltage level warning" \
+    "15 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -442,7 +459,8 @@ do_config_menu() {
       11\ *) do_set_compass_offset ;;
       12\ *) do_set_compass_roll_offset ;;
       13\ *) do_set_depth_warning ;;
-      14\ *) do_raspi_config ;;
+      14\ *) do_set_voltage_warning ;;
+      15\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi

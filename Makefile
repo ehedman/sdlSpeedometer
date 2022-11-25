@@ -45,7 +45,9 @@ install:
 	sudo mkdir -p $(DEST)/etc/devilspie2
 	sudo install -m 0644 -g root -o root ./devilspie2/* -D $(DEST)/etc/devilspie2
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
-	sudo install -m 0664 -g users -o $$LOGNAME $(SMDB) -D $(DEST)/etc
+	sudo mkdir -p $(DEST)/etc/speedometer
+	sudo chown $$LOGNAME:users $(DEST)/etc/speedometer
+	sudo install -m 0664 -g users -o $$LOGNAME $(SMDB) -D $(DEST)/etc/speedometer
 endif
 
 install_x:
