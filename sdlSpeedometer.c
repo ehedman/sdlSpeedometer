@@ -155,9 +155,9 @@ int  configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, depthw REAL, lowvoltw REAL)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, depthw REAL, lowvoltw REAL, highcurrw REAL)", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO warnings (depthw, lowvoltw) VALUES(5.0, 11.7)");
+                    sprintf(buf, "INSERT INTO warnings (depthw, lowvoltw, highcurrw) VALUES(5.0, 11.7, 9.0)");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -223,10 +223,11 @@ int  configureDb(configuration *configParams)
     }
 
     // Fetch warnings
-    rval = sqlite3_prepare_v2(conn, "select depthw,lowvoltw from warnings", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select depthw,lowvoltw,highcurrw from warnings", -1, &res, &tail);        
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
-        warn.depthw =   sqlite3_column_double(res, 0);
-        warn.lowvoltw = sqlite3_column_double(res, 1);
+        warn.depthw    = sqlite3_column_double(res, 0);
+        warn.lowvoltw  = sqlite3_column_double(res, 1);
+        warn.highcurrw = sqlite3_column_double(res, 2);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch warning values from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -1358,6 +1359,11 @@ static int threadWarn(void *conf)
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw) {
             playWarnSound("shallow-water.wav");
+            SDL_Delay(2000);
+        }
+
+        if (!(ct - cnmea.curr_ts > S_TIMEOUT) && cnmea.curr <= -warn.highcurrw ) { 
+            playWarnSound("current-high.wav");
             SDL_Delay(2000);
         }
 
