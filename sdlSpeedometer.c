@@ -1136,6 +1136,13 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     
     int x, y;
 
+    static time_t c;
+
+    if (!(time(NULL) > c+1))
+        return 0;
+
+    c = time(NULL);
+
     // Upside down screen
     // x = WINDOW_W -(event->tfinger.x* WINDOW_W);
     // y = WINDOW_H -(event->tfinger.y* WINDOW_H);
@@ -1148,6 +1155,11 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
         y = event->button.y;
     } else return 0;
 
+    if (sdlApp->conf->runWrn && y > 15  && y < 50 &&  x > 65 && x < 100)
+    {
+            sdlApp->conf->muted = !sdlApp->conf->muted;
+            return 0;
+    }
   
     if (y > 400  && y < 450)
     {
@@ -1355,6 +1367,11 @@ static int threadWarn(void *conf)
 
     while(configParams->runWrn) {
 
+        if (configParams->muted == 1) {
+            SDL_Delay(4000);
+            continue;
+        }
+
         ct = time(NULL);    // Get a timestamp for this turn
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw) {
@@ -1385,7 +1402,7 @@ static int threadWarn(void *conf)
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, textBoxR;
+    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -1397,6 +1414,8 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
     SDL_Texture* subTaskbar = NULL;
@@ -1440,6 +1459,11 @@ static int doCompass(sdl2_app *sdlApp)
     netStatbarR.h = noNetStatbarR.h = 25;
     netStatbarR.x = noNetStatbarR.x = 20;
     netStatbarR.y = noNetStatbarR.y = 20;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -1588,9 +1612,17 @@ static int doCompass(sdl2_app *sdlApp)
         }
 
         if (sdlApp->conf->netStat == 1) {
-           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
             SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        if (sdlApp->conf->runWrn) {
+            if (sdlApp->conf->muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
         }
 
         if (boxItem) {
@@ -1628,6 +1660,8 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(clinoMeter);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
     SDL_DestroyTexture(textField);
     TTF_CloseFont(fontCog);
@@ -1643,7 +1677,7 @@ static int doCompass(sdl2_app *sdlApp)
 static int doSumlog(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, textBoxR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1675,6 +1709,11 @@ static int doSumlog(sdl2_app *sdlApp)
     netStatbarR.x = noNetStatbarR.x = 20;
     netStatbarR.y = noNetStatbarR.y = 20;
 
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
+
     textBoxR.w = 290;
     textBoxR.h = 42;
     textBoxR.x = 470;
@@ -1686,6 +1725,8 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -1833,6 +1874,14 @@ static int doSumlog(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->runWrn) {
+            if (sdlApp->conf->muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
@@ -1863,6 +1912,8 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
     SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
@@ -1879,7 +1930,7 @@ static int doSumlog(sdl2_app *sdlApp)
 static int doGps(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, textBoxR;
+    SDL_Rect gaugeR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
 
     TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
     TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 30);
@@ -1893,6 +1944,8 @@ static int doGps(sdl2_app *sdlApp)
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
         
     SDL_Texture* subTaskbar = NULL;
@@ -1928,6 +1981,11 @@ static int doGps(sdl2_app *sdlApp)
     netStatbarR.h = noNetStatbarR.h = 25;
     netStatbarR.x = noNetStatbarR.x = 20;
     netStatbarR.y = noNetStatbarR.y = 20;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -2058,6 +2116,14 @@ static int doGps(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->runWrn) {
+            if (sdlApp->conf->muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
@@ -2073,8 +2139,6 @@ static int doGps(sdl2_app *sdlApp)
             doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
-        
-        SDL_Delay(500);
     }
 
     if (subTaskbar != NULL) {
@@ -2083,6 +2147,8 @@ static int doGps(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeGps);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
     SDL_DestroyTexture(textField);
     TTF_CloseFont(fontHD);
@@ -2101,7 +2167,7 @@ static int doGps(sdl2_app *sdlApp)
 static int doDepth(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, textBoxR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -2115,6 +2181,8 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
     SDL_Texture* gauge;
@@ -2148,6 +2216,12 @@ static int doDepth(sdl2_app *sdlApp)
     netStatbarR.h = noNetStatbarR.h = 25;
     netStatbarR.x = noNetStatbarR.x = 20;
     netStatbarR.y = noNetStatbarR.y = 20;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
+
     textBoxR.w = 290;
     textBoxR.h = 42;
     textBoxR.x = 470;
@@ -2293,6 +2367,14 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->runWrn) {
+            if (sdlApp->conf->muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
@@ -2326,6 +2408,8 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
     SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
@@ -2342,7 +2426,7 @@ static int doDepth(sdl2_app *sdlApp)
 static int doWind(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, textBoxR;;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -2355,6 +2439,8 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
     SDL_Texture* subTaskbar = NULL;
@@ -2383,6 +2469,11 @@ static int doWind(sdl2_app *sdlApp)
     netStatbarR.h = noNetStatbarR.h = 25;
     netStatbarR.x = noNetStatbarR.x = 20;
     netStatbarR.y = noNetStatbarR.y = 20;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -2572,6 +2663,14 @@ static int doWind(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->runWrn) {
+            if (sdlApp->conf->muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
@@ -2603,6 +2702,8 @@ static int doWind(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeNeedleTrue);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
     SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
@@ -2620,7 +2721,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 {
     SDL_Event event;
     SDL_Rect gaugeVoltR, gaugeCurrR, gaugeTempR, voltNeedleR, currNeedleR;
-    SDL_Rect tempNeedleR, menuBarR, netStatbarR, noNetStatbarR, subTaskbarR;
+    SDL_Rect tempNeedleR, menuBarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, subTaskbarR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
@@ -2628,6 +2729,8 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
 
     SDL_Texture* gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt.png");
     SDL_Texture* gaugeVolt24 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-24.png");
@@ -2686,6 +2789,11 @@ static int doEnvironment(sdl2_app *sdlApp)
     netStatbarR.h = noNetStatbarR.h = 25;
     netStatbarR.x = noNetStatbarR.x = 20;
     netStatbarR.y = noNetStatbarR.y = 20;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
 
     subTaskbarR.w = 50;
     subTaskbarR.h = 50;
@@ -2860,6 +2968,14 @@ static int doEnvironment(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (sdlApp->conf->runWrn) {
+            if (sdlApp->conf->muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSmall);
 
@@ -2957,6 +3073,8 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_DestroyTexture(needleTemp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar); 
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textField);   
     TTF_CloseFont(fontTod);
     TTF_CloseFont(fontSmall);

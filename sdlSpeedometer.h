@@ -65,6 +65,7 @@ typedef struct {
     int i2cFile;
     sqlite3 *conn;
     int netStat;
+    int muted;
     int subTaskPID;
 } configuration;
 
