@@ -4,7 +4,7 @@
 
 if [ "$DISPLAY" == ":0.0" ]; then
     SPEEDOMETER_DB=/usr/local/etc/speedometer/speedometer.db
-    onboard -s 800x230 -x 0 -y 250 &
+    onboard -s 800x230 -x 0 -y 250 &>/dev/null &
     KBDPID=$!
 else
     SPEEDOMETER_DB=speedometer.db
