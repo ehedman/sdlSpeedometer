@@ -3,7 +3,16 @@
 # shellcheck disable=SC2181
 
 if [ "$DISPLAY" == ":0.0" ]; then
-    xvkbd -window xterm -no-keypad -no-functionkey -geometry 800x230+0+250 &>/dev/null  &
+    SPEEDOMETER_DB=/usr/local/etc/speedometer/speedometer.db
+    onboard -s 800x230 -x 0 -y 250 &
+    KBDPID=$!
+else
+    SPEEDOMETER_DB=speedometer.db
+    if [ ! -f $SPEEDOMETER_DB ]; then
+        if ! ./sdlSpeedometer -c; then
+            exit 1
+        fi
+    fi
 fi
 
 # Inherited from raspi-config https://github.com/RPi-Distro/raspi-config
@@ -16,13 +25,6 @@ export TERM="xterm-256color"
 ASK_TO_REBOOT=0
 
 SQLFILE=$(mktemp)
-SPEEDOMETER_DB=speedometer.db
-
-if [ ! -f $SPEEDOMETER_DB ]; then
-    if ! ./sdlSpeedometer -c; then
-        exit 1
-    fi
-fi
 
 do_finish() {
 
@@ -40,6 +42,11 @@ do_finish() {
       reboot
     fi
   fi
+
+  if [ "$DISPLAY" == ":0.0" ]; then
+     kill -INT "${KBDPID}"
+  fi
+
   rm -f "$SQLFILE"
   exit $RET
 }

@@ -64,7 +64,7 @@ The SDL2 packages needed are:
 - Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### Application dependencies for running external applications from sdlSpeedometer
-- sudo apt install xterm xvkbd xloadimage wmctrl
+- sudo apt install xterm onboard xloadimage wmctrl
 
 ### Optional application dependencies for improved user experiences for subtasks.
 - sudo apt install devilspie2 xfwm4 yad
