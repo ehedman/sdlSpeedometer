@@ -2308,7 +2308,7 @@ static int doDepth(sdl2_app *sdlApp)
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
         gauge = gaugeDepth;
-        if (cnmea.dbt < 5) {
+        if (cnmea.dbt <=5 || (cnmea.dbt <= 10 && cnmea.dbt <= warn.depthw)) {
             gauge = gaugeDepthW;
         }
         if (cnmea.dbt > 10) gauge = gaugeDepthx10;
