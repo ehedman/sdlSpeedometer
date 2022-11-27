@@ -2170,6 +2170,7 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
+    TTF_Font* fontMedium =  TTF_OpenFont(sdlApp->fontPath, 24);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
@@ -2251,6 +2252,7 @@ static int doDepth(sdl2_app *sdlApp)
         float scale; 
         char msg_dbt[40];
         char msg_mtw[40] = { "" };
+        char msg_dtw[40] = { "" };
         char msg_hdm[40] = { "" };
         char msg_stw[40] = { "" };
         char msg_rmc[40] = { "" };
@@ -2294,6 +2296,10 @@ static int doDepth(sdl2_app *sdlApp)
             sprintf(msg_mtw, "----");
         else
             sprintf(msg_mtw, "Temp :%.1f", cnmea.mtw);
+
+        if (sdlApp->conf->runWrn) {
+            sprintf(msg_dtw, "@%.1f", warn.depthw);
+        }
         
         // Heading
         if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
@@ -2368,6 +2374,9 @@ static int doDepth(sdl2_app *sdlApp)
         }
 
         if (sdlApp->conf->runWrn) {
+            get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &textField, &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
             if (sdlApp->conf->muted == 0) {
                 SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
             } else {
