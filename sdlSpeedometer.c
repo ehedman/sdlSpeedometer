@@ -1176,8 +1176,13 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
         if (x > 718 && x < 765) {
             if (sdlApp->curPage == COGPAGE && sdlApp->conf->i2cFile != 0 && event->user.code != 1 /* not for RFB */)
                 return CALPAGE;
-            else
+            else  {
+#ifdef DIGIFLOW
+                if (sdlApp->curPage == PWRPAGE)
+                    return WTRPAGE;
+#endif
                 return PWRPAGE;
+            }
         }
         if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
             if (x > 30 && x < 80)
@@ -1212,8 +1217,18 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
     
     if (sdlApp->conf->i2cFile == 0) {
         get_text_and_rect(sdlApp->renderer, 726, 416, 0, "PWR", font, &textM1, &M1_rect, BLACK);
+#ifdef DIGIFLOW
+        if (sdlApp->curPage == PWRPAGE) {
+            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &textM1, &M1_rect, BLACK); 
+        } 
+#endif
     } else {
-        get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &textM1, &M1_rect, BLACK);   
+        get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &textM1, &M1_rect, BLACK); 
+#ifdef DIGIFLOW
+        if (sdlApp->curPage == PWRPAGE) {
+            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &textM1, &M1_rect, BLACK); 
+        }
+#endif  
     }
     SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
 }
@@ -3093,6 +3108,231 @@ static int doEnvironment(sdl2_app *sdlApp)
     return event.type;
 }
 
+#ifdef DIGIFLOW
+// Present Fresh Water data. Dendent on project  https://github.com/ehedman/flowSensor
+static int doWater(sdl2_app *sdlApp)
+{
+    SDL_Event event;
+    SDL_Rect gaugeR, menuBarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
+  
+    FILE *tankFd;
+    int tankIndx = 0;
+    int rval;
+    char tBuff[40];
+    struct stat statbuf;
+    struct tm *info_t;
+    static char buffer_t[60];
+
+    sdlApp->curPage = WTRPAGE;
+
+
+    TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
+    TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 40);
+    TTF_Font* fontLO =  TTF_OpenFont(sdlApp->fontPath, 30);
+    TTF_Font* fontMG =  TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+
+    SDL_Texture* gaugeWtr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "dflow.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
+    SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
+    SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+
+    SDL_Texture* textField = NULL;
+    SDL_Rect textField_rect;
+
+    gaugeR.w = 440;
+    gaugeR.h = 440;
+    gaugeR.x = 19;
+    gaugeR.y = 18;
+
+    menuBarR.w = 340;
+    menuBarR.h = 50;
+    menuBarR.x = 430;
+    menuBarR.y = 400;
+
+    netStatbarR.w = noNetStatbarR.w = 25;
+    netStatbarR.h = noNetStatbarR.h = 25;
+    netStatbarR.x = noNetStatbarR.x = 20;
+    netStatbarR.y = noNetStatbarR.y = 20;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
+
+    textBoxR.w = 290;
+    textBoxR.h = 42;
+    textBoxR.x = 470;
+    textBoxR.y = 106;
+
+    int boxItems[] = {120,170,220,270};
+
+    if (!system("digiflow.sh /tmp/digiflow.txt") && (tankFd = fopen("/tmp/digiflow.txt","r")) != NULL) {
+        if (fstat(fileno(tankFd), &statbuf) == 0 && statbuf.st_size != 0) {
+            while( fgets(tBuff, sizeof(tBuff), tankFd) != NULL) {
+                switch(tankIndx++) {
+                    case 0: cnmea.fdate = atol(tBuff); break;
+                    case 1: cnmea.tvol =  atof(tBuff); break;
+                    case 2: cnmea.gvol =  atof(tBuff); break;
+                    case 3: cnmea.tank =  atof(tBuff); break;
+                    case 4: cnmea.tds  =  atoi(tBuff);
+                            rval = 0; 
+                            break;
+                    default: rval = 1; break;
+                }
+            }
+        }
+
+        fclose(tankFd);
+        unlink("/tmp/digiflow.txt");
+
+    } else rval = 1;
+
+    while (1) {
+
+        int boxItem = 0;
+        char msg_tnk[40];
+        char msg_lft[40];
+        char msg_use[40];
+        char msg_gtv[40];
+        char msg_flr[60];
+        char msg_tds[40];
+        char msg_cns[40];
+        char msg_tod[40];
+        time_t ct;
+
+        int doBreak = 0;
+        
+        while (SDL_PollEvent(&event)) {
+
+            if(event.type == SDL_QUIT ) {
+                doBreak = 1;
+                break;
+            }
+
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if ((event.type=pageSelect(sdlApp, &event))) {
+                    doBreak = 1;
+                    break;
+                }
+            }
+        }
+        if (doBreak == 1) break;
+        
+        ct = time(NULL);    // Get a timestamp for this turn 
+        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
+
+         if (rval == 1) {
+            sprintf(msg_tnk, "----");
+            sprintf(msg_lft, "----");
+            sprintf(msg_flr, "----");
+        } else {
+            sprintf(msg_tnk, "%.0f", cnmea.tank);
+            sprintf(msg_lft, "%.1f", cnmea.tank-cnmea.tvol);
+            info_t = localtime( &cnmea.fdate);
+            strftime(buffer_t, sizeof(buffer_t), "%Y-%m-%d", info_t);
+            sprintf(msg_flr, "%s",  buffer_t);
+            sprintf(msg_tds, "TDS:  %d", cnmea.tds);
+            float vleft = floor((((cnmea.tank-cnmea.tvol)/cnmea.tank)*100)+0.5);
+            sprintf(msg_cns, "LEFT: %.0f%c", vleft, '%');
+            sprintf(msg_gtv, "GTVL: %.0f", cnmea.tank-cnmea.gvol);
+            sprintf(msg_use, "USED: %.0f", cnmea.tvol);
+        }
+        
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+       
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeWtr, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+
+        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_tnk, fontHD, &textField, &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+        get_text_and_rect(sdlApp->renderer, 136, 216, 9, msg_lft, fontLA, &textField, &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+        get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_flr, fontLO, &textField, &textField_rect, cnmea.fdate < ct+604800 ? RED : BLACK); // A week+
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+       
+        if (rval == 0) {
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cns, fontCog, &textField, &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_use, fontCog, &textField, &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_gtv, fontCog, &textField, &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tds, fontCog, &textField, &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        }
+
+
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp, fontSrc);
+
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+        if (sdlApp->conf->netStat == 1) {
+           SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
+        } else {
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        if (sdlApp->conf->runWrn) {
+            if (sdlApp->conf->muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+
+        if (boxItem) {
+            textBoxR.h = boxItem*50 +30;
+            SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        SDL_RenderPresent(sdlApp->renderer); 
+
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
+            // Read the pixels from the current render target and save them onto the surface
+            // This will slow down the application a bit.
+            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
+                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
+            doRGBconv(sdlApp->conf->vncPixelBuffer);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+        }
+
+        SDL_Delay(1000);
+    }
+
+    SDL_DestroyTexture(gaugeWtr);
+    SDL_DestroyTexture(menuBar);
+    SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
+    SDL_DestroyTexture(textBox);
+    SDL_DestroyTexture(textField);
+    TTF_CloseFont(fontHD);
+    TTF_CloseFont(fontLA);
+    TTF_CloseFont(fontLO);
+    TTF_CloseFont(fontMG);
+    TTF_CloseFont(fontCog);
+    TTF_CloseFont(fontSrc);
+    TTF_CloseFont(fontTod);
+    IMG_Quit();
+
+    return event.type;
+}
+
+#endif /* DIGIFLOW */
+
 
 static int threadCalibrator(void *ptr)
 {
@@ -3774,6 +4014,10 @@ int main(int argc, char *argv[])
                 break;
             case PWRPAGE: sdlApp.nextPage = doEnvironment(&sdlApp);
                 break;
+#ifdef DIGIFLOW
+            case WTRPAGE: sdlApp.nextPage = doWater(&sdlApp);
+                break;
+#endif
             case CALPAGE: sdlApp.nextPage = doCalibration(&sdlApp, &configParams);
                 break;
             case TSKPAGE: sdlApp.nextPage = doSubtask(&sdlApp, &configParams);

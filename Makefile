@@ -49,6 +49,9 @@ ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
 	sudo chown $$LOGNAME:users $(DEST)/etc/speedometer
 	sudo install -m 0664 -g users -o $$LOGNAME $(SMDB) -D $(DEST)/etc/speedometer
 endif
+ifeq ($(shell grep "define DIGIFLOW" sdlSpeedometer.h | cut -c2-7 | tr -d '\n'),define)
+	sudo install -m 0755 -g root -o root digiflow.sh -D $(DEST)/bin/digiflow.sh
+endif
 
 install_x:
 	-sudo systemctl stop xorg.service sdlSpeedometer.service 

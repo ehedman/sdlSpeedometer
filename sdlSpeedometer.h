@@ -12,6 +12,9 @@
 #include <plotsdl/llist.h>
 #endif
 
+//Dendent on project  https://github.com/ehedman/flowSensor
+//#define DIGIFLOW
+
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
 #define dmagXmax 2029
@@ -77,7 +80,8 @@ enum sdlPages {
     GPSPAGE,
     CALPAGE,
     PWRPAGE,
-    TSKPAGE  
+    TSKPAGE,
+    WTRPAGE  
 };
 
 typedef struct {
@@ -149,6 +153,13 @@ typedef struct {
     time_t  startTime;  // Server's starttime
     // Misc
     float   declination;  // from NOAA
+#ifdef DIGIFLOW
+    time_t  fdate;      // Filter date
+    float   tvol;       // Total consumed volume
+    float   gvol;       // Grand total consumed volume
+    float   tank;       // Tank Volume
+    int     tds;        // TDS value
+#endif
 } collected_nmea;
 
 

@@ -31,6 +31,7 @@ Currently there are eight virtual instrument working (data source within bracket
     Wind          : Real, Relative and speed (NMEA-net)
     Depth         : With low water warning and water temp (NMEA-net)
     Environment   : Page with Voltage, Current, Temp and Power plotting (proprietary NMEA net "$P" sentences)
+    Water         : Page with fresh water tank status and TDS quality (Requires https://github.com/ehedman/flowSensor)
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 
