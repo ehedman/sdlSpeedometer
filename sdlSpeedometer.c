@@ -3226,7 +3226,7 @@ static int doWater(sdl2_app *sdlApp)
         if (doBreak == 1) break;
         
         ct = time(NULL);    // Get a timestamp for this turn 
-        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
+        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
          if (rval == 1) {
             sprintf(msg_tnk, "----");
