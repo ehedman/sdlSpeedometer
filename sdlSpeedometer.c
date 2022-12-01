@@ -3170,7 +3170,7 @@ static int doWater(sdl2_app *sdlApp)
     textBoxR.x = 470;
     textBoxR.y = 106;
 
-    int boxItems[] = {120,170,220,270};
+    int boxItems[] = {120,170,220,270,320};
 
     if (!system("digiflow.sh /tmp/digiflow.txt") && (tankFd = fopen("/tmp/digiflow.txt","r")) != NULL) {
         if (fstat(fileno(tankFd), &statbuf) == 0 && statbuf.st_size != 0) {
@@ -3180,7 +3180,8 @@ static int doWater(sdl2_app *sdlApp)
                     case 1: cnmea.tvol =  atof(tBuff); break;
                     case 2: cnmea.gvol =  atof(tBuff); break;
                     case 3: cnmea.tank =  atof(tBuff); break;
-                    case 4: cnmea.tds  =  atoi(tBuff);
+                    case 4: cnmea.tds  =  atoi(tBuff); break;
+                    case 5: cnmea.ttemp = atof(tBuff);
                             rval = 0; 
                             break;
                     default: rval = 1; break;
@@ -3202,6 +3203,7 @@ static int doWater(sdl2_app *sdlApp)
         char msg_gtv[40];
         char msg_flr[60];
         char msg_tds[40];
+        char msg_tmp[40];
         char msg_cns[40];
         char msg_tod[40];
         time_t ct;
@@ -3238,6 +3240,7 @@ static int doWater(sdl2_app *sdlApp)
             info_t = localtime( &cnmea.fdate);
             strftime(buffer_t, sizeof(buffer_t), "%Y-%m-%d", info_t);
             sprintf(msg_flr, "%s",  buffer_t);
+            sprintf(msg_tmp, "TEMP: %.0f", cnmea.ttemp);
             sprintf(msg_tds, "TDS:  %d", cnmea.tds);
             float vleft = floor((((cnmea.tank-cnmea.tvol)/cnmea.tank)*100)+0.5);
             sprintf(msg_cns, "LEFT: %.0f%c", vleft, '%');
@@ -3266,6 +3269,9 @@ static int doWater(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_gtv, fontCog, &textField, &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tmp, fontCog, &textField, &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tds, fontCog, &textField, &textField_rect, WHITE);

@@ -13,7 +13,7 @@
 #endif
 
 //Dendent on project  https://github.com/ehedman/flowSensor
-//#define DIGIFLOW
+#define DIGIFLOW
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
@@ -159,6 +159,7 @@ typedef struct {
     float   gvol;       // Grand total consumed volume
     float   tank;       // Tank Volume
     int     tds;        // TDS value
+    float   ttemp;      // Water temp
 #endif
 } collected_nmea;
 
