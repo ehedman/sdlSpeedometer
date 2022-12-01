@@ -13,7 +13,7 @@
 #endif
 
 //Dendent on project  https://github.com/ehedman/flowSensor
-#define DIGIFLOW
+//#define DIGIFLOW
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
