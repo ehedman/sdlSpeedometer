@@ -57,7 +57,7 @@ The SDL2 packages needed are:
 - sudo apt install libsdl2-dev libsdl2-image-dev libsdl2-net-dev libsdl2-ttf-dev
 
 ### Library dependencies from Debian repos
-- sudo apt install libcurl4-gnutls-dev i2c-tools libi2c-dev libsqlite3-dev libpng-dev
+- sudo apt install libcurl4-gnutls-dev i2c-tools libi2c-dev sqlite3 libsqlite3-dev libpng-dev
 - sudo apt install libtiff5-dev libjpeg-dev libfreetype6-dev libts-dev libinput-dev
 - sudo apt install libwebp-dev libvncserver-dev 
 
