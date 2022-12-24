@@ -91,6 +91,7 @@ typedef struct {
     char *subAppsCmd[TSKPAGE][TSKPAGE];
     int nextPage;
     int curPage;
+    int plotMode;
     configuration *conf;
 } sdl2_app;
 

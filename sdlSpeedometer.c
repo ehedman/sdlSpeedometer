@@ -2261,6 +2261,30 @@ static int doDepth(sdl2_app *sdlApp)
 
     float dynUpd;
 
+#ifdef PLOTSDL
+    static float depthBuf[25];
+    static plot_params params;
+
+    params.screen_width=760;
+    params.screen_heigth=350;
+    params.font_text_path=DEFAULT_FONT;
+    params.font_text_size=12;
+    params.hide_backgroud = 1;
+    params.hide_caption = 1;
+    params.caption_text_x="Time (s)";
+    params.caption_text_y="Depth (m)";
+    params.scale_x = 1;
+    params.max_x = sizeof(depthBuf)/sizeof(float);
+    params.screen = sdlApp->window;
+    params.renderer = sdlApp->renderer;
+    params.offset_x = 0;
+    params.offset_y = 40;
+    for (int i=0; i< sizeof(depthBuf)/sizeof(float); i++)
+        depthBuf[i]= cnmea.dbt_ts > S_TIMEOUT? cnmea.dbt : 0.0;
+#endif
+
+
+
     while (1) {
         int boxItem = 0;
         float depth;
@@ -2279,6 +2303,7 @@ static int doDepth(sdl2_app *sdlApp)
         const float maxangle = 236; // Scale end
         const float maxsdepth = 10;
         int doBreak = 0;
+        int doPlot = 0;
         
         while (SDL_PollEvent(&event)) {
 
@@ -2289,6 +2314,14 @@ static int doDepth(sdl2_app *sdlApp)
 
             if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
             {
+#ifdef PLOTSDL
+                static time_t c;
+
+                if (time(NULL) > c+1) {
+                    c = time(NULL);
+                    sdlApp->plotMode = !sdlApp->plotMode;
+                }
+#endif
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
                     break;
@@ -2303,8 +2336,10 @@ static int doDepth(sdl2_app *sdlApp)
         // DPT - Depth
          if (ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0)
             sprintf(msg_dbt, "----");
-        else
+        else {
             sprintf(msg_dbt, cnmea.dbt >= 100.0? "%.0f" : "%.1f", cnmea.dbt);
+            doPlot++;
+        }
 
         // MTW - Water temperature in C
         if (ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0)
@@ -2346,30 +2381,38 @@ static int doDepth(sdl2_app *sdlApp)
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
     
-        SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+        if (!sdlApp->plotMode) {
+            SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0) && cnmea.dbt < 110)
+            if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0) && cnmea.dbt < 110)
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+        }
 
-        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &textField, &textField_rect, BLACK);
+        if (!sdlApp->plotMode) {
+            get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &textField, &textField_rect, BLACK);
+        } else {
+            get_text_and_rect(sdlApp->renderer, 182, 390, 4, msg_dbt, fontLarge, &textField, &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
+        }
         SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_mtw, fontSmall, &textField, &textField_rect, BLACK);   
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        if (!sdlApp->plotMode) {
+            get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_mtw, fontSmall, &textField, &textField_rect, BLACK);   
+            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
 
-        if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
-        }
-        
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
-        }
-        
-        if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &textField, &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            }
+            
+            if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &textField, &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            }
+            
+            if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            }
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
@@ -2389,8 +2432,10 @@ static int doDepth(sdl2_app *sdlApp)
         }
 
         if (sdlApp->conf->runWrn) {
-            get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &textField, &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            if (!sdlApp->plotMode) {
+                get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &textField, &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
+                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            }
 
             if (sdlApp->conf->muted == 0) {
                 SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
@@ -2404,6 +2449,55 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
 
+#ifdef PLOTSDL
+        if (sdlApp->plotMode)
+        {
+            // The captionlist and coordlist lists
+            captionlist caption_list = NULL;
+            coordlist coordinate_list = NULL;
+            int j=0;
+
+            // Hidden but must be defined
+            caption_list=push_back_caption(caption_list,"Depth", 0, (cnmea.dbt <= warn.depthw? 0xFF0000 : 0x00FF00));
+
+            int avtd = 0;
+            float awd = 0;
+
+            // Populate plot parameter object
+            depthBuf[0] = cnmea.dbt;
+
+            for (int i=sizeof(depthBuf)/sizeof(float); i >0; i--)
+            {
+                coordinate_list=push_back_coord(coordinate_list, 0, j, depthBuf[j]);
+                if (depthBuf[j] && avtd < 6) {
+                    awd += depthBuf[j];
+                    avtd++;
+                }
+                if (j++)
+                    depthBuf[i] = depthBuf[i-1];    // History shift
+            }
+
+            awd /= avtd;
+
+            // Adjust y-scale according to sampled average watt
+            params.max_y = 1000; params.scale_y = 75;    // Default
+            if (awd < 500) {params.max_y = 500;    params.scale_y = 50;}
+            if (awd < 200) {params.max_y = 220;    params.scale_y = 20;}
+            if (awd < 100) {params.max_y = 120;    params.scale_y = 10;}
+            if (awd < 40)  {params.max_y = 50;     params.scale_y = 5;}
+            if (awd < 20)  {params.max_y = 30;     params.scale_y = 3;}
+            if (awd < 6)   {params.max_y = 8;      params.scale_y = 1;}
+            //if (awd < 3)   {params.max_y = 5;      params.scale_y = 1;}
+           
+            params.caption_list = caption_list;
+            if(doPlot)
+	            params.coordinate_list = coordinate_list;
+
+            plot_graph(&params);
+        }
+#endif
+
+
         SDL_RenderPresent(sdlApp->renderer);
 
         if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
@@ -2414,17 +2508,26 @@ static int doDepth(sdl2_app *sdlApp)
             doRGBconv(sdlApp->conf->vncPixelBuffer);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
         }
-        
-        // Reduce CPU load if only short scale movements
-        dynUpd = (1/fabsf(angle -t_angle))*200;
-        dynUpd = dynUpd > 200? 200:dynUpd;
 
-        SDL_Delay(30+(int)dynUpd);
+        if (!sdlApp->plotMode) {
+        
+            // Reduce CPU load if only short scale movements
+            dynUpd = (1/fabsf(angle -t_angle))*200;
+            dynUpd = dynUpd > 200? 200:dynUpd;
+            SDL_Delay(30+(int)dynUpd);
+        }   else {
+            SDL_Delay(1000);
+        }
     }
 
     if (subTaskbar != NULL) {
         SDL_DestroyTexture(subTaskbar);
     }
+
+#ifdef PLOTSDL
+    params.screen_width=0;
+    plot_graph(&params);
+#endif
 
     SDL_DestroyTexture(gaugeDepth);
     SDL_DestroyTexture(gaugeDepthW);
