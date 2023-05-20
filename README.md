@@ -1,5 +1,5 @@
 # sdlSpeedometer
-README Nov-2022
+README May-2023
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
@@ -46,6 +46,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - Note this this is mainly an EMBEDDED solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
 - Raspberry Pi 3B+ and 4B and a 7 inch touch display.
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
+- This application will also work flawlessly under Windows WSL (Windows Subsystem for Linux).
 
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite to start with
