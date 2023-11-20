@@ -61,6 +61,10 @@ typedef struct {
     int useKms;
     rfbScreenInfoPtr vncServer;
     SDL_Surface* vncPixelBuffer;
+    float scale;
+    char ssize[50];
+    int window_w;
+    int window_h;
     int vncClients;
     int vncPort;
     char tty[40];

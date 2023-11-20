@@ -45,12 +45,12 @@
 
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
-#define WINDOW_W 800        // Resolution
-#define WINDOW_H 480
-
 #define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
 #define TRGPS       2.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
+
+#define DEFAULT_SCREEN_SIZE     "800x480"   // Default screen size
+#define DEFAULT_SCREEN_SCALE    1.0
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
 
@@ -1030,8 +1030,8 @@ static void vncClientTouch(int buttonMask, int x, int y, rfbClientPtr cl)
         }
 
         touchEvent.type = SDL_FINGERDOWN;
-        touchEvent.tfinger.x = (float)x/(float)WINDOW_W;
-        touchEvent.tfinger.y = (float)y/(float)WINDOW_H;
+        touchEvent.tfinger.x = (float)x/(float)sdlApp->conf->window_w;
+        touchEvent.tfinger.y = (float)y/(float)sdlApp->conf->window_h;
         touchEvent.tfinger.dx = 0;
         touchEvent.tfinger.dy = 0;
         touchEvent.tfinger.pressure = 1;
@@ -1144,16 +1144,19 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     c = time(NULL);
 
     // Upside down screen
-    // x = WINDOW_W -(event->tfinger.x* WINDOW_W);
-    // y = WINDOW_H -(event->tfinger.y* WINDOW_H);
+    //x = WINDOW_W -(event->tfinger.x* sdlApp->conf->window_w);
+    //y = WINDOW_H -(event->tfinger.y* sdlApp->conf->window_h);
 
     if (event->type == SDL_FINGERDOWN) {
-        x = event->tfinger.x* WINDOW_W;
-        y = event->tfinger.y* WINDOW_H;
+        x = event->tfinger.x* sdlApp->conf->window_w;
+        y = event->tfinger.y* sdlApp->conf->window_h;
     } else if (event->type == SDL_MOUSEBUTTONDOWN) {
         x = event->button.x;
         y = event->button.y;
     } else return 0;
+
+    x /= sdlApp->conf->scale;
+    y /= sdlApp->conf->scale;
 
     if (sdlApp->conf->runWrn && y > 15  && y < 50 &&  x > 65 && x < 100)
     {
@@ -1319,22 +1322,22 @@ inline static float rotate(float angle, int res)
     return(rot);
 }
 
-// Swap red and blue, since Xlib using BGR instead of RGB
-inline static void doRGBconv(SDL_Surface *surface)
+// Swap red and blue, since Xlib using BGR instead of RGB doRGBconv(sdlApp->conf->vncPixelBuffer);
+inline static void doRGBconv(sdl2_app *sdlApp)
 {
-    unsigned char * vncpb = surface->pixels;
+    unsigned char * vncpb = sdlApp->conf->vncPixelBuffer->pixels;
     unsigned char red, blue;
 
-    SDL_LockSurface(surface);
+    SDL_LockSurface(sdlApp->conf->vncPixelBuffer);
 
-    for(int i = 0; i < (WINDOW_H*surface->pitch); i+=4) {
+    for(int i = 0; i < (sdlApp->conf->window_h*sdlApp->conf->vncPixelBuffer->pitch); i+=4) {
         red = vncpb[i+2];
         blue = vncpb[i];
         vncpb[i] = red;
         vncpb[i+2] = blue;
     }
 
-    SDL_UnlockSurface(surface);
+    SDL_UnlockSurface(sdlApp->conf->vncPixelBuffer);
 }
 
 // Play audible warning message
@@ -1655,8 +1658,8 @@ static int doCompass(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp->conf->vncPixelBuffer);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+            doRGBconv(sdlApp);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
 
         // Reduce CPU load if only short scale movements
@@ -1909,8 +1912,8 @@ static int doSumlog(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp->conf->vncPixelBuffer);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+            doRGBconv(sdlApp);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*200;
@@ -2151,8 +2154,8 @@ static int doGps(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp->conf->vncPixelBuffer);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+            doRGBconv(sdlApp);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
     }
 
@@ -2505,8 +2508,8 @@ static int doDepth(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp->conf->vncPixelBuffer);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+            doRGBconv(sdlApp);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
 
         if (!sdlApp->plotMode) {
@@ -2810,8 +2813,8 @@ static int doWind(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp->conf->vncPixelBuffer);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+            doRGBconv(sdlApp);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
         
         // Reduce CPU load if only short scale movements
@@ -3176,8 +3179,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp->conf->vncPixelBuffer);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+            doRGBconv(sdlApp);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
 
         SDL_Delay(1000);
@@ -3414,8 +3417,8 @@ static int doWater(sdl2_app *sdlApp)
             // This will slow down the application a bit.
             SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
                 sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp->conf->vncPixelBuffer);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, WINDOW_W, WINDOW_H);
+            doRGBconv(sdlApp);
+            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
 
         SDL_Delay(1000);
@@ -3772,22 +3775,29 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         }
     }
 
+#if 1
     if (configParams->useWm || configParams->useKms)
         SDL_ShowCursor(SDL_DISABLE);
+#endif
 
     flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
 
     if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
-            SDL_WINDOWPOS_UNDEFINED,
-            SDL_WINDOWPOS_UNDEFINED,
-            WINDOW_W, WINDOW_H,
+            0, 0, // Pos x/y
+            configParams->window_w, configParams->window_h,
             flags)) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
             configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
             return SDL_QUIT;
     }
 
+    if (configParams->useWm == 1) {
+        SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
+    }
+
     sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+
+    SDL_RenderSetScale(sdlApp->renderer, configParams->scale, configParams->scale);
 
     TTF_Init();
 
@@ -3890,8 +3900,8 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     // You've picked my bones clean, speak now ...
     waitpid(configParams->subTaskPID, &status, 0);
     // ... before I reclaim the meat. (Solonius)
-    configParams->subTaskPID = 0;
 
+    configParams->subTaskPID = 0;
     (void)configureDb(configParams);   // Fetch eventually a new configuration
 
     // Regain SDL2 control
@@ -3912,7 +3922,8 @@ int main(int argc, char *argv[])
     int c;
     configuration configParams;
     sdl2_app sdlApp;
-    char buf[100];
+    char buf[FILENAME_MAX];
+    struct stat stats;
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
@@ -3923,6 +3934,9 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
+    configParams.scale = DEFAULT_SCREEN_SCALE;
+    strcat(configParams.ssize, DEFAULT_SCREEN_SIZE);
+
     configParams.runGps = configParams.runi2c = configParams.runNet = 1;
         
     sdlApp.nextPage = COGPAGE; // Start-page
@@ -3931,11 +3945,11 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    while ((c = getopt (argc, argv, "chsvginwVp")) != -1)
+    while ((c = getopt (argc, argv, "chlvginwVps:z:")) != -1)
     {
         switch (c)
             {
-            case 's':
+            case 'l':
                 useSyslog = 1;
                 break;
             case 'c':   exit(EXIT_SUCCESS);         // Check/Create databasse only and exit
@@ -3952,17 +3966,41 @@ int main(int argc, char *argv[])
                 break;
             case 'p':   configParams.runWrn = 1;    // Play warning sounds
                 break;
+            case 's':   strncpy(configParams.ssize, optarg, sizeof(configParams.ssize));    // Screen size w/h
+                break;
+            case 'z':   configParams.scale = atof(optarg);    // Scale the screen
+                break;
             case 'v':
                 fprintf(stderr, "revision: %s\n", SWREV);
                 exit(EXIT_SUCCESS);
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -s (use syslog) -c -g -i -n -p -V -v (version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -c Create database only: -g Disable GPS : -i Disable i2c : -p Play warnings: -n Disabe NMEA Net : -w use WM : -V Enable VNC Server\n");
+                fprintf(stderr, "Usage: %s -l -c -g -i -n -p -V -w -z -s -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -l use syslog : -c Create database only: -g Disable GPS : -i Disable i2c : -p Play warnings\n");
+                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -z Scale factor : -s Window size w/h\n");
                 exit(EXIT_FAILURE);
                 break;
             }
+    }
+
+    {
+        // Resolve -s option
+        const char s[2] = "x";
+        char *token;
+        int first = 0;
+        /* get the first token */
+        token = strtok(configParams.ssize, s);
+
+        /* walk through other tokens */
+        while( token != NULL ) {
+            if (first++ == 0)
+                configParams.window_w = atoi(token);
+            else
+                configParams.window_h = atoi(token);
+
+          token = strtok(NULL, s);
+        }
     }
 
     if (useSyslog) {
@@ -3973,11 +4011,11 @@ int main(int argc, char *argv[])
 
     if (configParams.runVnc == 1) {
         // Create an empty RGB surface that will be used to hold the VNC pixel buffer
-        configParams.vncPixelBuffer = SDL_CreateRGBSurface(0, WINDOW_W, WINDOW_H, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000); 
+        configParams.vncPixelBuffer = SDL_CreateRGBSurface(0, configParams.window_w, configParams.window_h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000); 
         if (configParams.vncPixelBuffer != NULL) {
             rfbErr=SDL_Log; 
             rfbLog=SDL_Log;
-            configParams.vncServer=rfbGetScreen(&argc, argv, WINDOW_W, WINDOW_H, 8, 3, 4);           
+            configParams.vncServer=rfbGetScreen(&argc, argv, configParams.window_w, configParams.window_h, 8, 3, 4);           
             configParams.vncServer->frameBuffer = configParams.vncPixelBuffer->pixels;
             configParams.vncServer->ipv6port = 0;
         } else {
@@ -3986,8 +4024,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    sprintf(buf, "%d", WINDOW_W); SDL_setenv("WINDOW_W", buf, 0);
-    sprintf(buf, "%d", WINDOW_H); SDL_setenv("WINDOW_H", buf, 0);
+    sprintf(buf, "%d", configParams.window_h); SDL_setenv("WINDOW_W", buf, 0);
+    sprintf(buf, "%d", configParams.window_w); SDL_setenv("WINDOW_H", buf, 0);
 
     if (SDL_getenv("DISPLAY") != NULL) {
 
@@ -3996,9 +4034,9 @@ int main(int argc, char *argv[])
         pid_t pid0, pid1, pid2;
         int status;
 
-        if (configParams.useWm  == 1 && system("xprop -root|grep ^_NET_CLIENT_LIST >/dev/null 2>&1") != 0) {
+        if (configParams.useWm  == 1 && system("xprop -root|grep -q _NET_CLIENT_LIST >/dev/null 2>&1") != 0) {
 
-            sprintf(buf, "xrandr -s %dx%d &>/dev/null", WINDOW_W, WINDOW_H);
+            sprintf(buf, "xrandr -s %dx%d &>/dev/null", configParams.window_w, configParams.window_h);
             system(buf);
 
             pid0 = fork();
@@ -4066,15 +4104,19 @@ int main(int argc, char *argv[])
 
             sleep(2);
 
-            pid2 = fork();
+            sprintf(buf, "/usr/local/share/images/splash-%dx%d.png", configParams.window_w, configParams.window_h);
+            if (stat(buf, &stats) == 0) {
 
-            if (pid2 == 0) {
-                // Start the splashscreen
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splashscreen");
-                char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", "/usr/local/share/images/splash.png", NULL };
-                execvp(args[0], args);
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
-                _exit(0);
+                pid2 = fork();
+
+                if (pid2 == 0 ) {
+                    // Start the splashscreen
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
+                    char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", buf, NULL };
+                    execvp(args[0], args);
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
+                    _exit(0);
+                }
             }
 
             if (waitpid(pid1,&status,WNOHANG) != 0) {

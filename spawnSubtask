@@ -36,14 +36,14 @@ fi
 
 
 function setDisplay() {
-    xset -dpms
+    xset -dpms &>/dev/null || true
     xset s off
     xset s noblank
 }
 
 if ! pidof -s Xorg &>/dev/null; then
     # This only works if app is running as root (kmsdrm mode)
-    Xorg -nolisten tcp vt7 -nocursor -novtswitch -quiet &> /dev/null &
+    Xorg -nolisten tcp vt7 -nocursor -dpms -novtswitch -quiet &> /dev/null &
     XPID=$!
     export DISPLAY=:0.0
     sleep 2
