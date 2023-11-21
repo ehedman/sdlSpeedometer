@@ -1,0 +1,1 @@
+/usr/bin/chromium-browser --noerrdialogs --disable-infobars --kiosk --force-device-scale-factor=1.2 http://127.0.1/navi/npanel.php?bar=1  &>/dev/null
