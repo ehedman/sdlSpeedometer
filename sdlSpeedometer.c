@@ -3924,6 +3924,7 @@ int main(int argc, char *argv[])
     sdl2_app sdlApp;
     char buf[FILENAME_MAX];
     struct stat stats;
+    FILE *fd;
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
@@ -3934,8 +3935,18 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
+    if (getenv("DISPLAY") != NULL) {
+        system("xdpyinfo | grep dimensions | awk '{printf \"%s\", $2}' >/tmp/d-data.txt");
+        if ((fd=fopen("/tmp/d-data.txt", "r")) != NULL) {
+            fread(configParams.ssize, 1, sizeof(configParams.ssize), fd);
+            fclose(fd);
+            unlink("/tmp/d-data.txt");
+        }
+    } else {      
+        strcat(configParams.ssize, DEFAULT_SCREEN_SIZE);
+    }
+
     configParams.scale = DEFAULT_SCREEN_SCALE;
-    strcat(configParams.ssize, DEFAULT_SCREEN_SIZE);
 
     configParams.runGps = configParams.runi2c = configParams.runNet = 1;
         
