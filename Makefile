@@ -38,6 +38,7 @@ install:
 	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config
 	sudo install -m 0755 -g root -o root sdlSpeedometer-reset -D $(DEST)/bin/sdlSpeedometer-reset
 	sudo install -m 0755 -g root -o root sdlSpeedometer-stat -D $(DEST)/bin/sdlSpeedometer-stat
+	sudo install -m 0755 -g root -o root sdlSpeedometer-kiosk -D $(DEST)/bin/sdlSpeedometer-kiosk
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
 	sudo mkdir -p $(DEST)/share/sounds
