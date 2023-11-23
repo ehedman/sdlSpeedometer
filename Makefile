@@ -61,6 +61,8 @@ install_x:
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer_x.env -D /etc/default/sdlSpeedometer
 	echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
 	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
+	echo "XDG_RUNTIME_DIR=/run/user/$$(id -u)" >> /tmp/xorg.env
+	-sudo install -m 0644 -g root -o root /tmp/xorg.env -D /etc/default/xorg
 	-sudo install -m 0644 -g root -o root xorg.service -D /lib/systemd/system/
 	 sed s/root/$$LOGNAME/ sdlSpeedometer.service > /tmp/sdlSpeedometer.service
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.service -D /lib/systemd/system/

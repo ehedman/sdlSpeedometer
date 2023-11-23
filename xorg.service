@@ -5,6 +5,8 @@ after=networking.service
 Before=sdlSpeedometer wsocknmea
 
 [Service]
+Type=simple
+EnvironmentFile=/etc/default/xorg
 ExecStart=/usr/bin/Xorg -nolisten tcp vt7 -nocursor -novtswitch  -quiet
 RemainAfterExit=no
 Restart=on-failure
