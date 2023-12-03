@@ -1,7 +1,7 @@
 /*
  * sdlSpeedometer.c
  *
- *  Copyright (C) 2021 by Erland Hedman <erland@hedmanshome.se>
+ *  Copyright (C) 2023 by Erland Hedman <erland@hedmanshome.se>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -3775,10 +3775,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         }
     }
 
-#if 1
-    if (configParams->useWm || configParams->useKms)
-        SDL_ShowCursor(SDL_DISABLE);
-#endif
 
     flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
 
@@ -3790,6 +3786,11 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
             configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
             return SDL_QUIT;
     }
+
+#if 1
+    if (configParams->useWm || configParams->useKms)
+        SDL_ShowCursor(SDL_DISABLE);
+#endif
 
     if (configParams->useWm == 1) {
         SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
@@ -3870,7 +3871,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     sprintf(cmd, "/bin/bash %s %s %s", SPAWNCMD, sdlApp->subAppsCmd[sdlApp->curPage][0], sdlApp->subAppsCmd[sdlApp->curPage][1]);
 
     SDL_Log("Launch subcommand: %s", cmd);
-    
+
     // Break up cmd to an argv array
     args[i] = strtok(cmd, " ");
     while(args[i] != NULL)
@@ -3935,15 +3936,31 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
-    if (getenv("DISPLAY") != NULL) {
-        system("xdpyinfo | grep dimensions | awk '{printf \"%s\", $2}' >/tmp/d-data.txt");
-        if ((fd=fopen("/tmp/d-data.txt", "r")) != NULL) {
-            fread(configParams.ssize, 1, sizeof(configParams.ssize), fd);
-            fclose(fd);
-            unlink("/tmp/d-data.txt");
+    if (getenv("DISPLAY") != NULL) {    // Wait for Xorg to become ready
+        int i;
+        for (i = 0; i < 5; i++) {
+            system("xdpyinfo  2>/dev/null | grep dimensions | awk '{printf \"%s\", $2}' >/tmp/d-data.txt");
+            if ((fd=fopen("/tmp/d-data.txt", "r")) != NULL) {
+                fstat(fileno(fd), &stats);
+                if (stats.st_size == 0) {
+                    fclose(fd);
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Retry (%d): failed to retrive screen size from Xorg", i+1);
+                    sleep(2);
+                    continue;
+                }
+                fread(configParams.ssize, 1, sizeof(configParams.ssize), fd);
+                fclose(fd);
+                break;
+            }
         }
-    } else {      
-        strcat(configParams.ssize, DEFAULT_SCREEN_SIZE);
+
+        unlink("/tmp/d-data.txt");
+        if (i >= 5) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from Xorg. Terminating now!\n", argv[0]);
+            return 1;
+        }
+    }  else {
+        strcpy(configParams.ssize, DEFAULT_SCREEN_SIZE);
     }
 
     configParams.scale = DEFAULT_SCREEN_SCALE;
