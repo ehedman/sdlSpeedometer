@@ -1,7 +1,7 @@
 /*
  * sdlSpeedometer.c
  *
- *  Copyright (C) 2023 by Erland Hedman <erland@hedmanshome.se>
+ *  Copyright (C) 2024 by Erland Hedman <erland@hedmanshome.se>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -1200,40 +1200,41 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
 
-    static SDL_Texture* textM1;
     static SDL_Rect M1_rect;
 
-    get_text_and_rect(sdlApp->renderer, 440, 416, 0, "COG", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 440, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 498, 416, 0, "SOG", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 498, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 556, 416, 0, "DPT", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 556, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 610, 416, 0, "WND", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 610, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 668, 416, 0, "GPS", font, &textM1, &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    get_text_and_rect(sdlApp->renderer, 668, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
     
     if (sdlApp->conf->i2cFile == 0) {
-        get_text_and_rect(sdlApp->renderer, 726, 416, 0, "PWR", font, &textM1, &M1_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 726, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE) {
-            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &textM1, &M1_rect, BLACK); 
+            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect); 
         } 
 #endif
     } else {
-        get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &textM1, &M1_rect, BLACK); 
+        get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE) {
-            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &textM1, &M1_rect, BLACK); 
+            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
         }
 #endif  
     }
-    SDL_RenderCopy(sdlApp->renderer, textM1, NULL, &M1_rect); SDL_DestroyTexture(textM1);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 }
 
 static void setUTCtime(void)
@@ -1350,7 +1351,7 @@ static void playWarnSound(char *wavFile)
     SDL_AudioDeviceID deviceId;
     char soundPath[4096];
     strcpy(soundPath, SOUND_PATH);
-    strncat(soundPath, wavFile, sizeof(soundPath));
+    strncat(soundPath, wavFile, sizeof(soundPath)-1);
 
     // load WAV file
     if (SDL_LoadWAV(soundPath, &wavSpec, &wavBuffer, &wavLength) == NULL)
@@ -1488,7 +1489,6 @@ static int doCompass(sdl2_app *sdlApp)
     textBoxR.x = 470;
     textBoxR.y = 106;
 
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     float t_angle = 0;
@@ -1503,6 +1503,7 @@ static int doCompass(sdl2_app *sdlApp)
 
     while (1) {
         int boxItem = 0;
+        sdlApp->textFieldArrIndx = 0;
         char msg_hdm[40] = { "" };
         char msg_rll[40] = { "" };
         char msg_sog[40] = { "" };
@@ -1591,39 +1592,38 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
             SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 226, 180, 3, msg_src, fontSrc, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
-
+        get_text_and_rect(sdlApp->renderer, 226, 180, 3, msg_src, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
     
-        get_text_and_rect(sdlApp->renderer, 200, 200, 3, msg_hdm, fontCog, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 200, 200, 3, msg_hdm, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
        
 
-        get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &textField, &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.mtw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -1651,6 +1651,7 @@ static int doCompass(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
+
         SDL_RenderPresent(sdlApp->renderer);
 
         if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
@@ -1667,6 +1668,12 @@ static int doCompass(sdl2_app *sdlApp)
         dynUpd = dynUpd > 200? 200:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
+        
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
+        
     }
 
     if (subTaskbar != NULL) {
@@ -1681,7 +1688,6 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
-    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
@@ -1757,7 +1763,6 @@ static int doSumlog(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     float t_angle = 0;
@@ -1768,6 +1773,7 @@ static int doSumlog(sdl2_app *sdlApp)
 
     while (1) {
         int boxItem = 0;
+        sdlApp->textFieldArrIndx = 0;
         char msg_stw[40];
         char msg_sog[40];
         char msg_dbt[40] = { "" };
@@ -1853,33 +1859,33 @@ static int doSumlog(sdl2_app *sdlApp)
         if (wspeed)
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_stw, fontLarge, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_stw, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &textField, &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.mtw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
          if (stw) {
-            get_text_and_rect(sdlApp->renderer, 186, 366, 8, msg_sog, fontSmall, &textField, &textField_rect, BLACK);       
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 186, 366, 8, msg_sog, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);       
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (subTaskbar != NULL) {
@@ -1920,6 +1926,11 @@ static int doSumlog(sdl2_app *sdlApp)
         dynUpd = dynUpd > 200? 200:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);  
+
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -1933,7 +1944,6 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
-    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall); 
     TTF_CloseFont(fontCog);
@@ -1977,7 +1987,6 @@ static int doGps(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     gaugeR.w = 440;
@@ -2014,6 +2023,7 @@ static int doGps(sdl2_app *sdlApp)
 
     while (1) {
         int boxItem = 0;
+        sdlApp->textFieldArrIndx = 0;
         char msg_hdm[40];
         char msg_lat[40];
         char msg_lot[40];
@@ -2086,43 +2096,43 @@ static int doGps(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeGps, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_hdm, fontHD, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_hdm, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 290, 168, 1, msg_src, fontMG, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 290, 168, 1, msg_src, fontMG, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 148, 222, 9, msg_lat, fontLA, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 148, 222, 9, msg_lat, fontLA, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_lot, fontLO, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_lot, fontLO, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
        
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
          if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
          if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &textField, &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
          if (!(ct - cnmea.mtw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -2157,6 +2167,11 @@ static int doGps(sdl2_app *sdlApp)
             doRGBconv(sdlApp);
             rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
         }
+
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -2168,7 +2183,6 @@ static int doGps(sdl2_app *sdlApp)
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
-    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontHD);
     TTF_CloseFont(fontLA);
     TTF_CloseFont(fontLO);
@@ -2207,7 +2221,6 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Texture* gauge;
     SDL_Texture* subTaskbar = NULL;
     
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     gaugeR.w = 440;
@@ -2290,6 +2303,7 @@ static int doDepth(sdl2_app *sdlApp)
 
     while (1) {
         int boxItem = 0;
+        sdlApp->textFieldArrIndx = 0;
         float depth;
         float scale; 
         char msg_dbt[40];
@@ -2392,37 +2406,37 @@ static int doDepth(sdl2_app *sdlApp)
         }
 
         if (!sdlApp->plotMode) {
-            get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &textField, &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         } else {
-            get_text_and_rect(sdlApp->renderer, 182, 390, 4, msg_dbt, fontLarge, &textField, &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
+            get_text_and_rect(sdlApp->renderer, 182, 390, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
         }
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!sdlApp->plotMode) {
-            get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_mtw, fontSmall, &textField, &textField_rect, BLACK);   
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_mtw, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);   
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
             if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &textField, &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
             
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &textField, &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
             
             if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -2436,8 +2450,8 @@ static int doDepth(sdl2_app *sdlApp)
 
         if (sdlApp->conf->runWrn) {
             if (!sdlApp->plotMode) {
-                get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &textField, &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
-                SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+                get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
 
             if (sdlApp->conf->muted == 0) {
@@ -2521,6 +2535,11 @@ static int doDepth(sdl2_app *sdlApp)
         }   else {
             SDL_Delay(1000);
         }
+
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -2541,7 +2560,6 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
-    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
@@ -2621,7 +2639,6 @@ static int doWind(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     float t_angle_a = 0;
@@ -2638,6 +2655,7 @@ static int doWind(sdl2_app *sdlApp)
 
     while (1) {
         int boxItem = 0;
+        sdlApp->textFieldArrIndx = 0;
         char msg_vwrs[40];
         char msg_vwts[40];
         char msg_vwra[40];
@@ -2741,47 +2759,47 @@ static int doWind(sdl2_app *sdlApp)
         if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) 
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleTrue, NULL, &needleR, t_angle_t, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 216, 100, 4, msg_vwra, fontSmall, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 216, 100, 4, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &textField, &textField_rect, BLACK);    
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);    
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) {
-            get_text_and_rect(sdlApp->renderer, 150, 356, 4, msg_vwts, fontSmall, &textField, &textField_rect, BLACK);    
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 150, 356, 4, msg_vwts, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);    
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
         
         if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
         
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &textField, &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect); 
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -2822,6 +2840,11 @@ static int doWind(sdl2_app *sdlApp)
         dynUpd = dynUpd > 200? 200:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
+
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -2835,7 +2858,6 @@ static int doWind(sdl2_app *sdlApp)
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
-    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontLarge);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
@@ -2930,7 +2952,6 @@ static int doEnvironment(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     // Scale adjustments
@@ -2982,7 +3003,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 #endif
 
     while (1) {
-
+        sdlApp->textFieldArrIndx = 0;
         char msg_tod[40];
         char msg_stm[40];
         char msg_kWhp[80];
@@ -3059,11 +3080,11 @@ static int doEnvironment(sdl2_app *sdlApp)
             v_angle = ((volt_value-v_scaleoffset) * (v_maxangle/v_max) *2)+v_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleVolt, NULL, &voltNeedleR, v_angle, NULL, SDL_FLIP_NONE);
 
-            get_text_and_rect(sdlApp->renderer, 164, 170, 0, msg_volt, fontSmall, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 164, 170, 0, msg_volt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 146, 240, 0, msg_volt_bank, fontLarge, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 146, 240, 0, msg_volt_bank, fontLarge,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         }
 
@@ -3073,11 +3094,11 @@ static int doEnvironment(sdl2_app *sdlApp)
                 SDL_RenderCopyEx(sdlApp->renderer, needleCurr, NULL, &currNeedleR, c_angle, NULL, SDL_FLIP_NONE);
             }
 
-            get_text_and_rect(sdlApp->renderer, 386, 170, 0, msg_curr, fontSmall, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 386, 170, 0, msg_curr, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 370, 240, 0, msg_curr_bank, fontLarge, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 370, 240, 0, msg_curr_bank, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         }
 
@@ -3085,11 +3106,11 @@ static int doEnvironment(sdl2_app *sdlApp)
             t_angle = ((temp_value-t_scaleoffset) * (t_maxangle/t_max)*1.2)+t_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleTemp, NULL, &tempNeedleR, t_angle, NULL, SDL_FLIP_NONE);
 
-            get_text_and_rect(sdlApp->renderer, 605, 170, 0, msg_temp, fontSmall, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 605, 170, 0, msg_temp, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 586, 240, 0, msg_temp_loca, fontLarge, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 586, 240, 0, msg_temp_loca, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (sdlApp->conf->netStat == 1) {
@@ -3109,15 +3130,15 @@ static int doEnvironment(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSmall);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (cnmea.startTime)
         {
-            get_text_and_rect(sdlApp->renderer, 104, 416, 0, msg_kWhn, fontSmall, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
-            get_text_and_rect(sdlApp->renderer, 104, 432, 0, msg_kWhp, fontSmall, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 104, 416, 0, msg_kWhn, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            get_text_and_rect(sdlApp->renderer, 104, 432, 0, msg_kWhp, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (subTaskbar != NULL) {
@@ -3184,6 +3205,11 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
         SDL_Delay(1000);
+
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -3204,8 +3230,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar); 
     SDL_DestroyTexture(muteBar);
-    SDL_DestroyTexture(unmuteBar);
-    SDL_DestroyTexture(textField);   
+    SDL_DestroyTexture(unmuteBar);  
     TTF_CloseFont(fontTod);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontLarge);
@@ -3248,7 +3273,6 @@ static int doWater(sdl2_app *sdlApp)
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     gaugeR.w = 440;
@@ -3301,7 +3325,7 @@ static int doWater(sdl2_app *sdlApp)
     } else rval = 1;
 
     while (1) {
-
+        sdlApp->textFieldArrIndx = 0;
         int boxItem = 0;
         char msg_tnk[40];
         char msg_lft[40];
@@ -3358,38 +3382,38 @@ static int doWater(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeWtr, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_tnk, fontHD, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_tnk, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 136, 216, 9, msg_lft, fontLA, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 136, 216, 9, msg_lft, fontLA, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_flr, fontLO, &textField, &textField_rect, cnmea.fdate < ct+604800 ? RED : BLACK); // A week+
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_flr, fontLO, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.fdate < ct+604800 ? RED : BLACK); // A week+
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
        
         if (rval == 0) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cns, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cns, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_use, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_use, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_gtv, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_gtv, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tmp, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tmp, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tds, fontCog, &textField, &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tds, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &textField, &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
@@ -3422,6 +3446,11 @@ static int doWater(sdl2_app *sdlApp)
         }
 
         SDL_Delay(1000);
+
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     SDL_DestroyTexture(gaugeWtr);
@@ -3430,7 +3459,6 @@ static int doWater(sdl2_app *sdlApp)
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
-    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontHD);
     TTF_CloseFont(fontLA);
     TTF_CloseFont(fontLO);
@@ -3521,7 +3549,6 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
     doRun.run = 1;
     doRun.i2cFile = configParams->i2cFile;
 
-    SDL_Texture* textField = NULL;
     SDL_Rect textField_rect;
 
     menuBarR.w = 340;
@@ -3599,6 +3626,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
     while (1) {
 
+        sdlApp->textFieldArrIndx = 0;
         int doBreak = 0;
         
         while (SDL_PollEvent(&event)) {
@@ -3624,10 +3652,10 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
             sprintf(msg_cal, "Calibration about to begin in %d seconds", progress--);
             seconds = 0;
             if (progress < 0) break;
-        }   
+        }  
 
-        get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &textField, &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+        get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
@@ -3635,6 +3663,11 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(100);
+
+        sdlApp->textFieldArrIndx--;
+        do {
+            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (progress < 0) {
@@ -3643,6 +3676,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
         while (1) {
 
+            sdlApp->textFieldArrIndx = 0;
             event.type = COGPAGE;
 
             if (threadCalib == NULL) {
@@ -3665,15 +3699,21 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
                 }
             }
 
-            get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 10, 320, 1, doRun.progress, fontPRG, &textField, &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, textField, NULL, &textField_rect); SDL_DestroyTexture(textField);
+            get_text_and_rect(sdlApp->renderer, 10, 320, 1, doRun.progress, fontPRG, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
             SDL_RenderPresent(sdlApp->renderer); 
             
             SDL_Delay(100); 
+
+            sdlApp->textFieldArrIndx--;
+            do {
+                SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
+            } while (sdlApp->textFieldArrIndx-- >0);
+
         } 
     }
 
@@ -3684,7 +3724,6 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
     SDL_DestroyTexture(menuBar);
     TTF_CloseFont(fontCAL);
-    SDL_DestroyTexture(textField);
     TTF_CloseFont(fontPRG);
     TTF_CloseFont(fontSrc);
 
@@ -3788,7 +3827,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     }
 
 #if 1
-    if (configParams->useWm || configParams->useKms)
+    if (configParams->useWm || configParams->useWln)
         SDL_ShowCursor(SDL_DISABLE);
 #endif
 
@@ -4058,6 +4097,7 @@ int main(int argc, char *argv[])
     if (SDL_getenv("DISPLAY") != NULL) {
 
         SDL_setenv("SDL_VIDEODRIVER", "x11", 0);
+        SDL_Log("Using X11 Videodriver");
 
         pid_t pid0, pid1, pid2;
         int status;
@@ -4162,10 +4202,16 @@ int main(int argc, char *argv[])
             }
         }
 
-    } else {
-        SDL_setenv("SDL_VIDEODRIVER", "kmsdrm", 0);
-        configParams.useKms = 1;
-        configParams.useWm = 0;
+    } else { 
+        if (SDL_getenv("WAYLAND_DISPLAY") != NULL) {
+                SDL_setenv("SDL_VIDEODRIVER", "wayland", 0);
+                SDL_Log("Using Wayland Videodriver");
+                configParams.useWln = 1;
+                configParams.useWm = 0;
+            } else {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Neither x11 or wayland are available as SDL_VIDEODRIVER");
+                exit(1);
+            }
     }
 
     if (openSDL2(&configParams, &sdlApp))
