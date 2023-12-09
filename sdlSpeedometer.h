@@ -58,7 +58,7 @@ typedef struct {
     short port;
     char server[100];
     int useWm;
-    int useKms;
+    int useWln;
     rfbScreenInfoPtr vncServer;
     SDL_Surface* vncPixelBuffer;
     float scale;
@@ -74,6 +74,7 @@ typedef struct {
     int netStat;
     int muted;
     int subTaskPID;
+    int cursor;
 } configuration;
 
 enum sdlPages {
@@ -89,6 +90,10 @@ enum sdlPages {
 };
 
 typedef struct {
+
+} textFields;
+
+typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
     char *fontPath;
@@ -96,6 +101,8 @@ typedef struct {
     int nextPage;
     int curPage;
     int plotMode;
+    SDL_Texture* textFieldArr[20];
+    int textFieldArrIndx;
     configuration *conf;
 } sdl2_app;
 
