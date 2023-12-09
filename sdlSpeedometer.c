@@ -3826,10 +3826,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
             return SDL_QUIT;
     }
 
-#if 1
-    if (configParams->useWm || configParams->useWln)
-        SDL_ShowCursor(SDL_DISABLE);
-#endif
+    SDL_ShowCursor(configParams->cursor == 1? SDL_ENABLE : SDL_DISABLE);
 
     if (configParams->useWm == 1) {
         SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
@@ -4012,7 +4009,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    while ((c = getopt (argc, argv, "chlvginwVps:z:")) != -1)
+    while ((c = getopt (argc, argv, "cChlvginwVps:z:")) != -1)
     {
         switch (c)
             {
@@ -4020,6 +4017,8 @@ int main(int argc, char *argv[])
                 useSyslog = 1;
                 break;
             case 'c':   exit(EXIT_SUCCESS);         // Check/Create databasse only and exit
+                break;
+            case 'C':   configParams.cursor = 1;    // Show cursor
                 break;
             case 'g':   configParams.runGps = 0;    // Diable GPS data collection
                 break;
@@ -4044,7 +4043,7 @@ int main(int argc, char *argv[])
             case 'h':
             default:
                 fprintf(stderr, "Usage: %s -l -c -g -i -n -p -V -w -z -s -v (version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -l use syslog : -c Create database only: -g Disable GPS : -i Disable i2c : -p Play warnings\n");
+                fprintf(stderr, "       Where: -l use syslog : -c Create database only: -C show cursor : -g Disable GPS : -i Disable i2c : -p Play warnings\n");
                 fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -z Scale factor : -s Window size w/h\n");
                 exit(EXIT_FAILURE);
                 break;
