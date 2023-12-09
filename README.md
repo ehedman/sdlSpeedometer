@@ -1,16 +1,12 @@
 # sdlSpeedometer
-README May-2023
+README Dec-2023
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
 
 This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
 
-For the Raspberry Pi 4B with OS bullseye the kmsdrm video can is used, though some features will not be available by not using X.
-
-For the Rasperry Pi 4B with OS buster/bullseye the x11 video backend is preferred.
-
-For the Raspberry Pi 3 b+ the X video backend is rather slow so the kmsdrm backend is recommended.
+For the Raspberry Pi 4B with OS bookworm the wayland video can is used, though some features will not be available by not using X.
 
 For the best user experience with all features enabled, a clean x11 configuration is recommended since many graphical subtasks also have this dependency.
 
@@ -78,8 +74,7 @@ The SDL2 packages needed are:
 - Use sdlSpeedometer-config to add these applications and also add sdlSpeedometer-stat (included) to show system status.
 
 ### Software used
-- [Raspberry Pi OS Lite version 10 buster](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)
-- [Raspberry Pi OS Lite version 11 bullseye](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-32-bit)
+- [Raspberry Pi OS Lite bullseye or bookworm](https://www.raspberrypi.com/software/operating-systems/)
 
 ### Build and install on a Pi
 - make
