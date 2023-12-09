@@ -71,15 +71,15 @@ install_x:
 	-sudo systemctl enable xorg.service sdlSpeedometer.service
 	-sudo systemctl start xorg.service
 
-install_kms:
+install_wayland:
 	-sudo systemctl stop sdlSpeedometer.service xorg.service
 	-sudo systemctl disable sdlSpeedometer.service xorg.service
 	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
 	-sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
 	 cp sdlSpeedometer.env /tmp
-	 echo "XDG_RUNTIME_DIR=/run/user/0000" >> /tmp/sdlSpeedometer.env
+	 echo "XDG_RUNTIME_DIR=/run/user/$$(id -u)" >> /tmp/sdlSpeedometer.env
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.env -D /etc/default/sdlSpeedometer
-	 echo "d	/run/user/0000	0700	root	root	-	- " > /tmp/headless.conf
+	 echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
 	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
 	-sudo systemctl daemon-reload
 	-sudo systemctl enable sdlSpeedometer.service
