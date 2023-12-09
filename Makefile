@@ -3,6 +3,7 @@ HDRS=sdlSpeedometer.h LSM9DS0.h
 BIN=sdlSpeedometer
 CC=gcc
 DEST=/usr/local
+GRP=$(shell id -gn)
 
 GETC=".git/HEAD"
 SMDB=speedometer.db
@@ -47,8 +48,8 @@ install:
 	sudo install -m 0644 -g root -o root ./devilspie2/* -D $(DEST)/etc/devilspie2
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
 	sudo mkdir -p $(DEST)/etc/speedometer
-	sudo chown $$LOGNAME:users $(DEST)/etc/speedometer
-	sudo install -m 0664 -g users -o $$LOGNAME $(SMDB) -D $(DEST)/etc/speedometer
+	sudo chown $$LOGNAME:$(GRP) $(DEST)/etc/speedometer
+	sudo install -m 0664 -g $(GRP) -o $$LOGNAME $(SMDB) -D $(DEST)/etc/speedometer
 endif
 ifeq ($(shell grep "define DIGIFLOW" sdlSpeedometer.h | cut -c2-7 | tr -d '\n'),define)
 	sudo install -m 0755 -g root -o root digiflow.sh -D $(DEST)/bin/digiflow.sh
