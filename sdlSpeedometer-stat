@@ -2,10 +2,12 @@
 
 (
     tmpfile=/tmp/$(basename $0).tmp
-    bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\n"}')"
+    if ! hciconfig | grep -q  DOWN; then
+        bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\n"}')"
+    fi
     ncores="$(grep processor /proc/cpuinfo | wc -l)"
     osrel="$(awk -F= '/VERSION=/{ print "OS " $1 " " $2}' /etc/os-release)"
-    usage="$(df -h |  awk '/root/{printf "%s=%s Usage=%s", $1, $2, $5}')"
+    usage="$(df -h $(findmnt -n -o SOURCE /) | awk /dev/'{printf "%s=%s Usage=%s", $1, $2, $5}')"
      
     while true; do
 
@@ -18,10 +20,10 @@
         echo -e "-----\n-----"
         echo -e "Network I.F\nI.P Address:"
         echo "$(ip -o addr show scope global | grep -v secondary | awk '{split($4, a, "/"); printf $2  "\n"a[1] "\t# Connected="}; system("iw dev "$2" station dump | grep Station | wc -l")')"
-        if [ -n "${bt}" ]; 
+        if [ -n "${bt}" ]; then
             echo -e "-----\n-----"
             echo -e "Bluetooth\nConnection"
-            then echo "${bt}";
+            echo "${bt}";
             echo "$(bluetoothctl devices | cut -f2 -d' ' | while read uuid; do bluetoothctl info $uuid; done| awk -F: '/Connected|Name/ {print $1 " " $2}' | grep -B 1 yes | awk NF=NF RS= OFS=' ')"
         fi
         echo -e "-----\n-----"
