@@ -1,8 +1,7 @@
 [Unit]
 Description=Xorg Service
 DefaultDependencies=no
-after=networking.service
-Before=sdlSpeedometer wsocknmea
+After=networking.service
 
 [Service]
 Type=simple
