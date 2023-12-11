@@ -7,7 +7,7 @@
     fi
     ncores="$(grep processor /proc/cpuinfo | wc -l)"
     osrel="$(awk -F= '/VERSION=/{ print "OS " $1 " " $2}' /etc/os-release)"
-    usage="$(df -h $(findmnt -n -o SOURCE /) | awk /dev/'{printf "%s=%s Usage=%s", $1, $2, $5}')"
+    usage="$(df -h -x tmpfs /| awk /dev/'{printf "%s=%s Usage=%s", $1, $2, $5}')"
      
     while true; do
 
