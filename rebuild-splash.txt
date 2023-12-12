@@ -1,0 +1,12 @@
+sdlSpeedometer boot splash on bookworm:
+cp -r  the plymouth folder /usr/share
+plymouth-set-default-theme --rebuild-initrd sdlSp
+
+Dependencies:
+plymouth
+libplymouth5
+plymouth-label
+plymouth-themes
+rpd-plym-splash
+
+Enable the splash boot feature in raspi-config

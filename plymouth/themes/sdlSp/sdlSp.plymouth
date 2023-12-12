@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=sdlSp
+Description=sdlSpeedometer Desktop Splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/sdlSp
+ScriptFile=/usr/share/plymouth/themes/sdlSp/sdlSp.script
