@@ -100,11 +100,24 @@ The SDL2 packages needed are:
 - [Create a Digital Compass with the Raspberry Pi](http://ozzmaker.com/compass1)
 
 ### Embedded display settings
-This is an example to set up a 7 inch HDMI display by adding these lines into /boot/config.txt:<br>
+This is an example to set up a 7 inch HDMI display by adding these lines into /boot/config.txt on a Bullseye linux:<br>
 hdmi_cvt=800 480 60 6<br>
 hdmi_group=2<br>
 hdmi_mode=87<br>
 hdmi_drive=2<br>
+
+For bookworm add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and this sample file to /usr/share/X11/xorg.conf.d/Xorg.conf
+
+    Section "Device"
+        Identifier "Card0"
+        Option "HDMI-1"
+    EndSection
+
+    Section "Monitor"
+            Identifier "HDMI-1"
+            ModelName "LEN L1950wD"
+            Modeline "800x480" 29.22  800 824 896 992  480 483 493 500 -hsync +vsync
+            Option "PreferredMode" "800x480"
 
 ### See also
 [An Open Source Yacht Glass Cockpit](https://github.com/ehedman/websocketNmea)

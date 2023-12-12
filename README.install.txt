@@ -1,4 +1,4 @@
-Dec-2021
+Dec-2023
 
 This application is intended to be built on an basic level Debian release such as the Raspberry Pi OS Lite with Xorg added.
 Further development can then proceed from a host computer via SSH (-X) to the Pi.
@@ -32,16 +32,16 @@ Before executing "make install" check these items:
 
  - run make install_x : Install the autostarted X configuration.
 
- - run make install_kms  : Install the autostarted kmsdrm configuration.
+ - run make install_wayland : Install the autostarted wayland configuration.
 
  - Run sudo ./sdlSpeedometer-config to set your preferences for this application.
 
- - Do NOT run make install_(x/kms) on a desktop system. Instead install desired components manually.
+ - Do NOT run make install_(x/wayland) on a desktop system. Instead install desired components manually.
 
 For testing:
  run make start/stop/status
  
- - runt sudo reboot 
+ - run sudo reboot 
 
 When the Speedometer starts you can still run sdlSpeedometer-config from the GPS GUI page. Click the tools icon.
 
