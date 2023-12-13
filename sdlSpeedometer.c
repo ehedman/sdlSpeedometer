@@ -1571,9 +1571,9 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
 
-        // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
+        // WND - Relative wind speed in m/s
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
                       
         angle = rotate(roundf(cnmea.hdm), res); res=0;
 
@@ -1617,7 +1617,7 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-        if (!(ct - cnmea.mtw_ts > S_TIMEOUT)) {
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
@@ -1841,9 +1841,9 @@ static int doSumlog(sdl2_app *sdlApp)
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
 
-        // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
+        // WND - Relative wind speed in m/s
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
                          
         speed = wspeed * (maxangle/maxspeed);
         angle = roundf(speed+minangle);
@@ -1872,7 +1872,7 @@ static int doSumlog(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-        if (!(ct - cnmea.mtw_ts > S_TIMEOUT)) {
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
@@ -2084,9 +2084,9 @@ static int doGps(sdl2_app *sdlApp)
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
         
-        // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
+        // WND - Relative wind speed in m/s
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
@@ -2123,7 +2123,7 @@ static int doGps(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-         if (!(ct - cnmea.mtw_ts > S_TIMEOUT)) {
+         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
@@ -2259,7 +2259,7 @@ static int doDepth(sdl2_app *sdlApp)
     textBoxR.x = 470;
     textBoxR.y = 106;
 
-    int boxItems[] = {120,170,220};
+    int boxItems[] = {120,170,220,270};
 
     sdlApp->curPage = DPTPAGE;
 
@@ -2299,8 +2299,6 @@ static int doDepth(sdl2_app *sdlApp)
         depthBuf[i]= cnmea.dbt_ts > S_TIMEOUT? cnmea.dbt : 0.0;
 #endif
 
-
-
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
@@ -2312,6 +2310,7 @@ static int doDepth(sdl2_app *sdlApp)
         char msg_hdm[40] = { "" };
         char msg_stw[40] = { "" };
         char msg_rmc[40] = { "" };
+        char msg_vwt[40] = { "" };
         char msg_tod[40];
         time_t ct;
 
@@ -2358,16 +2357,10 @@ static int doDepth(sdl2_app *sdlApp)
             doPlot++;
         }
 
-        // MTW - Water temperature in C
-        if (ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0)
-            sprintf(msg_mtw, "----");
-        else
-            sprintf(msg_mtw, "Temp :%.1f", cnmea.mtw);
-
         if (sdlApp->conf->runWrn) {
             sprintf(msg_dtw, "@%.1f", warn.depthw);
         }
-        
+
         // Heading
         if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
             sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
@@ -2379,6 +2372,16 @@ static int doDepth(sdl2_app *sdlApp)
         // VHW - Water speed and Heading
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+
+        // MTW - Water temperature in C
+        if (ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0)
+            sprintf(msg_vwt, "----");
+        else
+            sprintf(msg_vwt, "Temp :%.1f", cnmea.mtw);
+
+        // WND - Relative wind speed in m/s
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
         gauge = gaugeDepth;
         if (cnmea.dbt <=5 || (cnmea.dbt <= 10 && cnmea.dbt <= warn.depthw)) {
@@ -2413,21 +2416,25 @@ static int doDepth(sdl2_app *sdlApp)
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!sdlApp->plotMode) {
-            get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_mtw, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);   
+            get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_vwt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
             if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
                 get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdm, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
-            
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
                 get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
-            
+
             if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
                 get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
+
+            if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
         }
@@ -2660,8 +2667,7 @@ static int doWind(sdl2_app *sdlApp)
         char msg_vwts[40];
         char msg_vwra[40];
         char msg_dbt[40] = { "" };
-        char msg_mtw[40] = { "" };
-        char msg_stw[40] = { "" };      
+        char msg_stw[40] = { "" };
         char msg_hdm[40] = { "" };
         char msg_rmc[40] = { "" };
         char msg_tod[40];
@@ -2708,10 +2714,6 @@ static int doWind(sdl2_app *sdlApp)
         // DPT - Depth
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
             sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
-
-        // MTW - Water temperature in C
-        if (!(ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0))
-            sprintf(msg_mtw, "TMP: %.1f", cnmea.mtw);
         
         // Heading
         if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
@@ -2787,11 +2789,6 @@ static int doWind(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-        }
-
-        if (!(ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
