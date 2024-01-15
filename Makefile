@@ -26,7 +26,7 @@ endif
 
 all: $(BIN)
 
-override CFLAGS+= -Wall -g -std=gnu99 
+override CFLAGS+= -Wall -g -std=gnu99 -D_REENTRANT
 
 $(BIN): $(SRCS) $(HDRS)
 	$(CC) $(SRCS) $(CFLAGS) $(EXTRA_CFLAGS) $(LDFLAGS) -o $(BIN)

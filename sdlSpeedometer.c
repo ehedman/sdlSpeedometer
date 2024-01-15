@@ -1094,7 +1094,8 @@ static int threadVnc(void *conf)
 - texture, rect: outputs.
 */
 inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char *text,
-        TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) {
+        TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) 
+{
     int text_width;
     int text_height;
     int f_width;
@@ -1651,7 +1652,6 @@ static int doCompass(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-
         SDL_RenderPresent(sdlApp->renderer);
 
         if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
@@ -1925,7 +1925,7 @@ static int doSumlog(sdl2_app *sdlApp)
         dynUpd = (1/fabsf(angle -t_angle))*200;
         dynUpd = dynUpd > 200? 200:dynUpd;
 
-        SDL_Delay(30+(int)dynUpd);  
+        SDL_Delay(30+(int)dynUpd);
 
         sdlApp->textFieldArrIndx--;
         do {
@@ -1948,7 +1948,7 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_CloseFont(fontSmall); 
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
-    TTF_CloseFont(fontTod);  
+    TTF_CloseFont(fontTod);
     IMG_Quit();
 
     return event.type;
@@ -2172,6 +2172,8 @@ static int doGps(sdl2_app *sdlApp)
         do {
             SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
         } while (sdlApp->textFieldArrIndx-- >0);
+
+        SDL_Delay(200);
     }
 
     if (subTaskbar != NULL) {
@@ -3245,7 +3247,7 @@ static int doWater(sdl2_app *sdlApp)
   
     FILE *tankFd;
     int tankIndx = 0;
-    int rval;
+    int rval = 1;
     char tBuff[40];
     struct stat statbuf;
     struct tm *info_t;
@@ -4095,7 +4097,7 @@ int main(int argc, char *argv[])
         SDL_setenv("SDL_VIDEODRIVER", "x11", 0);
         SDL_Log("Using X11 Videodriver");
 
-        pid_t pid0, pid1, pid2;
+        pid_t pid0, pid1=0, pid2;
         int status;
 
         if (configParams.useWm  == 1 && system("xprop -root|grep -q _NET_CLIENT_LIST >/dev/null 2>&1") != 0) {
@@ -4183,7 +4185,7 @@ int main(int argc, char *argv[])
                 }
             }
 
-            if (waitpid(pid1,&status,WNOHANG) != 0) {
+            if (pid1>0 && waitpid(pid1,&status,WNOHANG) != 0) {
                 kill(pid0, SIGINT);
                 sleep(1);
                 waitpid(pid0,&status,WNOHANG);
