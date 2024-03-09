@@ -30,7 +30,7 @@ trap doQuit EXIT
 
 if [ "$(basename "${app}")" == "openvt" ]; then
     shift
-    openvt -w -s "$@"
+    sudo openvt -c 3 -f -w -s "$@"
     exit 0
 fi
 

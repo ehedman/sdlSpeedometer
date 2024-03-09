@@ -90,14 +90,11 @@ enum sdlPages {
 };
 
 typedef struct {
-
-} textFields;
-
-typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
     char *fontPath;
     char *subAppsCmd[TSKPAGE][TSKPAGE];
+    char *subAppsIco[TSKPAGE][TSKPAGE];
     int nextPage;
     int curPage;
     int plotMode;

@@ -161,27 +161,27 @@ int  configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE subtasks (Id INTEGER PRIMARY KEY, task TEXT, args TEXT)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE subtasks (Id INTEGER PRIMARY KEY, task TEXT, args TEXT, icon TEXT)", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('opencpn','-fullscreen')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('opencpn','-fullscreen','opencpn')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('notyet','','')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('notyet','','')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('XyGrib','')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('XyGrib','','XyGrib')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('xterm','-geometry 132x20+0+0 -e sdlSpeedometer-config')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('xterm','-geometry 132x20+0+0 -e sdlSpeedometer-config','xterm')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,iocn) VALUES ('notyet','','')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args) VALUES ('notyet','')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('notyet','','')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -1444,7 +1444,7 @@ static int doCompass(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -1758,7 +1758,7 @@ static int doSumlog(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -1982,7 +1982,7 @@ static int doGps(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -2267,7 +2267,7 @@ static int doDepth(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -2643,7 +2643,7 @@ static int doWind(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -2896,7 +2896,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsCmd[sdlApp->curPage][0]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -3841,7 +3841,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 
-    //SDL_RaiseWindow(sdlApp->window);
+//    SDL_RaiseWindow(sdlApp->window);
 
     return 0;
 }
@@ -3862,13 +3862,13 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
         }
 
         int c = 1;
-        if ((rval=sqlite3_prepare_v2(configParams->conn, "select task,args from subtasks", -1, &res, &tail)) == SQLITE_OK)
+        if ((rval=sqlite3_prepare_v2(configParams->conn, "select task,args,icon from subtasks", -1, &res, &tail)) == SQLITE_OK)
         {
             while (sqlite3_step(res) != SQLITE_DONE) {  
 
                 strcpy((sdlApp->subAppsCmd[c][0]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 0));
                 strcpy((sdlApp->subAppsCmd[c][1]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 1));
-
+                strcpy((sdlApp->subAppsIco[c][2]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 2));
                 sprintf(subtask, "which %s", sdlApp->subAppsCmd[c][0]);
                 *buff = '\0';
                 if ((fd = popen(subtask, "r")) != NULL) {
