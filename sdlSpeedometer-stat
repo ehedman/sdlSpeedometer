@@ -2,7 +2,7 @@
 
 (
     tmpfile=/tmp/$(basename $0).tmp
-    if ! hciconfig | grep -q  DOWN; then
+    if ! systemctl status bluetooth.service | grep  "(dead)"; then
         bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\n"}')"
     fi
     ncores="$(grep processor /proc/cpuinfo | wc -l)"
