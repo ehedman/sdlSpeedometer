@@ -2,7 +2,7 @@
 [Unit]
 DefaultDependencies=no
 Description=Marine instrument application
-After=network-online.target wsocknmea.service xorg.service
+After=xorg.service
 
 [Service]
 Type=simple
