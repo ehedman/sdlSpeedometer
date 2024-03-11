@@ -1388,7 +1388,7 @@ static int threadWarn(void *conf)
     while(configParams->runWrn) {
 
         if (configParams->muted == 1) {
-            SDL_Delay(4000);
+            SDL_Delay(1000);
             continue;
         }
 
@@ -1399,15 +1399,17 @@ static int threadWarn(void *conf)
             SDL_Delay(2000);
         }
 
-        if (!(ct - cnmea.curr_ts > S_TIMEOUT) && cnmea.curr <= -warn.highcurrw ) { 
+        if (!(ct - cnmea.curr_ts > S_TIMEOUT) && cnmea.curr <= -warn.highcurrw && configParams->runWrn) { 
             playWarnSound("current-high.wav");
             SDL_Delay(2000);
         }
 
-        if (!(ct - cnmea.volt_ts > S_TIMEOUT) && cnmea.volt <= warn.lowvoltw ) { 
+        if (!(ct - cnmea.volt_ts > S_TIMEOUT) && cnmea.volt <= warn.lowvoltw && configParams->runWrn) { 
             playWarnSound("low-voltage.wav");
             SDL_Delay(2000);
-        } else SDL_Delay(4000);
+        }
+
+        if (configParams->runWrn) SDL_Delay(2000);
 
     }
 
@@ -3896,6 +3898,7 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
     int runners[4];
+    int t_wmax = 4;
     int status, i=0;
     char *args[20];
     char cmd[1024];
@@ -3919,8 +3922,16 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     runners[3] = configParams->runWrn;
     configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
 
-    while(configParams->numThreads)
-        SDL_Delay(100);
+    while(configParams->numThreads && t_wmax--) {
+        SDL_Delay(350*configParams->numThreads);
+        if (configParams->numThreads) {
+            SDL_Log("Taking down threads #%d remains", configParams->numThreads);
+        }
+    }
+
+    if (configParams->numThreads) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d remains.", configParams->numThreads);
+    }
 
     closeSDL2(sdlApp);
     
@@ -3955,7 +3966,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
 int main(int argc, char *argv[])
 {
-    int c;
+    int c, t_wmax = 4;
     configuration configParams;
     sdl2_app sdlApp;
     char buf[FILENAME_MAX];
@@ -4262,8 +4273,16 @@ int main(int argc, char *argv[])
     configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runWrn = 0;
 
     // .. and let them close cleanly
-    while(configParams.numThreads)
-        SDL_Delay(100);
+    while(configParams.numThreads && t_wmax--) {
+        SDL_Delay(1000);
+        if (configParams.numThreads) {
+            SDL_Log("Taking down threads #%d remains", configParams.numThreads);
+        }
+    }
+
+    if (configParams.numThreads) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d remains.", configParams.numThreads);
+    }
     
     closeSDL2(&sdlApp);
 
