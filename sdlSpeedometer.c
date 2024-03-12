@@ -1164,6 +1164,9 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
             sdlApp->conf->muted = !sdlApp->conf->muted;
             return 0;
     }
+
+    if (sdlApp->curPage != DPTPAGE)
+        sdlApp->plotMode = 1;
   
     if (y > 400  && y < 450)
     {
@@ -1171,8 +1174,10 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
             return COGPAGE;
         if (x > 490 && x < 540)
             return SOGPAGE;
-        if (x > 547 && x < 595)
+        if (x > 547 && x < 595) {
+            sdlApp->plotMode = !sdlApp->plotMode;
             return DPTPAGE;
+        }
         if (x > 605 && x < 652)
             return WNDPAGE;
         if (x > 662 && x < 708)
@@ -2334,14 +2339,6 @@ static int doDepth(sdl2_app *sdlApp)
 
             if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
             {
-#ifdef PLOTSDL
-                static time_t c;
-
-                if (time(NULL) > c+1) {
-                    c = time(NULL);
-                    sdlApp->plotMode = !sdlApp->plotMode;
-                }
-#endif
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
                     break;
