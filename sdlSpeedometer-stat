@@ -6,7 +6,7 @@
         bt="$(hciconfig hci0 | grep Type | awk -F: '{print $1 "\n"}')"
     fi
     ncores="$(grep processor /proc/cpuinfo | wc -l)"
-    osrel="$(awk -F= '/VERSION=/{ print "OS " $1 " " $2}' /etc/os-release)"
+    osrel="$(awk -F= '/VERSION=/{ print $1 " " $2}' /etc/os-release)"
     usage="$(df -h -x tmpfs /| awk /dev/'{printf "%s=%s Usage=%s", $1, $2, $5}')"
      
     while true; do
@@ -29,8 +29,9 @@
         echo -e "-----\n-----"
         echo "CPU temp"
         echo -n "$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C on"
-        echo "$(grep "model name" /proc/cpuinfo  | awk -F: 'NR==1{ print $2}') with ${ncores} cores"
-        echo "$(uptime -p | awk '{printf "Uptime\n" $0 " on "}') ${osrel}"
+        echo "$(grep "Model" /proc/cpuinfo | awk '{print " "$3" "$4" "$5}') with ${ncores} cores"
+        echo "$(uptime -p | awk '{printf "Uptime\n" $0 }')"
+        echo -e "OS\n${osrel}"
         echo -e "Disk usage\n ${usage}"
         sleep 3.4
         echo -e '\f'
