@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export GDK_DPI_SCALE=2.0
+
 (
     tmpfile=/tmp/$(basename $0).tmp
     if ! systemctl status bluetooth.service | grep  "(dead)"; then
@@ -19,7 +21,7 @@
         top -n 2 -b | egrep -v 'top|yad' | grep -A 4 PID | awk '{print $NF "\n" $9 "\t\t" $10}' | awk '/--/{x=NR+20;next}(NR<=x){print}' > "$tmpfile" &
         echo -e "-----\n-----"
         echo -e "Network I.F\nI.P Address:"
-        echo "$(ip -o addr show scope global | grep -v secondary | awk '{split($4, a, "/"); printf $2  "\n"a[1] "\t# Connected="}; system("iw dev "$2" station dump | grep Station | wc -l")')"
+        echo "$(ip -o addr show scope global | grep -E -v 'secondary|inet6' | awk '{split($4, a, "/"); printf $2  "\n"a[1] "\t# Connected="}; system("iw dev "$2" station dump | grep Station | wc -l")')"
         if [ -n "${bt}" ]; then
             echo -e "-----\n-----"
             echo -e "Bluetooth\nConnection"
