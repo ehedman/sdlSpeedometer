@@ -547,22 +547,20 @@ static int threadSerial(void *conf)
         }
 
         if (ct - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-
-            // HDT - Heading - True
-            if (NMPARSE(buffer, "HDT")) {
-                cnmea.hdm=atof(getf(1, buffer));
-                cnmea.hdm_ts = ct;
-                continue;
-            }
-
             // HDG - Heading - Deviation and Variation 
             if (NMPARSE(buffer, "HDG")) {
                 cnmea.hdm=atof(getf(1, buffer));
                 cnmea.hdm_ts = ct;
                 continue;
             }
+            // HDT - Heading - True (obsoleted)
+            if (NMPARSE(buffer, "HDT")) {
+                cnmea.hdm=atof(getf(1, buffer));
+                cnmea.hdm_ts = ct;
+                continue;
+            }
 
-            // HDM Heading - Heading Magnetic
+            // HDM Heading - Heading Magnetic (obsoleted)
             if (NMPARSE(buffer, "HDM")) {
                 cnmea.hdm=atof(getf(1, buffer));
                 cnmea.hdm_ts = ct;
@@ -886,6 +884,29 @@ static int nmeaNetCollector(void* conf)
                     }
                 }
 
+                if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
+                    // HDG - Heading - Deviation and Variation 
+                    if (NMPARSE(nmeastr_p1, "HDG")) {
+                        cnmea.hdm=atof(getf(1, nmeastr_p1));
+                        cnmea.hdm += atof(getf(4, nmeastr_p1));
+                        cnmea.hdm_ts = ts;
+                        continue;
+                    }
+                    // HDT - Heading - True (obsoleted)
+                    if (NMPARSE(nmeastr_p1, "HDT")) {
+                        cnmea.hdm=atof(getf(1, nmeastr_p1));
+                        cnmea.hdm_ts = ts;
+                        continue;
+                    }
+
+                    // HDM Heading - Heading Magnetic (obsoleted)
+                    if (NMPARSE(nmeastr_p1, "HDM")) {
+                        cnmea.hdm=atof(getf(1, nmeastr_p1));
+                        cnmea.hdm_ts = ts;
+                        continue;
+                    }
+                }
+ 
                 // VHW - Water speed
                 if(NMPARSE(nmeastr_p1, "VHW")) {
                     if ((cnmea.stw=atof(getf(5, nmeastr_p1))) != 0)
@@ -954,7 +975,7 @@ static int nmeaNetCollector(void* conf)
                         continue;
                     }
                 }
- 
+
                 // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
                 // "$P". These extended messages are not standardized. 
                 if (NMPARSE(nmeastr_p1, "ENV")) {
@@ -1329,6 +1350,22 @@ inline static float rotate(float angle, int res)
     return(rot);
 }
 
+inline static float rotate_a(float angle, int res)
+{
+    float nR = angle;
+    static float rot;
+    float aR;
+    if (res) rot = 0;
+
+    aR = fmod(rot, 360);
+    if ( aR < 0 ) { aR += 360; }
+    if ( aR < 180 && (nR > (aR + 180)) ) { rot -= 360; }
+    if ( aR >= 180 && (nR <= (aR - 180)) ) { rot += 360; }
+    rot += (nR - aR);
+
+    return(rot);
+}
+
 // Swap red and blue, since Xlib using BGR instead of RGB doRGBconv(sdlApp->conf->vncPixelBuffer);
 inline static void doRGBconv(sdl2_app *sdlApp)
 {
@@ -1429,7 +1466,7 @@ static int threadWarn(void *conf)
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect compassR, outerRingR, clinoMeterR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
+    SDL_Rect compassR, outerRingR, clinoMeterR, windDirR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -1438,6 +1475,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
     SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
+    SDL_Texture* windDir = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windDir.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -1497,17 +1535,27 @@ static int doCompass(sdl2_app *sdlApp)
     textBoxR.x = 470;
     textBoxR.y = 106;
 
+    windDirR.w = 240;
+    windDirR.h = 240;
+    windDirR.x = 120;
+    windDirR.y = 122;
+
     SDL_Rect textField_rect;
 
     float t_angle = 0;
     float angle = 0;
+    float t_angle_a = 0;
+    float angle_a = 0;
     float t_roll = 0;
     float roll = 0;
     int res = 1;
+    int res_a = 1;
     int boxItems[] = {120,170,220,270};
 
     int toggle = 1;
     float dynUpd;
+
+    const float offset = 131; // For scale
 
     while (1) {
         int boxItem = 0;
@@ -1592,13 +1640,26 @@ static int doCompass(sdl2_app *sdlApp)
         if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
         else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        angle_a = cnmea.vwra; // 0-180
 
+        if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
+        angle_a += offset;
+
+        t_angle_a = rotate_a(angle_a, res_a); res_a=0;
+
+        // Run needle with smooth acceleration
+//        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
+//        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
         SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
         
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
             SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
+
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
+            SDL_RenderCopyEx(sdlApp->renderer, windDir, NULL, &windDirR, t_angle_a, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(sdlApp->renderer, 226, 180, 3, msg_src, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -1630,7 +1691,7 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -1690,6 +1751,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(compassRose);
     SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(clinoMeter);
+    SDL_DestroyTexture(windDir);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(muteBar);
@@ -1887,7 +1949,7 @@ static int doSumlog(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
          if (stw) {
@@ -2138,7 +2200,7 @@ static int doGps(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -2443,7 +2505,7 @@ static int doDepth(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -2796,7 +2858,7 @@ static int doWind(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect); 
 
         if (subTaskbar != NULL) {
@@ -3128,7 +3190,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSmall);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (cnmea.startTime)
@@ -3410,7 +3472,7 @@ static int doWater(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 650, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (sdlApp->conf->netStat == 1) {
