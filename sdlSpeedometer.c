@@ -1186,6 +1186,12 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
             return 0;
     }
 
+    if (event->user.code != 1 /* not for RFB */) {;
+        if (sdlApp->curPage == COGPAGE && sdlApp->conf->i2cFile != 0 && y > 60  && y < 85 && x > 10 && x < 40) {
+            return CALPAGE;
+        }
+    }
+
     if (sdlApp->curPage != DPTPAGE)
         sdlApp->plotMode = 1;
   
@@ -1204,15 +1210,12 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
         if (x > 662 && x < 708)
            return GPSPAGE;
         if (x > 718 && x < 765) {
-            if (sdlApp->curPage == COGPAGE && sdlApp->conf->i2cFile != 0 && event->user.code != 1 /* not for RFB */)
-                return CALPAGE;
-            else  {
 #ifdef DIGIFLOW
-                if (sdlApp->curPage == PWRPAGE)
-                    return WTRPAGE;
+        if (sdlApp->curPage == PWRPAGE)
+            return WTRPAGE;
 #endif
-                return PWRPAGE;
-            }
+         return PWRPAGE;
+
         }
         if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
             if (x > 30 && x < 80)
@@ -1253,7 +1256,7 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
         } 
 #endif
     } else {
-        get_text_and_rect(sdlApp->renderer, 726, 416, 0, sdlApp->curPage == COGPAGE? "CAL" : "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
+        get_text_and_rect(sdlApp->renderer, 726, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE) {
             get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
@@ -1466,7 +1469,7 @@ static int threadWarn(void *conf)
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event event;
-    SDL_Rect compassR, outerRingR, clinoMeterR, windDirR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
+    SDL_Rect compassR, outerRingR, clinoMeterR, windDirR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, calbarR, textBoxR;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -1480,6 +1483,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
@@ -1529,6 +1533,11 @@ static int doCompass(sdl2_app *sdlApp)
     mutebarR.h = unmutebarR.h = 25;
     mutebarR.x = unmutebarR.x = 70;
     mutebarR.y = unmutebarR.y = 20;
+
+    calbarR.w = 25;
+    calbarR.h = 25;
+    calbarR.x = 20;
+    calbarR.y = 60;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -1712,6 +1721,10 @@ static int doCompass(sdl2_app *sdlApp)
             }
         }
 
+        if (sdlApp->conf->i2cFile != 0) {
+            SDL_RenderCopyEx(sdlApp->renderer, calBar, NULL, &calbarR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
@@ -1756,6 +1769,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
+    SDL_DestroyTexture(calBar);
     SDL_DestroyTexture(textBox);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
@@ -2716,6 +2730,7 @@ static int doWind(sdl2_app *sdlApp)
     float angle_a = 0;
     float angle_t = 0;
     int res = 1;
+    int res_a = 1;
 
     int toggle = 1;
 
@@ -2808,7 +2823,7 @@ static int doWind(sdl2_app *sdlApp)
 
         angle_t += offset;  
 
-        angle_t = rotate(angle_t, res); res=0;
+        angle_t = rotate_a(angle_t, res_a); res_a=0;
         
         // Run needle with smooth acceleration
         if (angle_t > t_angle_t) t_angle_t += 3.2 * (fabsf(angle_t -t_angle_t) / 24) ;
