@@ -175,7 +175,7 @@ int  configureDb(configuration *configParams)
                     sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('XyGrib','','XyGrib')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('xterm','-geometry 132x20+0+0 -e sdlSpeedometer-config','xterm')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-stat','','sdlSpeedometer-stat')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
                     sprintf(buf, "INSERT INTO subtasks (task,args,iocn) VALUES ('notyet','','')");

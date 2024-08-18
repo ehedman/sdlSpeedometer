@@ -42,18 +42,27 @@ export GDK_DPI_SCALE=2.0
              --borders=8 \
              --image="emblem-system" \
              --list \
+             --fullscreen \
              --column="PRPOERTY":text \
              --column="VALUE":text \
-             --button="REBOOT":1 \
-             --button="HALT":2 \
-             --button="QUIT":0 \
-             --fullscreen
+             --button="CONFIG":1 \
+             --button="REBOOT":2 \
+             --button="HALT":3 \
+             --button="QUIT":0
 
 case $? in
     1)
-        sudo reboot
+        dims=$(xdpyinfo | grep dimensions: | awk '{print $2}')
+        xrandr --size 800x480
+        xterm -geometry 132x24+0+0 -fn lucidasanstypewriter-bold-8 -e sdlSpeedometer-config
+        xrandr --size "${dims}"
+        sudo systemctl restart sdlSpeedometer
+        exit 0
     ;;
     2)
+        sudo reboot
+    ;;
+    3)
         sudo halt
     ;;
     *)
