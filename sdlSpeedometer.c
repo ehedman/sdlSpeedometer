@@ -4201,6 +4201,23 @@ int main(int argc, char *argv[])
                 _exit(0);
             }
 
+            sprintf(buf, "/usr/local/share/images/splash-%dx%d.png", configParams.window_w, configParams.window_h);
+            if (stat(buf, &stats) == 0) {
+
+                pid2 = fork();
+
+                if (pid2 == 0 ) {
+                    // Start the splashscreen
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
+                    char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", buf, NULL };
+                    execvp(args[0], args);
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
+                    _exit(0);
+                }
+            } else {
+                SDL_Log("Splash file \"%s not found\"\n", buf);
+            }
+
             sleep(1);
 
             if (waitpid(pid0,&status,WNOHANG) == 0) {
@@ -4254,21 +4271,6 @@ int main(int argc, char *argv[])
             }
 
             sleep(2);
-
-            sprintf(buf, "/usr/local/share/images/splash-%dx%d.png", configParams.window_w, configParams.window_h);
-            if (stat(buf, &stats) == 0) {
-
-                pid2 = fork();
-
-                if (pid2 == 0 ) {
-                    // Start the splashscreen
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
-                    char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", buf, NULL };
-                    execvp(args[0], args);
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
-                    _exit(0);
-                }
-            }
 
             if (pid1>0 && waitpid(pid1,&status,WNOHANG) != 0) {
                 kill(pid0, SIGINT);
