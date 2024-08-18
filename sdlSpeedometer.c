@@ -3449,7 +3449,7 @@ static int doWater(sdl2_app *sdlApp)
             sprintf(msg_tds, "TDS:  %d", cnmea.tds);
             float vleft = floor((((cnmea.tank-cnmea.tvol)/cnmea.tank)*100)+0.5);
             sprintf(msg_cns, "LEFT: %.0f%c", vleft, '%');
-            sprintf(msg_gtv, "GTVL: %.0f", cnmea.tank-cnmea.gvol);
+            sprintf(msg_gtv, "GTVL: %.0f", cnmea.gvol); 
             sprintf(msg_use, "USED: %.0f", cnmea.tvol);
         }
         
