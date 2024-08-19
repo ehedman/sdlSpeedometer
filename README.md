@@ -1,5 +1,5 @@
 # sdlSpeedometer
-README Dec-2023
+README Aug-2024
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
@@ -65,7 +65,7 @@ The SDL2 packages needed are:
 - sudo apt install xterm onboard xloadimage wmctrl
 
 ### Optional application dependencies for improved user experiences for subtasks.
-- sudo apt install devilspie2 xfwm4 yad
+- sudo apt install devilspie2 xfwm4 yad xdotool
 
 ### External applications to be launched from sdlSpeedometer
 - sudo apt install XyGrib

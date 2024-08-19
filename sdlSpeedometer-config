@@ -449,16 +449,18 @@ do_config_menu() {
     "5 NMEA Network" "Enter NMEA-0183 server name" \
     "6 NMEA Net port" "Enter NMEA-0183 server port" \
     "7 VNC Server port" "Enter VNC server port" \
-    "8 Application 1" "Enter External Application for page SOG" \
-    "9 Application 2" "Enter External Application for page DPT" \
-    "10 Application 3" "Enter External Application for page GPS" \
-    "11 Application 4" "Enter External Application for page PWR" \
-    "12 Compass offset" "Enter manual compass offset" \
-    "13 Compass roll offset" "Enter manual compass roll offset" \
-    "14 Depth warning" "Enter the audible depth level warning" \
-    "15 Voltage warning" "Enter the audible low voltage level warning" \
-    "16 Current warning" "Enter the audible high current level warning" \
-    "17 Configuration" "Run raspi-config" \
+    "8 Application  1" "Enter External Application for page COG" \
+    "9 Application  2" "Enter External Application for page SOG" \
+    "10 Application 3" "Enter External Application for page DPT" \
+    "11 Application 4" "Enter External Application for page WND" \
+    "12 Application 5" "Enter External Application for page GPS" \
+    "13 Application 6" "Enter External Application for page PWR" \
+    "14 Compass offset" "Enter manual compass offset" \
+    "15 Compass roll offset" "Enter manual compass roll offset" \
+    "16 Depth warning" "Enter the audible depth level warning" \
+    "17 Voltage warning" "Enter the audible low voltage level warning" \
+    "18 Current warning" "Enter the audible high current level warning" \
+    "19 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -472,16 +474,18 @@ do_config_menu() {
       5\ *) do_set_nmea_server ;;
       6\ *) do_set_nmea_port ;;
       7\ *) do_set_vnc_port ;;
-      8\ *) do_set_external_app 2 ;;
-      9\ *) do_set_external_app 3 ;;
-      10\ *) do_set_external_app 5 ;;
-      11\ *) do_set_external_app 7 ;;
-      12\ *) do_set_compass_offset ;;
-      13\ *) do_set_compass_roll_offset ;;
-      14\ *) do_set_depth_warning ;;
-      15\ *) do_set_voltage_warning ;;
-      16\ *) do_set_current_warning ;;
-      17\ *) do_raspi_config ;;
+      8\ *) do_set_external_app 1 ;;
+      9\ *) do_set_external_app 2 ;;
+      10\ *) do_set_external_app 3 ;;
+      11\ *) do_set_external_app 4 ;;
+      12\ *) do_set_external_app 5 ;;
+      13\ *) do_set_external_app 7 ;;
+      14\ *) do_set_compass_offset ;;
+      15\ *) do_set_compass_roll_offset ;;
+      16\ *) do_set_depth_warning ;;
+      17\ *) do_set_voltage_warning ;;
+      18\ *) do_set_current_warning ;;
+      19\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi
