@@ -1,0 +1,13 @@
+#!/bin/bash
+
+function sendKey
+{
+    sleep 2
+    xdotool getactivewindow key Ctrl+h
+}
+
+sendKey &
+
+vlc -f --no-audio $1 &>/dev/null || true
+
+exit 0
