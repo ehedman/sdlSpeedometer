@@ -1410,7 +1410,7 @@ static void playWarnSound(char *wavFile)
     // play audio
     if (SDL_QueueAudio(deviceId, wavBuffer, wavLength) == 0) {
         SDL_PauseAudioDevice(deviceId, 0);
-        SDL_Delay(1200);
+        SDL_Delay(2200);
     }
 
     // Clean up
@@ -1441,7 +1441,7 @@ static int threadWarn(void *conf)
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw) {
             playWarnSound("shallow-water.wav");
-            SDL_Delay(2000);
+            SDL_Delay(3000);
         }
 
         if (!(ct - cnmea.curr_ts > S_TIMEOUT) && cnmea.curr <= -warn.highcurrw && configParams->runWrn) { 
