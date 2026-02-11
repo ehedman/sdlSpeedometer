@@ -1,12 +1,12 @@
 # sdlSpeedometer
-README Aug-2024
+README Feb-2026
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
 
 This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
 
-For the Raspberry Pi 4B with OS bookworm the wayland video can is used, though some features will not be available by not using X.
+For the Raspberry Pi 4B/5 with OS bookworm/trixie the wayland video can is used, though some features will not be available by not using X.
 
 For the best user experience with all features enabled, a clean x11 configuration is recommended since many graphical subtasks also have this dependency.
 
@@ -19,7 +19,7 @@ The communication mechanism between this application with its GUI and data sourc
 
 This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if it has its own battery backup.
 
-Currently there are eight virtual instrument working (data source within brackets):
+Currently there are nine virtual instrument working (data source within brackets):
 
     Compass       : With heading and roll (BerryGPS-IMUv2) and/or heading from NMEA-net
     GPS           : Lo, Lat and Heading (BerryGPS-IMUv2) and/or heading from NMEA-net
@@ -28,6 +28,7 @@ Currently there are eight virtual instrument working (data source within bracket
     Depth         : With low water warning and water temp (NMEA-net)
     Environment   : Page with Voltage, Current, Temp and Power plotting (proprietary NMEA net "$P" sentences)
     Water         : Page with fresh water tank status and TDS quality (Requires https://github.com/ehedman/flowSensor)
+    Victron Venus : Victron Venus sub-system (Requires https://github.com/ehedman/victron-venus-container)
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 
@@ -40,7 +41,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### Tested runtime environment
 - Note this this is mainly an EMBEDDED solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
-- Raspberry Pi 3B+ and 4B and a 7 inch touch display.
+- Raspberry Pi 3B+/5 and 4B and a 7 inch touch display.
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 - This application will also work flawlessly under Windows WSL (Windows Subsystem for Linux).
 
@@ -74,7 +75,7 @@ The SDL2 packages needed are:
 - Use sdlSpeedometer-config to add these applications and also add sdlSpeedometer-stat (included) to show system status.
 
 ### Software used
-- [Raspberry Pi OS Lite bullseye or bookworm](https://www.raspberrypi.com/software/operating-systems/)
+- Raspberry Pi OS Lite bookworm and trixie
 
 ### Build and install on a Pi
 - make
@@ -98,13 +99,6 @@ The SDL2 packages needed are:
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)
 - [BerryGPS setup Guide for Raspberry Pi](http://ozzmaker.com/berrygps-setup-guide-raspberry-pi)
 - [Create a Digital Compass with the Raspberry Pi](http://ozzmaker.com/compass1)
-
-### Embedded display settings
-This is an example to set up a 7 inch HDMI display by adding these lines into /boot/config.txt on a Bullseye linux:<br>
-hdmi_cvt=800 480 60 6<br>
-hdmi_group=2<br>
-hdmi_mode=87<br>
-hdmi_drive=2<br>
 
 For bookworm add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and this sample file to /usr/share/X11/xorg.conf.d/Xorg.conf
 
