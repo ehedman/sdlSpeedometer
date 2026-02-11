@@ -17,7 +17,7 @@ ifeq ($(shell test -e $(GETC) && echo -n yes),yes)
 CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
 endif
 
-LDFLAGS+=-lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
+LDFLAGS+=-lX11 -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
 
 ifeq ($(shell test -e /usr/local/include/plotsdl/plot.h && echo -n yes),yes)
 CFLAGS+=-DPLOTSDL

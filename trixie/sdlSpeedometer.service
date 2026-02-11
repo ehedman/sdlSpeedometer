@@ -1,0 +1,19 @@
+# Systemd resource file
+[Unit]
+DefaultDependencies=no
+Description=Marine instrument application
+After=xorg.service dbus.service
+
+[Service]
+Type=simple
+Requires=dbus.service
+EnvironmentFile=/etc/default/sdlSpeedometer
+ExecStartPre=-/bin/sh -c '/usr/bin/dbus-run-session openbox-session &'
+ExecStart=/usr/bin/dbus-run-session /usr/local/bin/sdlSpeedometer $ARGS
+RemainAfterExit=no
+Restart=always
+RestartSec=1s
+User=erland
+
+[Install]
+WantedBy=sysinit.target

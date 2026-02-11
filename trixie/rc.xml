@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <!-- general settings go here -->
+
+  <applications>
+    <application class="sdlSpeedometer">
+      <decor>no</decor>
+      <position force="yes">
+        <x>0</x>
+        <y>0</y>
+      </position>
+      <size>
+        <width>800</width>
+        <height>480</height>
+      </size>
+    </application>
+
+    <application class="Opencpn">
+      <decor>no</decor>
+      <position force="yes">
+        <x>0</x>
+        <y>0</y>
+      </position>
+      <size>
+        <width>800</width>
+        <height>480</height>
+      </size>
+    </application>
+
+  </applications>
+
+</openbox_config>

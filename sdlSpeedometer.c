@@ -20,6 +20,8 @@
  *   http://blog.shahada.abubakar.net/post/hardware-accelerated-sdl-2-on-raspberry-pi
  *
  */
+#include <X11/Xlib.h>
+#include <SDL2/SDL_syswm.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
@@ -36,6 +38,7 @@
 #include <time.h>
 #include <syslog.h>
 #include <errno.h>
+
 
 #include "sdlSpeedometer.h"
 
@@ -163,7 +166,7 @@ int  configureDb(configuration *configParams)
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE subtasks (Id INTEGER PRIMARY KEY, task TEXT, args TEXT, icon TEXT)", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('opencpn','-fullscreen','opencpn')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('opencpn','-f','opencpn')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
                     sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('notyet','','')");
@@ -1330,7 +1333,7 @@ static void setUTCtime(void)
                     SDL_Log("Got system time from GPS: %s", buf);
             }
         } else { // Could happen if historical data is replayed in the system
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS as time is moving backwards %ld seconds!", sys_rawtime-rawtime);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS as time is moving backwards %lld seconds!", sys_rawtime-rawtime);
         }
     }
     unsetenv("TZ"); // Restore whatever zone we are in
@@ -1592,6 +1595,11 @@ static int doCompass(sdl2_app *sdlApp)
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
+                    if (event.type == TSKPAGE) {
+                        SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
+                        SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+                        SDL_RenderPresent(sdlApp->renderer);
+                    }
                     break;
                 }
             }
@@ -1885,6 +1893,11 @@ static int doSumlog(sdl2_app *sdlApp)
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
+                    if (event.type == TSKPAGE) {
+                        SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
+                        SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+                        SDL_RenderPresent(sdlApp->renderer);
+                    }
                     break;
                 }
             }
@@ -2131,6 +2144,11 @@ static int doGps(sdl2_app *sdlApp)
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
+                    if (event.type == TSKPAGE) {
+                        SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
+                        SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+                        SDL_RenderPresent(sdlApp->renderer);
+                    }
                     break;
                 }
             }
@@ -2417,6 +2435,11 @@ static int doDepth(sdl2_app *sdlApp)
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
+                    if (event.type == TSKPAGE) {
+                        SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
+                        SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+                        SDL_RenderPresent(sdlApp->renderer);
+                    }
                     break;
                 }
             }
@@ -2763,6 +2786,11 @@ static int doWind(sdl2_app *sdlApp)
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
+                    if (event.type == TSKPAGE) {
+                        SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
+                        SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+                        SDL_RenderPresent(sdlApp->renderer);
+                    }
                     break;
                 }
             }
@@ -3102,6 +3130,11 @@ static int doEnvironment(sdl2_app *sdlApp)
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
+                    if (event.type == TSKPAGE) {
+                        SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
+                        SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
+                        SDL_RenderPresent(sdlApp->renderer);
+                    }
                     break;
                 }
             }
@@ -3814,6 +3847,17 @@ static void closeSDL2(sdl2_app *sdlApp)
     SDL_Quit();
 }
 
+void force_raise(SDL_Window *window) {
+    SDL_SysWMinfo info;
+    SDL_VERSION(&info.version);
+    if (SDL_GetWindowWMInfo(window, &info)) {
+        Display *dpy = info.info.x11.display;
+        Window win = info.info.x11.window;
+        XRaiseWindow(dpy, win);
+        XFlush(dpy);
+    }
+}
+
 static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
 {
     SDL_Surface* Loading_Surf;
@@ -3917,7 +3961,9 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 
+    force_raise(sdlApp->window);
 //    SDL_RaiseWindow(sdlApp->window);
+//    SDL_SetWindowAlwaysOnTop(sdlApp->window, SDL_TRUE);
 
     return 0;
 }
@@ -4053,6 +4099,8 @@ int main(int argc, char *argv[])
     sdlApp.conf = &configParams;
 
     sdlApp.fontPath = DEFAULT_FONT;
+
+ system("echo $DBUS_SESSION_BUS_ADDRESS");
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
@@ -4199,26 +4247,7 @@ int main(int argc, char *argv[])
                 execvp(args[0], args);
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
                 _exit(0);
-            }
-
-            sprintf(buf, "/usr/local/share/images/splash-%dx%d.png", configParams.window_w, configParams.window_h);
-            if (stat(buf, &stats) == 0) {
-
-                pid2 = fork();
-
-                if (pid2 == 0 ) {
-                    // Start the splashscreen
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
-                    char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", buf, NULL };
-                    execvp(args[0], args);
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
-                    _exit(0);
-                }
-            } else {
-                SDL_Log("Splash file \"%s not found\"\n", buf);
-            }
-
-            sleep(1);
+            }           
 
             if (waitpid(pid0,&status,WNOHANG) == 0) {
 
@@ -4285,6 +4314,23 @@ int main(int argc, char *argv[])
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "A window manager is already running. The -w option is disabled.");
                 configParams.useWm = 0;
             }
+        }
+
+        sprintf(buf, "/usr/local/share/images/splash-%dx%d.png", configParams.window_w, configParams.window_h);
+        if (stat(buf, &stats) == 0) {
+
+            pid2 = fork();
+
+            if (pid2 == 0 ) {
+                // Start the splashscreen
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
+                char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", buf, NULL };
+                execvp(args[0], args);
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
+                _exit(0);
+            }
+        } else {
+            SDL_Log("Splash file \"%s not found\"\n", buf);
         }
 
     } else { 
