@@ -30,6 +30,7 @@ trap doQuit EXIT
 
 if [ "$(basename "${app}")" == "openvt" ]; then
     shift
+    unset DISPLAY
     sudo -E openvt -c 3 -f -w -s "$@"
     exit 0
 fi
