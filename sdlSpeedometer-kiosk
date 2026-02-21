@@ -1,7 +1,17 @@
 #!/bin/bash
-eth=$(ifconfig eth0 | grep netmask | awk '{printf $2}')
-# This example requires that websocketNmea is running on the desired host I.P eth.
+ip=$(ifconfig eth0 | grep netmask | awk '{printf $2}')
+port=$(cat $(ps -ef | grep lighttpd | awk '/conf/{print $NF}') | awk '/server.port/{print $NF; exit}')
+# This example requires that websocketNmea is running on the desired host I.P eth0.
 # See: https://github.com/ehedman/websocketNmea
-#/usr/bin/chromium-browser --noerrdialogs --disable-infobars --kiosk --force-device-scale-factor=1.2 http://"${eth}"/navi/npanel.php?bar=1  &>/dev/null
-# /usr/bin/chromium --no-sandbox --password-store=basic --noerrdialogs --disable-infobars --kiosk --force-device-scale-factor=0.5 http://"${eth}":83/navi/npanel.php?compact=1 &>/dev/null
-/usr/bin/chromium --no-sandbox --password-store=basic --noerrdialogs --disable-infobars --kiosk --force-device-scale-factor=0.5 http://"${eth}":83/navi/npanel.php?compact=1 --use-gl=egl --enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist  &>/dev/null
+
+/usr/bin/chromium \
+  --no-sandbox \
+  --password-store=basic \
+  --noerrdialogs \
+  --disable-infobars \
+  --kiosk \
+  --force-device-scale-factor=0.5 \
+  --use-gl=egl \
+  --use-angle=default \
+  --enable-gpu-rasterization \
+  http://"${ip}":"${port}"/navi/npanel.php?compact=1
