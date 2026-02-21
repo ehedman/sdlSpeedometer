@@ -40,6 +40,7 @@ install:
 	sudo install -m 0755 -g root -o root sdlSpeedometer-reset -D $(DEST)/bin/sdlSpeedometer-reset
 	sudo install -m 0755 -g root -o root sdlSpeedometer-stat -D $(DEST)/bin/sdlSpeedometer-stat
 	sudo install -m 0755 -g root -o root sdlSpeedometer-kiosk -D $(DEST)/bin/sdlSpeedometer-kiosk
+	sudo install -m 0755 -g root -o root sdlSpeedometer-gui-v2 -D $(DEST)/bin/sdlSpeedometer-gui-v2
 	sudo install -m 0755 -g root -o root sdlSpeedometer-camera -D $(DEST)/bin/sdlSpeedometer-camera
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
