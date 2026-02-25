@@ -12,6 +12,7 @@ exec /usr/bin/cage --  /usr/bin/chromium \
   --disable-sync \
   --disable-features=TranslateUI \
   --no-sandbox \
+  --user-data-dir=/tmp/.config/chromium \
   --kiosk \
   http://"${ip}":"${port}"/navi/victron-gui-v2.php &>/dev/null
 
