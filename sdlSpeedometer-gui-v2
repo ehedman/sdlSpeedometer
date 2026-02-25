@@ -4,6 +4,9 @@ port=80
 # This example requires that vicron venus is running on the desired host I.P eth0.
 # See: https://github.com/ehedman/victron-venus-container
 
+mkdir -p /tmp/.config/chromium
+touch /tmp/.config/chromium/'First Run'
+
 exec /usr/bin/cage --  /usr/bin/chromium \
   --ozone-platform=wayland \
   --in-process-gpu \
@@ -14,5 +17,13 @@ exec /usr/bin/cage --  /usr/bin/chromium \
   --no-sandbox \
   --user-data-dir=/tmp/.config/chromium \
   --kiosk \
+  --disk-cache-size=0 \
+  --disable-extensions \
+  --disable-component-extensions-with-background-pages \
+  --disable-plugins \
+  --disable-plugins-discovery \
+  --disable-translate \
+  --incognito \
+  --single-process \
   http://"${ip}":"${port}"/navi/victron-gui-v2.php &>/dev/null
 
