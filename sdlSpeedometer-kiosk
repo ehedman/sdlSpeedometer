@@ -4,14 +4,32 @@ port=$(cat $(ps -ef | grep lighttpd | awk '/conf/{print $NF}') | awk '/server.po
 # This example requires that websocketNmea is running on the desired host I.P eth0.
 # See: https://github.com/ehedman/websocketNmea
 
-/usr/bin/chromium \
-  --no-sandbox \
+# Temporary profile directory
+PROFILE=/tmp/chromium-profile/$(id -u)
+
+# Remove previous profile and create new skeleton
+rm -rf "$PROFILE"
+mkdir -p "$PROFILE/Default"
+
+# Pre-seed Preferences to disable translation
+cat > "$PROFILE/Default/Preferences" <<EOF
+{
+  "translate": { "enabled": false }
+}
+EOF
+
+# Launch Chromium in kiosk
+exec /usr/bin/chromium \
+  --kiosk \
+  --no-first-run \
   --password-store=basic \
+  --disable-translate \
+  --disable-features=TranslateUI \
+  --lang=en-US \
+  --user-data-dir="$PROFILE" \
   --noerrdialogs \
   --disable-infobars \
-  --kiosk \
   --force-device-scale-factor=0.5 \
   --use-gl=egl \
-  --use-angle=default \
   --enable-gpu-rasterization \
-  http://"${ip}":"${port}"/navi/npanel.php?compact=1
+  http://${ip}:${port}/navi/npanel.php?compact=1

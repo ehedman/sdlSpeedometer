@@ -4,9 +4,14 @@ port=80
 # This example requires that vicron venus is running on the desired host I.P eth0.
 # See: https://github.com/ehedman/victron-venus-container
 
-mkdir -p /tmp/.config/chromium
-touch /tmp/.config/chromium/'First Run'
+# Temporary profile directory
+PROFILE=/tmp/chromium-profile/$(id -u)
 
+# Remove previous profile and create new skeleton
+rm -rf "$PROFILE"
+mkdir -p "$PROFILE/Default"
+
+# Launch Chromium in Cage kiosk
 exec /usr/bin/cage --  /usr/bin/chromium \
   --ozone-platform=wayland \
   --in-process-gpu \
@@ -15,8 +20,9 @@ exec /usr/bin/cage --  /usr/bin/chromium \
   --disable-sync \
   --disable-features=TranslateUI \
   --no-sandbox \
-  --user-data-dir=/tmp/.config/chromium \
+  --no-first-run \
   --kiosk \
+  --user-data-dir="$PROFILE" \
   --disk-cache-size=0 \
   --disable-extensions \
   --disable-component-extensions-with-background-pages \
