@@ -1,15 +1,17 @@
 #!/bin/bash
 ip=$(ifconfig eth0 | grep netmask | awk '{printf $2}')
 port=80
-# This example requires that websocketNmea is running on the desired host I.P eth0.
-# See: https://github.com/ehedman/websocketNmea
+# This example requires that vicron venus is running on the desired host I.P eth0.
+# See: https://github.com/ehedman/victron-venus-container
 
-
-/usr/bin/chromium \
+exec /usr/bin/cage --  /usr/bin/chromium \
+  --ozone-platform=wayland \
+  --in-process-gpu \
+  --enable-gpu-rasterization \
+  --disable-background-networking \
+  --disable-sync \
+  --disable-features=TranslateUI \
   --no-sandbox \
-  --password-store=basic \
-  --noerrdialogs \
-  --disable-infobars \
   --kiosk \
-  http://"${ip}":"${port}"/navi/victron-gui-v2.php
+  http://"${ip}":"${port}"/navi/victron-gui-v2.php &>/dev/null
 
