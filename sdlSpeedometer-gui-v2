@@ -12,8 +12,7 @@ rm -rf "$PROFILE"
 mkdir -p "$PROFILE/Default"
 
 # Launch Chromium in Cage kiosk
-exec /usr/bin/cage --  /usr/bin/chromium \
-  --ozone-platform=wayland \
+/usr/bin/chromium \
   --in-process-gpu \
   --enable-gpu-rasterization \
   --disable-background-networking \
@@ -31,5 +30,5 @@ exec /usr/bin/cage --  /usr/bin/chromium \
   --disable-translate \
   --incognito \
   --single-process \
-  http://"${ip}":"${port}"/navi/victron-gui-v2.php &>/dev/null
+  http://"${ip}":"${port}"/navi/victron-gui-v2.php &>/tmp/junk
 

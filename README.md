@@ -6,9 +6,9 @@ The look and feel of the visualized instruments tries to mimic the look of real 
 
 This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
 
-For the Raspberry Pi 4B/5 with OS bookworm/trixie the wayland video can is used, though some features will not be available by not using X.
+Used systems re Raspberry Pi 4B/5 with OS bookworm/trixie.
 
-For the best user experience with all features enabled, a clean x11 configuration is recommended since many graphical subtasks also have this dependency.
+As of February 2026 the Xorg environment is deprecated in favor of a weston kiosk environment i.e. a wayland solution with xwayland=true.
 
 The instruments can be accessed one-by-one by a mouse click or directly from the touch screen menu.
 
@@ -43,12 +43,15 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - Note this this is mainly an EMBEDDED solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
 - Raspberry Pi 3B+/5 and 4B and a 7 inch touch display.
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
+- Optionaly a NMEA2K (Raymarine seatalk ng) USB to NMEA-0183 converter can be added.
 - This application will also work flawlessly under Windows WSL (Windows Subsystem for Linux).
 
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite to start with
 - sudo apt install whiptail gcc git make
-- sudo apt install xorg (not on a workstation)
+
+### System Software prerequisites for Xorg (deprecated)
+- sudo apt install xorg wmctrl xloadimage (not on a workstation)
 
 ### SDL2 Software prerequisites
 The SDL2 packages needed are:
@@ -63,7 +66,7 @@ The SDL2 packages needed are:
 - Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### Application dependencies for running external applications from sdlSpeedometer
-- sudo apt install xterm onboard xloadimage wmctrl cage
+- sudo apt install xterm onboard
 
 ### Optional application dependencies for improved user experiences for subtasks.
 - sudo apt install devilspie2 xfwm4 yad xdotool
@@ -78,29 +81,37 @@ The SDL2 packages needed are:
 - Raspberry Pi OS Lite bookworm and trixie
 
 ### Build and install on a Pi
-- make
+- make install (build and install executables)
+- make install_system (build and start the system services)
+
+### Rebuild and test new confifuration
+- sudo systemctl stop sdlSpeedometer.service
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
-- ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat)
+- DISPLAY=:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston service must be running.
 - make install
-- make install_x
-- systemclt start sdlSpeedometer.service (will be enabled at boot time) or make start
+- systemclt restart sdlSpeedometer.service (will be enabled at boot time) or make start
 
 ### Build and test on the host (Mint, Ubuntu, Debian)
 - make
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
 - ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat)
 
+### Utility commands
+- make stop (stop the service)
+- make status (check the service)
+- make start ((re)start a new session)
+
 ### Enable audible warnings
 - Set preferences with sdlSPeedometer-config
-- Start sdlSpeedometer with "SDL_AUDIODRIVER=alsa ./sdlSpeedometer -p" and possible -i -g as well
-- Eventually set these preferences in /etc/default/sdlSpeedometer after "make install_x" has been executed on a Pi
+- Start sdlSpeedometer with "SDL_AUDIODRIVER=alsa AUDIODEV=hw:2,0 ./sdlSpeedometer -p" and possible -i -g as well
+- Eventually set these preferences in /etc/default/sdlSpeedometer after "make install" has been executed on a Pi
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)
 - [BerryGPS setup Guide for Raspberry Pi](http://ozzmaker.com/berrygps-setup-guide-raspberry-pi)
 - [Create a Digital Compass with the Raspberry Pi](http://ozzmaker.com/compass1)
 
-For bookworm add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and this sample file to /usr/share/X11/xorg.conf.d/Xorg.conf
+For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and this sample file to /usr/share/X11/xorg.conf.d/Xorg.conf
 
     Section "Device"
         Identifier "Card0"

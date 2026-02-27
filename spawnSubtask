@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Start a single session X-or an openvt bound application
+# Start a single session weston(xwayland) -or an openvt bound application
 
 PATH=$PATH:$(pwd)
 export PATH
@@ -14,10 +14,6 @@ if [ -z "${app}" ]; then
 fi
 
 function doQuit() {
-
-    if [ -n "${XPID}" ]; then
-        kill -INT "${XPID}" &>/dev/null
-    fi
 
     if [ -n "${APPID}" ]; then
         kill -INT "${APPID}" &>/dev/null
@@ -35,42 +31,12 @@ if [ "$(basename "${app}")" == "openvt" ]; then
     exit 0
 fi
 
-
-function setDisplay() {
-    xset -dpms &>/dev/null || true
-    xset s off
-    xset s noblank
-}
-
-if ! pidof -s Xorg &>/dev/null; then
-    # This only works if app is running as root (kmsdrm mode)
-    Xorg -nolisten tcp vt7 -nocursor -dpms -novtswitch -quiet &> /dev/null &
-    XPID=$!
-    export DISPLAY=:0.0
-    sleep 2
-    /usr/bin/devilspie2 -f /usr/local/etc/devilspie2 &
-    /usr/bin/xfwm4 --sm-client-disable --compositor=off &
-fi
-
-let q=5
-
 shift
 
-if [ -n "${XPID}" ]; then
-    while xrandr -s "${WINDOW_W}"x"${WINDOW_H}" &>/dev/null ; [ $? -ne 0 ]; do
-        sleep 1
-        let "q--"
-        if [ $q -le 0 ]; then
-           doQuit
-        fi
-    done
-fi 
-
-setDisplay &
 
 function  startChild()
 {
-    exec ${app} "$@" &>/dev/null
+    exec /usr/bin/dbus-run-session ${app} "$@" &>/dev/null
 }
 
 startChild "$@" &

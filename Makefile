@@ -46,8 +46,7 @@ install:
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
 	sudo mkdir -p $(DEST)/share/sounds
 	sudo install -m 0644 -g root -o root ./sounds/* -D $(DEST)/share/sounds
-	sudo mkdir -p $(DEST)/etc/devilspie2
-	sudo install -m 0644 -g root -o root ./devilspie2/* -D $(DEST)/etc/devilspie2
+	install -m 0644 -g $(GRP) -o $$LOGNAME weston.ini -D $(HOME)/.config
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
 	sudo mkdir -p $(DEST)/etc/speedometer
 	sudo chown $$LOGNAME:$(GRP) $(DEST)/etc/speedometer
@@ -57,34 +56,18 @@ ifeq ($(shell grep "define DIGIFLOW" sdlSpeedometer.h | cut -c2-7 | tr -d '\n'),
 	sudo install -m 0755 -g root -o root digiflow.sh -D $(DEST)/bin/digiflow.sh
 endif
 
-install_x:
-	-sudo systemctl stop xorg.service sdlSpeedometer.service 
-	cp sdlSpeedometer_x.env /tmp
-	echo "XDG_RUNTIME_DIR=/run/user/$$(id -u)" >> /tmp/sdlSpeedometer_x.env
-	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer_x.env -D /etc/default/sdlSpeedometer
+install_system:
+	-sudo systemctl stop weston-kiosk.service sdlSpeedometer.service 
+	-sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
 	echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
 	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
-	echo "XDG_RUNTIME_DIR=/run/user/$$(id -u)" >> /tmp/xorg.env
-	-sudo install -m 0644 -g root -o root /tmp/xorg.env -D /etc/default/xorg
-	-sudo install -m 0644 -g root -o root xorg.service -D /lib/systemd/system/
-	 sed s/root/$$LOGNAME/ sdlSpeedometer.service > /tmp/sdlSpeedometer.service
+	 sed s/NOTYET/$$LOGNAME/ sdlSpeedometer.service > /tmp/sdlSpeedometer.service
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.service -D /lib/systemd/system/
+	 sed s/NOTYET/$$LOGNAME/ weston-kiosk.service > /tmp/weston-kiosk.service
+	-sudo install -m 0644 -g root -o root /tmp/weston-kiosk.service -D /lib/systemd/system/
 	-sudo systemctl daemon-reload
-	-sudo systemctl enable xorg.service sdlSpeedometer.service
-	-sudo systemctl start xorg.service
-
-install_wayland:
-	-sudo systemctl stop sdlSpeedometer.service xorg.service
-	-sudo systemctl disable sdlSpeedometer.service xorg.service
-	-sudo install -m 0644 -g root -o root sdlSpeedometer.service -D /lib/systemd/system/
-	-sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
-	 cp sdlSpeedometer.env /tmp
-	 echo "XDG_RUNTIME_DIR=/run/user/$$(id -u)" >> /tmp/sdlSpeedometer.env
-	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.env -D /etc/default/sdlSpeedometer
-	 echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
-	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
-	-sudo systemctl daemon-reload
-	-sudo systemctl enable sdlSpeedometer.service
+	-sudo systemctl enable weston-kiosk.service sdlSpeedometer.service
+	-sudo systemctl start weston-kiosk.service sdlSpeedometer.service
 
 clean:
 	rm -f $(BIN) *~

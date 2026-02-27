@@ -1,17 +1,17 @@
 # Systemd resource file
 [Unit]
-DefaultDependencies=no
 Description=Marine instrument application
-After=xorg.service
+DefaultDependencies=no
+After=weston.service
 
 [Service]
 Type=simple
+User=NOTYET
+PAMName=login
 EnvironmentFile=/etc/default/sdlSpeedometer
 ExecStart=/usr/local/bin/sdlSpeedometer $ARGS
-RemainAfterExit=no
 Restart=always
-RestartSec=1s
-User=root
+RestartSec=1
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=graphical.target

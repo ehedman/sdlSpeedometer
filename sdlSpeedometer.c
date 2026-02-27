@@ -42,7 +42,7 @@
 
 #include "sdlSpeedometer.h"
 
-#define DEF_NMEA_SERVER "http://rpi3.hedmanshome.se"   // A test site running 24/7
+#define DEF_NMEA_SERVER "http://192.168.2.13"   // A test site running 24/7
 #define DEF_NMEA_PORT   10110
 #define DEF_VNC_PORT    5903
 
@@ -1160,13 +1160,6 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     // A simple event handler for touch screen buttons at fixed menu bar localtions
     
     int x, y;
-
-    static time_t c;
-
-    if (!(time(NULL) > c+1))
-        return 0;
-
-    c = time(NULL);
 
     // Upside down screen
     //x = WINDOW_W -(event->tfinger.x* sdlApp->conf->window_w);
@@ -3840,6 +3833,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
 static void closeSDL2(sdl2_app *sdlApp)
 {
+
     TTF_Quit();
     SDL_DestroyRenderer(sdlApp->renderer);
     SDL_DestroyWindow(sdlApp->window);
@@ -3858,7 +3852,7 @@ void force_raise(SDL_Window *window) {
     }
 }
 
-static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
+static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
 {
     SDL_Surface* Loading_Surf;
     SDL_Thread *threadNmea = NULL;
@@ -3869,16 +3863,19 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
     configParams->conn = NULL; 
     Uint32 flags;
 
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
-        return SDL_QUIT;
-    }
+    if (doInit) {
+        if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
+            return SDL_QUIT;
+        }
+  
 
-    if (sqlite3_open_v2(SQLDBPATH, &configParams->conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams->conn));
-        (void)sqlite3_close(configParams->conn);
-        configParams->conn = NULL;
-        return SDL_QUIT;
+        if (sqlite3_open_v2(SQLDBPATH, &configParams->conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams->conn));
+            (void)sqlite3_close(configParams->conn);
+            configParams->conn = NULL;
+            return SDL_QUIT;
+        }
     }
 
     if (configParams->runNet) {
@@ -3919,7 +3916,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
     }
 
-    if (configParams->runWrn) {
+    if (configParams->runWrn && doInit == 1) {
         if (SDL_getenv("SDL_AUDIODRIVER") == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_AUDIODRIVER (alsa/pulse) not set in environment. Cannot play warnings");
             configParams->runWrn = 0;
@@ -3933,22 +3930,23 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp)
         }
     }
 
+    if (doInit) {
+        flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
 
-    flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
+        if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
+                0, 0, // Pos x/y
+                configParams->window_w, configParams->window_h,
+                flags)) == NULL) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
+                configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
+                return SDL_QUIT;
+        }
 
-    if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
-            0, 0, // Pos x/y
-            configParams->window_w, configParams->window_h,
-            flags)) == NULL) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
-            configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
-            return SDL_QUIT;
-    }
+        SDL_ShowCursor(configParams->cursor == 1? SDL_ENABLE : SDL_DISABLE);
 
-    SDL_ShowCursor(configParams->cursor == 1? SDL_ENABLE : SDL_DISABLE);
-
-    if (configParams->useWm == 1) {
-        SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
+        if (configParams->useWm == 1) {
+            SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
+        }
     }
 
     sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -4053,7 +4051,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d remains.", configParams->numThreads);
     }
 
-    closeSDL2(sdlApp);
+    SDL_DestroyRenderer(sdlApp->renderer);
     
     configParams->subTaskPID = fork ();
 
@@ -4076,7 +4074,8 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     configParams->runi2c = runners[1];
     configParams->runNet = runners[2];
     configParams->runWrn = runners[3];
-    status = openSDL2(configParams, sdlApp);
+
+    status = openSDL2(configParams, sdlApp, 0);
 
     if (status == 0)    
         status = sdlApp->curPage;
@@ -4100,11 +4099,9 @@ int main(int argc, char *argv[])
 
     sdlApp.fontPath = DEFAULT_FONT;
 
- system("echo $DBUS_SESSION_BUS_ADDRESS");
-
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
-    if (getenv("DISPLAY") != NULL) {    // Wait for Xorg to become ready
+    if (getenv("DISPLAY") != NULL) {    // Wait for X/Weston to become ready
         int i;
         for (i = 0; i < 5; i++) {
             system("xdpyinfo  2>/dev/null | grep dimensions | awk '{printf \"%s\", $2}' >/tmp/d-data.txt");
@@ -4112,7 +4109,7 @@ int main(int argc, char *argv[])
                 fstat(fileno(fd), &stats);
                 if (stats.st_size == 0) {
                     fclose(fd);
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Retry (%d): failed to retrive screen size from Xorg", i+1);
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Retry (%d): failed to retrive screen size from X", i+1);
                     sleep(2);
                     continue;
                 }
@@ -4124,7 +4121,7 @@ int main(int argc, char *argv[])
 
         unlink("/tmp/d-data.txt");
         if (i >= 5) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from Xorg. Terminating now!\n", argv[0]);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from X. Terminating now!\n", argv[0]);
             return 1;
         }
     }  else {
@@ -4309,28 +4306,29 @@ int main(int argc, char *argv[])
 
             sleep(1);
 
+            sprintf(buf, "/usr/local/share/images/splash-%dx%d.png", configParams.window_w, configParams.window_h);
+
+            if (stat(buf, &stats) == 0) {
+
+                pid2 = fork();
+
+                if (pid2 == 0 ) {
+                    // Start the splashscreen
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
+                    char *args[] = { "/usr/bin/xloadimage", "-quiet", "-fullscreen", buf, NULL };
+                    execvp(args[0], args);
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
+                    _exit(0);
+                }
+            } else {
+                SDL_Log("Splash file \"%s not found\"\n", buf);
+            }
+
         }  else {
             if (configParams.useWm == 1) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "A window manager is already running. The -w option is disabled.");
                 configParams.useWm = 0;
             }
-        }
-
-        sprintf(buf, "/usr/local/share/images/splash-%dx%d.png", configParams.window_w, configParams.window_h);
-        if (stat(buf, &stats) == 0) {
-
-            pid2 = fork();
-
-            if (pid2 == 0 ) {
-                // Start the splashscreen
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
-                char *args[] = { "/usr/bin/xloadimage", "-onroot", "-quiet", "-fullscreen", buf, NULL };
-                execvp(args[0], args);
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
-                _exit(0);
-            }
-        } else {
-            SDL_Log("Splash file \"%s not found\"\n", buf);
         }
 
     } else { 
@@ -4345,7 +4343,7 @@ int main(int argc, char *argv[])
             }
     }
 
-    if (openSDL2(&configParams, &sdlApp))
+    if (openSDL2(&configParams, &sdlApp, 1))
         exit(EXIT_FAILURE);
 
     (void)checkSubtask(&sdlApp, &configParams);
@@ -4356,6 +4354,8 @@ int main(int argc, char *argv[])
 
     while(1)
     {
+        SDL_FlushEvents(SDL_FINGERDOWN, SDL_FINGERMOTION);
+
         switch (sdlApp.nextPage)
         {
             case COGPAGE: sdlApp.nextPage = doCompass(&sdlApp);

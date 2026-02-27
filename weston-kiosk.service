@@ -1,0 +1,14 @@
+[Unit]
+Description=Weston kiosk service
+After=systemd-user-sessions.service
+
+[Service]
+User=NOTYET
+PAMName=login
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=/usr/bin/weston
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
