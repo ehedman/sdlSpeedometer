@@ -48,8 +48,12 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite to start with
-- sudo apt install whiptail ttyd yad gcc git make
+- sudo apt install whiptail ttyd seatd yad gcc git make
 - sudo apt install x11-utils (some tools also needed for weston/xwayland)
+
+### Note on ttyd
+- As in March 2026 the package ttyd is missing for the 64-bit trixie. You can get it from here instead.
+- wget https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64 and install it as /usr/bin/ttyd
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
