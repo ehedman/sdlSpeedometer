@@ -1,5 +1,5 @@
 # sdlSpeedometer
-README Feb-2026
+README Mars-2026
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
@@ -48,10 +48,12 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite to start with
-- sudo apt install whiptail gcc git make
+- sudo apt install whiptail ttyd yad gcc git make
+- sudo apt install x11-utils (some tools also needed for weston/xwayland)
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
+- sudo apt install devilspie2 xfwm4 xdotool
 
 ### SDL2 Software prerequisites
 The SDL2 packages needed are:
@@ -64,12 +66,6 @@ The SDL2 packages needed are:
 
 ### Other libraries 
 - Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
-
-### Application dependencies for running external applications from sdlSpeedometer
-- sudo apt install xterm onboard
-
-### Optional application dependencies for improved user experiences for subtasks.
-- sudo apt install devilspie2 xfwm4 yad xdotool
 
 ### External applications to be launched from sdlSpeedometer
 - sudo apt install XyGrib
@@ -84,12 +80,17 @@ The SDL2 packages needed are:
 - make install (build and install executables)
 - make install_system (build and start the system services)
 
-### Rebuild and test new confifuration
+### Rebuild and test new configuration
 - sudo systemctl stop sdlSpeedometer.service
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
 - DISPLAY=:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston service must be running.
 - make install
 - systemclt restart sdlSpeedometer.service (will be enabled at boot time) or make start
+
+### Remote configuration
+- A running sdlSpeedometer keeps a web based configuration terminal if it is started with the -C <port> option.
+This option makes no sence unless it is running as a systemd service, so add this option to /etc/default/sdlSpeedometer.
+- Example: http://<rpi-ip>:7600 assuming the -C option is defined as <port> number 7600.
 
 ### Build and test on the host (Mint, Ubuntu, Debian)
 - make

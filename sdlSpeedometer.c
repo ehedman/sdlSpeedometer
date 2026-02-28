@@ -1178,7 +1178,9 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 
     if (sdlApp->conf->runWrn && y > 15  && y < 50 &&  x > 65 && x < 100)
     {
+        if (event->type == SDL_FINGERDOWN) {
             sdlApp->conf->muted = !sdlApp->conf->muted;
+        }
             return 0;
     }
 
@@ -3916,7 +3918,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
     }
 
-    if (configParams->runWrn && doInit == 1) {
+    if (configParams->runWrn) {
         if (SDL_getenv("SDL_AUDIODRIVER") == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_AUDIODRIVER (alsa/pulse) not set in environment. Cannot play warnings");
             configParams->runWrn = 0;
@@ -4121,7 +4123,7 @@ int main(int argc, char *argv[])
 
         unlink("/tmp/d-data.txt");
         if (i >= 5) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from X. Terminating now!\n", argv[0]);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from X/Weston. Terminating now!\n", argv[0]);
             return 1;
         }
     }  else {
@@ -4138,7 +4140,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    while ((c = getopt (argc, argv, "cChlvginwVps:z:")) != -1)
+    while ((c = getopt (argc, argv, "cC:hlvginwVpPs:z:")) != -1)
     {
         switch (c)
             {
@@ -4147,7 +4149,7 @@ int main(int argc, char *argv[])
                 break;
             case 'c':   exit(EXIT_SUCCESS);         // Check/Create databasse only and exit
                 break;
-            case 'C':   configParams.cursor = 1;    // Show cursor
+            case 'C':   configParams.configs = atoi(optarg);    // Remote configuration shell
                 break;
             case 'g':   configParams.runGps = 0;    // Diable GPS data collection
                 break;
@@ -4161,6 +4163,8 @@ int main(int argc, char *argv[])
                 break;
             case 'p':   configParams.runWrn = 1;    // Play warning sounds
                 break;
+            case 'P':   configParams.cursor = 1;    // Show pointer cursor
+                break;
             case 's':   strncpy(configParams.ssize, optarg, sizeof(configParams.ssize));    // Screen size w/h
                 break;
             case 'z':   configParams.scale = atof(optarg);    // Scale the screen
@@ -4171,9 +4175,9 @@ int main(int argc, char *argv[])
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -l -c -g -i -n -p -V -w -z -s -v (version)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -l use syslog : -c Create database only: -C show cursor : -g Disable GPS : -i Disable i2c : -p Play warnings\n");
-                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -z Scale factor : -s Window size w/h\n");
+                fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -w -z -s -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "       Where: -l use syslog : -c Create database only: -P show cursor : -g Disable GPS : -i Disable i2c : -p Play warnings\n");
+                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -C <port> Remote config : -z Scale factor : -s Window size w/h\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -4343,6 +4347,34 @@ int main(int argc, char *argv[])
             }
     }
 
+    if (configParams.configs > 1024) {
+
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start the ttyd daemon for remote configurtions");
+
+        pid_t pid = fork();
+
+        if (pid == 0 ) {
+
+            // Redirect stdout and stderr to /dev/null
+            int fd = open("/dev/null", O_RDWR);
+            if (fd >= 0) {
+               // dup2(fd, STDOUT_FILENO);
+                dup2(fd, STDERR_FILENO);
+                dup2(fd, STDIN_FILENO);
+                close(fd);
+            }
+
+            // Start the ttyd
+            sprintf(buf, "%d", configParams.configs);
+            char *args[] = { "/usr/bin/ttyd", "-p", buf, "--writable", "/usr/local/bin/sdlSpeedometer-config", NULL };
+            execvp(args[0], args);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s : %s (non fatal)\n", args[0], strerror(errno));
+            _exit(0);
+        }
+
+        configParams.ttydPID = pid;
+    }
+
     if (openSDL2(&configParams, &sdlApp, 1))
         exit(EXIT_FAILURE);
 
@@ -4407,6 +4439,11 @@ int main(int argc, char *argv[])
     }
     
     closeSDL2(&sdlApp);
+
+    if (configParams.ttydPID) {
+        kill(configParams.ttydPID, SIGINT);
+        SDL_Log("Taking down remote config process");
+    }
 
     SDL_Log("User terminated");
 

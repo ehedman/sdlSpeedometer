@@ -2,17 +2,14 @@
 
 # shellcheck disable=SC2181
 
-if [ "$DISPLAY" == ":0.0" ]; then
+if [ "$DISPLAY" ]; then
     SPEEDOMETER_DB=/usr/local/etc/speedometer/speedometer.db
-    onboard -s 800x230 -x 0 -y 250 &>/dev/null &
-    KBDPID=$!
 else
     SPEEDOMETER_DB=speedometer.db
-    if [ ! -f $SPEEDOMETER_DB ]; then
-        if ! ./sdlSpeedometer -c; then
-            exit 1
-        fi
-    fi
+fi
+
+if [ ! -f $SPEEDOMETER_DB ]; then
+    exit 1
 fi
 
 # Inherited from raspi-config https://github.com/RPi-Distro/raspi-config
@@ -43,8 +40,10 @@ do_finish() {
     fi
   fi
 
-  if [ "$DISPLAY" == ":0.0" ]; then
-     kill -INT "${KBDPID}"
+  if [ -s "$SQLFILE" ]; then
+    if systemctl status sdlSpeedometer.service &>/dev/null ; then
+        sudo systemctl restart sdlSpeedometer.service &>/dev/null || true
+    fi
   fi
 
   rm -f "$SQLFILE"

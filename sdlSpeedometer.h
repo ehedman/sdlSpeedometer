@@ -75,6 +75,8 @@ typedef struct {
     int muted;
     int subTaskPID;
     int cursor;
+    int configs;
+    int ttydPID;
 } configuration;
 
 enum sdlPages {
