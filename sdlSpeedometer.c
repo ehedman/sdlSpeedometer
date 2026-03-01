@@ -28,6 +28,7 @@
 #include <SDL2/SDL_net.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <inttypes.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -1328,7 +1329,7 @@ static void setUTCtime(void)
                     SDL_Log("Got system time from GPS: %s", buf);
             }
         } else { // Could happen if historical data is replayed in the system
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS as time is moving backwards %lld seconds!", sys_rawtime-rawtime);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set UTC system time from GPS as time is moving backwards %jd seconds!", sys_rawtime-rawtime);
         }
     }
     unsetenv("TZ"); // Restore whatever zone we are in
