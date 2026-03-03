@@ -13,6 +13,8 @@ CFLAGS+=-DHAS_SMBUS_H
 LDFLAGS+=-li2c
 endif
 
+LDFLAGS+=-lasound
+
 ifeq ($(shell test -e $(GETC) && echo -n yes),yes)
 CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
 endif

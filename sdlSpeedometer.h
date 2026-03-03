@@ -12,8 +12,17 @@
 #include <plotsdl/llist.h>
 #endif
 
+#include <alsa/asoundlib.h>
+
+// Volume slider
+#define WINDOW_WIDTH 20
+#define WINDOW_HEIGHT 300
+#define SLIDER_WIDTH 20
+#define SLIDER_HEIGHT 300
+#define RIGHT_MARGIN 20
+
 //Dendent on project  https://github.com/ehedman/flowSensor
-//#define DIGIFLOW
+#define DIGIFLOW
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
@@ -77,6 +86,11 @@ typedef struct {
     int cursor;
     int configs;
     int ttydPID;
+    snd_mixer_t *mixer;
+    snd_mixer_elem_t *elem;
+    long snd_minv, snd_maxv;
+    int snd_useMixer;
+    char snd_card[32];
 } configuration;
 
 enum sdlPages {

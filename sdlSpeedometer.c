@@ -1387,7 +1387,7 @@ inline static void doRGBconv(sdl2_app *sdlApp)
 }
 
 // Play audible warning message
-static void playWarnSound(char *wavFile)
+static void playWarnSound(char *snd_card, char *wavFile)
 {
 
     SDL_AudioSpec wavSpec;
@@ -1401,8 +1401,7 @@ static void playWarnSound(char *wavFile)
     // load WAV file
     if (SDL_LoadWAV(soundPath, &wavSpec, &wavBuffer, &wavLength) == NULL)
         return;
-    
-    // open audio device
+
     if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0)) == 0)
         return;
     
@@ -1439,17 +1438,17 @@ static int threadWarn(void *conf)
         ct = time(NULL);    // Get a timestamp for this turn
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw) {
-            playWarnSound("shallow-water.wav");
+            playWarnSound(configParams->snd_card, "shallow-water.wav");
             SDL_Delay(3000);
         }
 
         if (!(ct - cnmea.curr_ts > S_TIMEOUT) && cnmea.curr <= -warn.highcurrw && configParams->runWrn) { 
-            playWarnSound("current-high.wav");
+            playWarnSound(configParams->snd_card, "current-high.wav");
             SDL_Delay(2000);
         }
 
         if (!(ct - cnmea.volt_ts > S_TIMEOUT) && cnmea.volt <= warn.lowvoltw && configParams->runWrn) { 
-            playWarnSound("low-voltage.wav");
+            playWarnSound(configParams->snd_card, "low-voltage.wav");
             SDL_Delay(2000);
         }
 
@@ -2967,6 +2966,22 @@ static int doWind(sdl2_app *sdlApp)
     return event.type;
 }
 
+static void set_alsa_volume(sdl2_app *sdlApp, float percent)
+{   
+    long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
+
+    snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
+}
+
+
+static float get_current_volume(sdl2_app *sdlApp)
+{
+    long volume;
+    snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
+
+    return (float)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
+}
+
 // Present Environmant page (Non standard NMEA)
 static int doEnvironment(sdl2_app *sdlApp)
 {
@@ -3053,6 +3068,13 @@ static int doEnvironment(sdl2_app *sdlApp)
 
     SDL_Rect textField_rect;
 
+    SDL_Rect slider = {
+        (WINDOW_WIDTH - SLIDER_WIDTH) / 2,
+        (WINDOW_HEIGHT - SLIDER_HEIGHT) / 2,
+        SLIDER_WIDTH,
+        SLIDER_HEIGHT
+    };
+
     // Scale adjustments
     float v_maxangle = 102;
     float v_offset = 6;
@@ -3099,6 +3121,17 @@ static int doEnvironment(sdl2_app *sdlApp)
     params.offset_y = 190;
 
     memset(powerBuf, 0, sizeof(powerBuf));
+
+    // Volume adjustments
+    float volume_percent;
+    int dragging = 0;
+    int w, h;
+
+    if (sdlApp->conf->snd_useMixer && sdlApp->conf->runWrn) {
+        volume_percent = get_current_volume(sdlApp);
+        SDL_GetWindowSize(sdlApp->window, &w, &h);
+    }
+
 #endif
 
     while (1) {
@@ -3122,6 +3155,25 @@ static int doEnvironment(sdl2_app *sdlApp)
                 break;
             }
 
+            if (sdlApp->conf->snd_useMixer && sdlApp->conf->runWrn && !sdlApp->conf->muted) {
+                if (event.type == SDL_MOUSEMOTION && dragging) {
+
+                    SDL_Point p = { event.motion.x, event.motion.y };
+
+                    if (SDL_PointInRect(&p, &slider)) {
+                        int mouseY = p.y;
+
+                        float rel = (float)(slider.y + slider.h - mouseY) / slider.h;
+
+                        if (rel < 0.0f) rel = 0.0f;
+                        if (rel > 1.0f) rel = 1.0f;
+
+                        volume_percent = rel;
+                        set_alsa_volume(sdlApp, volume_percent);
+                    }
+                }
+            }
+
             if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
@@ -3133,8 +3185,18 @@ static int doEnvironment(sdl2_app *sdlApp)
                     }
                     break;
                 }
+
+                SDL_Point p = { event.button.x, event.button.y };
+
+                if (SDL_PointInRect(&p, &slider)) {
+                    dragging = 1;
+                }
             }
-        }
+
+            if (event.type == SDL_MOUSEBUTTONUP)
+                dragging = 0;
+            }
+
         if (doBreak == 1) break;
 
         ct = time(NULL);    // Get a timestamp for this turn
@@ -3296,6 +3358,48 @@ static int doEnvironment(sdl2_app *sdlApp)
             plot_graph(&params);
         }
 #endif
+
+        if (sdlApp->conf->snd_useMixer && sdlApp->conf->runWrn && !sdlApp->conf->muted) {
+
+            slider.x = w - SLIDER_WIDTH - RIGHT_MARGIN;
+            slider.w = SLIDER_WIDTH;
+            slider.h = SLIDER_HEIGHT;
+
+            slider.y = h - SLIDER_HEIGHT - (int)(h * 0.25);
+
+            /* Slider background */
+            SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &slider);
+
+            /* Filled portion */
+            SDL_Rect fill = slider;
+            fill.h = (int)(slider.h * volume_percent);
+            fill.y = slider.y + (slider.h - fill.h);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 200, 0, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &fill);
+
+            /* Render volume text */
+            char text[16];
+            int percent_display = (int)(volume_percent * 100.0f);
+            snprintf(text, sizeof(text), "%d%%", percent_display);
+
+            SDL_Color black = {0, 0, 0, 0};
+            SDL_Surface *surface = TTF_RenderText_Blended(fontSmall, text, black);
+
+            SDL_Texture *texture = SDL_CreateTextureFromSurface(sdlApp->renderer, surface);
+
+            SDL_Rect textRect;
+            textRect.w = surface->w;
+            textRect.h = surface->h;
+            textRect.x = slider.x -4;
+            textRect.y = slider.y - 20;
+            SDL_RenderCopy(sdlApp->renderer, texture, NULL, &textRect);
+
+            SDL_FreeSurface(surface);
+            SDL_DestroyTexture(texture);
+
+        }
 
         SDL_RenderPresent(sdlApp->renderer);
  
@@ -4086,6 +4190,51 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     return status;
 }
 
+static void init_alsa(configuration *configParams)
+{
+
+    const char *audioenv = getenv("AUDIODEV");  // e.g., "hw:2,0" for SDL2
+
+    if (audioenv) {
+        // copy up to comma or end of string
+        const char *comma = strchr(audioenv, ',');
+        if (comma) {
+            size_t len = comma - audioenv;
+            if (len >= sizeof(configParams->snd_card)) len = sizeof(configParams->snd_card)-1;
+            strncpy(configParams->snd_card, audioenv, len);
+            configParams->snd_card[len] = '\0';
+        } else {
+            strncpy(configParams->snd_card, audioenv, sizeof(configParams->snd_card)-1);
+            configParams->snd_card[sizeof(configParams->snd_card)-1] = '\0';
+        }
+    } else {
+        strcpy(configParams->snd_card, "default");
+    }
+
+    SDL_Log("Using ALSA device \"%s\". Export AUDIODEV=<your-audiodev> to use something else.", configParams->snd_card);
+
+    snd_mixer_open(&configParams->mixer, 0);
+    snd_mixer_attach(configParams->mixer, configParams->snd_card);
+    snd_mixer_selem_register(configParams->mixer, NULL, NULL);
+    snd_mixer_load(configParams->mixer);
+
+    snd_mixer_selem_id_t *sid;
+    snd_mixer_selem_id_alloca(&sid);
+    snd_mixer_selem_id_set_index(sid, 0);
+    snd_mixer_selem_id_set_name(sid, "PCM");
+
+    configParams->elem = NULL;
+
+    configParams->elem = snd_mixer_find_selem(configParams->mixer, sid);
+
+    if (!configParams->elem) {
+        configParams->snd_useMixer = 0;
+    } else {
+        configParams->snd_useMixer = 1;
+        snd_mixer_selem_get_playback_volume_range(configParams->elem, &configParams->snd_minv, &configParams->snd_maxv);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int c, t_wmax = 4;
@@ -4200,6 +4349,13 @@ int main(int argc, char *argv[])
                 configParams.window_h = atoi(token);
 
           token = strtok(NULL, s);
+        }
+    }
+
+    if (configParams.runWrn == 1) {
+        init_alsa(&configParams);
+        if (configParams.snd_useMixer == 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element");
         }
     }
 
