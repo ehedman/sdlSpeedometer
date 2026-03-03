@@ -3122,6 +3122,8 @@ static int doEnvironment(sdl2_app *sdlApp)
 
     memset(powerBuf, 0, sizeof(powerBuf));
 
+#endif
+
     // Volume adjustments
     float volume_percent;
     int dragging = 0;
@@ -3131,8 +3133,6 @@ static int doEnvironment(sdl2_app *sdlApp)
         volume_percent = get_current_volume(sdlApp);
         SDL_GetWindowSize(sdlApp->window, &w, &h);
     }
-
-#endif
 
     while (1) {
         sdlApp->textFieldArrIndx = 0;
