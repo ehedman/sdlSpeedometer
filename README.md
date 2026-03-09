@@ -29,11 +29,12 @@ Currently there are nine virtual instrument working (data source within brackets
     Environment   : Page with Voltage, Current, Temp and Power plotting (proprietary NMEA net "$P" sentences)
     Water         : Page with fresh water tank status and TDS quality (Requires https://github.com/ehedman/flowSensor)
     Victron Venus : Victron Venus sub-system (Requires https://github.com/ehedman/victron-venus-container)
+    RTSP Camera   : Capture video from an RTSP camera
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 
 ### External Applications
-sdlSpeedometer in itself is a very responsive application runing in an embedded system context with SDL2. However, sdlSpeedometer can be parametized to launch almost any external application by means of a configuration tool invoked from the GUI or from a shell. Run sdlSpeedometer-config to add XyGrip and/or Opencpn.
+sdlSpeedometer in itself is a very responsive application runing in an embedded system context with SDL2. However, sdlSpeedometer can be parametized to launch almost any external application by means of a configuration tool invoked from the GUI or from a shell. Run ./sdlSpeedometer-config to add XyGrip and/or Opencpn.
 
 Kodi can be added as an external application to be used as a Jukebox style player togheter with its [Kore](https://play.google.com/store/apps/details?id=org.xbmc.kore&hl=sv&gl=US) remote control phone app.
 
@@ -49,11 +50,13 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite to start with
 - sudo apt install whiptail ttyd seatd yad gcc git make
+- sudo apt install weston xwayland
 - sudo apt install x11-utils (some tools also needed for weston/xwayland)
 
 ### Note on ttyd
 - As in March 2026 the package ttyd is missing for the 64-bit trixie. You can get it from here instead.
 - wget https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64 and install it as /usr/bin/ttyd
+- When insalling ttyd with apt it will also start ttyd as a systemd service listening on port 7681. You probably don't want that. Disable it with sudo systemctl disable ttyd. In this applicaktion it is only used to run the remote configurator.
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
@@ -67,15 +70,17 @@ The SDL2 packages needed are:
 - sudo apt install libcurl4-gnutls-dev i2c-tools libi2c-dev sqlite3 libsqlite3-dev libpng-dev
 - sudo apt install libtiff5-dev libjpeg-dev libfreetype6-dev libts-dev libinput-dev
 - sudo apt install libwebp-dev libvncserver-dev 
+- sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev 
+- sudo apt install libswresample-dev ffmpeg v4l-utils
 
 ### Other libraries 
 - Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### External applications to be launched from sdlSpeedometer
-- sudo apt install XyGrib
+- sudo apt install xygrib-maps xygrib
 - sudo apt install opencpn
 - sudo apt install kodi
-- Use sdlSpeedometer-config to add these applications and also add sdlSpeedometer-stat (included) to show system status.
+- Use ./sdlSpeedometer-config to add these applications and also add sdlSpeedometer-stat (included) to show system status.
 
 ### Software used
 - Raspberry Pi OS Lite bookworm and trixie
@@ -87,7 +92,7 @@ The SDL2 packages needed are:
 ### Rebuild and test new configuration
 - sudo systemctl stop sdlSpeedometer.service
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
-- DISPLAY=:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston service must be running.
+- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston service must be running.
 - make install
 - systemclt restart sdlSpeedometer.service (will be enabled at boot time) or make start
 
@@ -99,7 +104,7 @@ This option makes no sence unless it is running as a systemd service, so add thi
 ### Build and test on the host (Mint, Ubuntu, Debian)
 - make
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
-- ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat)
+- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat)
 
 ### Utility commands
 - make stop (stop the service)
@@ -108,8 +113,12 @@ This option makes no sence unless it is running as a systemd service, so add thi
 
 ### Enable audible warnings
 - Set preferences with sdlSPeedometer-config
-- Start sdlSpeedometer with "SDL_AUDIODRIVER=alsa AUDIODEV=hw:2,0 ./sdlSpeedometer -p" and possible -i -g as well
+- Start sdlSpeedometer with DISPLAY=:0:0 ./sdlSpeedometer -p" and possible -i -g as well
 - Eventually set these preferences in /etc/default/sdlSpeedometer after "make install" has been executed on a Pi
+
+### Notes on display variables
+Since this application is capable to run either as an X application (DISPLAY=:0:0) thanks to xwayland or as a Wayland application (WAYLAND_DISPLAY=wayland-1) you can use either of these variables. However, when subtasks are launched they get the "DISPLAY=:0:0" set to ensure compatibility for all GUI based applications.
+See the spawnSubtask script.
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)

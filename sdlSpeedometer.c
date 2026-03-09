@@ -1,7 +1,7 @@
 /*
  * sdlSpeedometer.c
  *
- *  Copyright (C) 2024 by Erland Hedman <erland@hedmanshome.se>
+ *  Copyright (C) 2026 by Erland Hedman <erland@hedmanshome.se>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,6 +26,13 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL_net.h>
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
+#include <libavutil/samplefmt.h>
+#include <libswresample/swresample.h>
+#include <libavutil/log.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <inttypes.h>
@@ -38,12 +45,12 @@
 #include <sys/prctl.h>
 #include <time.h>
 #include <syslog.h>
-#include <errno.h>
 
+#include <errno.h>
 
 #include "sdlSpeedometer.h"
 
-#define DEF_NMEA_SERVER "http://192.168.2.13"   // A test site running 24/7
+#define DEF_NMEA_SERVER "http://rpi3.hedmanshome.se"   // A test site running 24/7
 #define DEF_NMEA_PORT   10110
 #define DEF_VNC_PORT    5903
 
@@ -58,7 +65,7 @@
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
 
-#define TTY_GPS             "/dev/ttyS0"    // RPI 3
+#define TTY_GPS             "/dev/ttyAMA0"    // RPI 4/5
 
 #ifdef REV
 #define SWREV REV
@@ -145,10 +152,11 @@ int  configureDb(configuration *configParams)
                             return 1;
                     }
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, audiodev TEXT, camurl TEXT)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport) VALUES ('%s','%s',9600,'%s',%d,%d)", SWREV,TTY_GPS, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT);
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,'%s','%s')", SWREV,TTY_GPS, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -170,22 +178,19 @@ int  configureDb(configuration *configParams)
                     sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('opencpn','-f','opencpn')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('notyet','','')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('notyet','','')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('XyGrib','','XyGrib')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
                     sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-stat','','sdlSpeedometer-stat')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,iocn) VALUES ('notyet','','')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-browser','','sdlSpeedometer-browser')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('notyet','','')");
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('XyGrib','','XyGrib')");    
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('kodi-standalone','','kodi-standalone')");
+                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
+                    sqlite3_step(res);
+                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-venus','','sdlSpeedometer-venus')");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -215,13 +220,15 @@ int  configureDb(configuration *configParams)
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport from config", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport, audiodev, camurl from config", -1, &res, &tail);        
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
         strcpy(configParams->server,    (char*)sqlite3_column_text(res, 2));
         configParams->port =            sqlite3_column_int(res, 3);
         configParams->vncPort =         sqlite3_column_int(res, 4);
+        strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 5));
+        strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 6));
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -1099,6 +1106,7 @@ static int threadVnc(void *conf)
     sdlApp->conf->vncServer->screenData = sdlApp;
     sdlApp->conf->vncServer->ptrAddEvent = vncClientTouch;
     sdlApp->conf->vncServer->port = sdlApp->conf->vncPort;
+    sdlApp->conf->vncServer->deferUpdateTime = 3;
 
     rfbInitServer(sdlApp->conf->vncServer);           
 
@@ -1156,6 +1164,16 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
     rect->h = text_height;
 }
 
+
+static int Scaled_PointInRect(sdl2_app *sdlApp, SDL_Point *p, SDL_Rect *rect)
+{ 
+    p->x /= sdlApp->conf->scale;
+    p->y /= sdlApp->conf->scale;
+
+    return (SDL_PointInRect(p, rect));
+}
+
+
 static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 {
     // A simple event handler for touch screen buttons at fixed menu bar localtions
@@ -1194,21 +1212,21 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     if (sdlApp->curPage != DPTPAGE)
         sdlApp->plotMode = 1;
   
-    if (y > 400  && y < 450)
+    if (y > 370  && y < 480)
     {
-        if (x > 433 && x < 483)
+        if (x > 403 && x < 453)
             return COGPAGE;
-        if (x > 490 && x < 540)
+        if (x > 460 && x < 510)
             return SOGPAGE;
-        if (x > 547 && x < 595) {
+        if (x > 517 && x < 565) {
             sdlApp->plotMode = !sdlApp->plotMode;
             return DPTPAGE;
         }
-        if (x > 605 && x < 652)
+        if (x > 575 && x < 622)
             return WNDPAGE;
-        if (x > 662 && x < 708)
+        if (x > 632 && x < 678)
            return GPSPAGE;
-        if (x > 718 && x < 765) {
+        if (x > 688 && x < 745) {
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE)
             return WTRPAGE;
@@ -1216,6 +1234,9 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
          return PWRPAGE;
 
         }
+        if (x > 718 && x < 775)
+           return CAMPAGE;
+
         if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
             if (x > 30 && x < 80)
                 return TSKPAGE;
@@ -1231,38 +1252,42 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 
     static SDL_Rect M1_rect;
 
-    get_text_and_rect(sdlApp->renderer, 440, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    get_text_and_rect(sdlApp->renderer, 410, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 498, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    get_text_and_rect(sdlApp->renderer, 468, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 556, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    get_text_and_rect(sdlApp->renderer, 526, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 610, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    get_text_and_rect(sdlApp->renderer, 580, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 668, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    get_text_and_rect(sdlApp->renderer, 638, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
-    
+
+    get_text_and_rect(sdlApp->renderer, 754, 416, 0, "CAM", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+
     if (sdlApp->conf->i2cFile == 0) {
-        get_text_and_rect(sdlApp->renderer, 726, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 696, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE) {
-            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 696, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect); 
         } 
 #endif
     } else {
-        get_text_and_rect(sdlApp->renderer, 726, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
+        get_text_and_rect(sdlApp->renderer, 696, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE) {
-            get_text_and_rect(sdlApp->renderer, 726, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
+            get_text_and_rect(sdlApp->renderer, 696, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
         }
 #endif  
     }
+
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 }
 
@@ -1368,26 +1393,8 @@ inline static float rotate_a(float angle, int res)
     return(rot);
 }
 
-// Swap red and blue, since Xlib using BGR instead of RGB doRGBconv(sdlApp->conf->vncPixelBuffer);
-inline static void doRGBconv(sdl2_app *sdlApp)
-{
-    unsigned char * vncpb = sdlApp->conf->vncPixelBuffer->pixels;
-    unsigned char red, blue;
-
-    SDL_LockSurface(sdlApp->conf->vncPixelBuffer);
-
-    for(int i = 0; i < (sdlApp->conf->window_h*sdlApp->conf->vncPixelBuffer->pitch); i+=4) {
-        red = vncpb[i+2];
-        blue = vncpb[i];
-        vncpb[i] = red;
-        vncpb[i+2] = blue;
-    }
-
-    SDL_UnlockSurface(sdlApp->conf->vncPixelBuffer);
-}
-
 // Play audible warning message
-static void playWarnSound(char *snd_card, char *wavFile)
+static void playWarnSound(char *snd_card_name, char *wavFile)
 {
 
     SDL_AudioSpec wavSpec;
@@ -1402,9 +1409,13 @@ static void playWarnSound(char *snd_card, char *wavFile)
     if (SDL_LoadWAV(soundPath, &wavSpec, &wavBuffer, &wavLength) == NULL)
         return;
 
-    if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0)) == 0)
-        return;
-    
+    if ((deviceId = SDL_OpenAudioDevice(snd_card_name, 0, &wavSpec, NULL, 0)) == 0) { 
+        if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0)) == 0) { // Open default
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to SDL_OpenAudioDevice %s: %s", snd_card_name, SDL_GetError()); 
+            return;
+       }
+    }
+
     // play audio
     if (SDL_QueueAudio(deviceId, wavBuffer, wavLength) == 0) {
         SDL_PauseAudioDevice(deviceId, 0);
@@ -1422,11 +1433,7 @@ static int threadWarn(void *conf)
     configuration *configParams = conf;
     time_t ct;
 
-    SDL_Log("Sound Server started");
-
-    configParams->numThreads++;
-
-    SDL_Init(SDL_INIT_AUDIO);
+    configParams->numThreads++; 
 
     while(configParams->runWrn) {
 
@@ -1438,17 +1445,17 @@ static int threadWarn(void *conf)
         ct = time(NULL);    // Get a timestamp for this turn
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw) {
-            playWarnSound(configParams->snd_card, "shallow-water.wav");
+            playWarnSound(configParams->snd_card_name, "shallow-water.wav");
             SDL_Delay(3000);
         }
 
         if (!(ct - cnmea.curr_ts > S_TIMEOUT) && cnmea.curr <= -warn.highcurrw && configParams->runWrn) { 
-            playWarnSound(configParams->snd_card, "current-high.wav");
+            playWarnSound(configParams->snd_card_name, "current-high.wav");
             SDL_Delay(2000);
         }
 
         if (!(ct - cnmea.volt_ts > S_TIMEOUT) && cnmea.volt <= warn.lowvoltw && configParams->runWrn) { 
-            playWarnSound(configParams->snd_card, "low-voltage.wav");
+            playWarnSound(configParams->snd_card_name, "low-voltage.wav");
             SDL_Delay(2000);
         }
 
@@ -1511,9 +1518,9 @@ static int doCompass(sdl2_app *sdlApp)
     clinoMeterR.x = 171;
     clinoMeterR.y = 178;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     subTaskbarR.w = 50;
@@ -1558,8 +1565,6 @@ static int doCompass(sdl2_app *sdlApp)
     int res = 1;
     int res_a = 1;
     int boxItems[] = {120,170,220,270};
-
-    int toggle = 1;
     float dynUpd;
 
     const float offset = 131; // For scale
@@ -1738,13 +1743,22 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
-            // Read the pixels from the current render target and save them onto the surface
-            // This will slow down the application a bit.
-            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
-                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+        {
+            SDL_RenderReadPixels(
+                sdlApp->renderer,
+                NULL,
+                SDL_PIXELFORMAT_BGR888,
+                sdlApp->conf->vncPixelBuffer->pixels,
+                sdlApp->conf->vncPixelBuffer->pitch
+            );
+
+            rfbMarkRectAsModified(
+                sdlApp->conf->vncServer,
+                0, 0,
+                sdlApp->conf->window_w,
+                sdlApp->conf->window_h
+            );
         }
 
         // Reduce CPU load if only short scale movements
@@ -1804,9 +1818,9 @@ static int doSumlog(sdl2_app *sdlApp)
     needleR.x = 120;
     needleR.y = 122;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     subTaskbarR.w = 50;
@@ -1854,7 +1868,6 @@ static int doSumlog(sdl2_app *sdlApp)
     float t_angle = 0;
     float angle = 0;
     int boxItems[] = {120,170,220};
-    int toggle = 1;
     float dynUpd;
 
     while (1) {
@@ -2004,14 +2017,24 @@ static int doSumlog(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
-            // Read the pixels from the current render target and save them onto the surface
-            // This will slow down the application a bit.
-            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
-                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+        {
+            SDL_RenderReadPixels(
+                sdlApp->renderer,
+                NULL,
+                SDL_PIXELFORMAT_BGR888,
+                sdlApp->conf->vncPixelBuffer->pixels,
+                sdlApp->conf->vncPixelBuffer->pitch
+            );
+
+            rfbMarkRectAsModified(
+                sdlApp->conf->vncServer,
+                0, 0,
+                sdlApp->conf->window_w,
+                sdlApp->conf->window_h
+            );
         }
+
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*200;
         dynUpd = dynUpd > 200? 200:dynUpd;
@@ -2085,9 +2108,9 @@ static int doGps(sdl2_app *sdlApp)
     gaugeR.x = 19;
     gaugeR.y = 18;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     subTaskbarR.w = 50;
@@ -2255,13 +2278,22 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
-            // Read the pixels from the current render target and save them onto the surface
-            // This will slow down the application a bit.
-            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
-                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+        {
+            SDL_RenderReadPixels(
+                sdlApp->renderer,
+                NULL,
+                SDL_PIXELFORMAT_BGR888,
+                sdlApp->conf->vncPixelBuffer->pixels,
+                sdlApp->conf->vncPixelBuffer->pitch
+            );
+
+            rfbMarkRectAsModified(
+                sdlApp->conf->vncServer,
+                0, 0,
+                sdlApp->conf->window_w,
+                sdlApp->conf->window_h
+            );
         }
 
         sdlApp->textFieldArrIndx--;
@@ -2331,9 +2363,9 @@ static int doDepth(sdl2_app *sdlApp)
     needleR.x = 120;
     needleR.y = 122;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     subTaskbarR.w = 50;
@@ -2370,9 +2402,6 @@ static int doDepth(sdl2_app *sdlApp)
 
     float t_angle = 0;
     float angle = 0;
-
-    int toggle = 1;
-
     float dynUpd;
 
 #ifdef PLOTSDL
@@ -2619,13 +2648,22 @@ static int doDepth(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
-            // Read the pixels from the current render target and save them onto the surface
-            // This will slow down the application a bit.
-            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
-                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+        {
+            SDL_RenderReadPixels(
+                sdlApp->renderer,
+                NULL,
+                SDL_PIXELFORMAT_BGR888,
+                sdlApp->conf->vncPixelBuffer->pixels,
+                sdlApp->conf->vncPixelBuffer->pitch
+            );
+
+            rfbMarkRectAsModified(
+                sdlApp->conf->vncServer,
+                0, 0,
+                sdlApp->conf->window_w,
+                sdlApp->conf->window_h
+            );
         }
 
         if (!sdlApp->plotMode) {
@@ -2705,9 +2743,9 @@ static int doWind(sdl2_app *sdlApp)
     needleR.x = 120;
     needleR.y = 122;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     subTaskbarR.w = 50;
@@ -2749,9 +2787,6 @@ static int doWind(sdl2_app *sdlApp)
     float angle_t = 0;
     int res = 1;
     int res_a = 1;
-
-    int toggle = 1;
-
     float dynUpd;
 
     const float offset = 131; // For scale
@@ -2924,13 +2959,22 @@ static int doWind(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
  
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer && (toggle = !toggle)) {
-            // Read the pixels from the current render target and save them onto the surface
-            // This will slow down the application a bit.
-            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
-                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+        {
+            SDL_RenderReadPixels(
+                sdlApp->renderer,
+                NULL,
+                SDL_PIXELFORMAT_BGR888,
+                sdlApp->conf->vncPixelBuffer->pixels,
+                sdlApp->conf->vncPixelBuffer->pitch
+            );
+
+            rfbMarkRectAsModified(
+                sdlApp->conf->vncServer,
+                0, 0,
+                sdlApp->conf->window_w,
+                sdlApp->conf->window_h
+            );
         }
         
         // Reduce CPU load if only short scale movements
@@ -3007,6 +3051,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_Texture* needleTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
 
     sdlApp->curPage = PWRPAGE;
+
     SDL_Texture* subTaskbar = NULL;
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
@@ -3046,9 +3091,9 @@ static int doEnvironment(sdl2_app *sdlApp)
     tempNeedleR.x = 572;
     tempNeedleR.y = 110;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     netStatbarR.w = noNetStatbarR.w = 25;
@@ -3125,11 +3170,11 @@ static int doEnvironment(sdl2_app *sdlApp)
 #endif
 
     // Volume adjustments
-    float volume_percent;
+    float volume_percent = 0.0;
     int dragging = 0;
     int w, h;
 
-    if (sdlApp->conf->snd_useMixer && sdlApp->conf->runWrn) {
+    if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
         SDL_GetWindowSize(sdlApp->window, &w, &h);
     }
@@ -3155,12 +3200,12 @@ static int doEnvironment(sdl2_app *sdlApp)
                 break;
             }
 
-            if (sdlApp->conf->snd_useMixer && sdlApp->conf->runWrn && !sdlApp->conf->muted) {
+            if (sdlApp->conf->snd_useMixer && !sdlApp->conf->muted) {
                 if (event.type == SDL_MOUSEMOTION && dragging) {
 
                     SDL_Point p = { event.motion.x, event.motion.y };
 
-                    if (SDL_PointInRect(&p, &slider)) {
+                    if (Scaled_PointInRect(sdlApp, &p, &slider)) {
                         int mouseY = p.y;
 
                         float rel = (float)(slider.y + slider.h - mouseY) / slider.h;
@@ -3174,7 +3219,7 @@ static int doEnvironment(sdl2_app *sdlApp)
                 }
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) 
             {
                 if ((event.type=pageSelect(sdlApp, &event))) {
                     doBreak = 1;
@@ -3188,7 +3233,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
                 SDL_Point p = { event.button.x, event.button.y };
 
-                if (SDL_PointInRect(&p, &slider)) {
+                if (Scaled_PointInRect(sdlApp, &p, &slider)) {
                     dragging = 1;
                 }
             }
@@ -3226,9 +3271,9 @@ static int doEnvironment(sdl2_app *sdlApp)
         if (cnmea.startTime) {
             strftime(msg_stm, sizeof(msg_stm),"%x:%H:%M", localtime(&cnmea.startTime));
             if (cnmea.kWhn < 1.0)
-                sprintf(msg_kWhn, "%.3f kWh consumed since %s", cnmea.kWhn, msg_stm);
+                sprintf(msg_kWhn, "%.3f kWh spent since %s", cnmea.kWhn, msg_stm);
             else
-                sprintf(msg_kWhn, "%.1f kWh consumed since %s", cnmea.kWhn, msg_stm);
+                sprintf(msg_kWhn, "%.1f kWh spent since %s", cnmea.kWhn, msg_stm);
             
             if (cnmea.kWhp < 1.0)
                 sprintf(msg_kWhp, "%.3f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
@@ -3312,7 +3357,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
 #ifdef PLOTSDL
-        if (cnmea.startTime)
+        if (cnmea.startTime && !dragging)
         {
             // The captionlist and coordlist lists
             captionlist caption_list = NULL;
@@ -3359,7 +3404,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 #endif
 
-        if (sdlApp->conf->snd_useMixer && sdlApp->conf->runWrn && !sdlApp->conf->muted) {
+        if (sdlApp->conf->snd_useMixer && !sdlApp->conf->muted) {
 
             slider.x = w - SLIDER_WIDTH - RIGHT_MARGIN;
             slider.w = SLIDER_WIDTH;
@@ -3376,7 +3421,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             fill.h = (int)(slider.h * volume_percent);
             fill.y = slider.y + (slider.h - fill.h);
 
-            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 200, 0, 255);
+            /* Slider foreground green to red */
+            SDL_SetRenderDrawColor(sdlApp->renderer, (Uint8)(volume_percent * 200.0f), 200-(Uint8)(volume_percent * 150.0f), 0, 255);
             SDL_RenderFillRect(sdlApp->renderer, &fill);
 
             /* Render volume text */
@@ -3403,16 +3449,27 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
  
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
-            // Read the pixels from the current render target and save them onto the surface
-            // This will slow down the application a bit.
-            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
-                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+        {
+            SDL_RenderReadPixels(
+                sdlApp->renderer,
+                NULL,
+                SDL_PIXELFORMAT_BGR888,
+                sdlApp->conf->vncPixelBuffer->pixels,
+                sdlApp->conf->vncPixelBuffer->pitch
+            );
+
+            rfbMarkRectAsModified(
+                sdlApp->conf->vncServer,
+                0, 0,
+                sdlApp->conf->window_w,
+                sdlApp->conf->window_h
+            );
         }
 
-        SDL_Delay(1000);
+        if (!dragging) {
+            SDL_Delay(1000);
+        }
 
         sdlApp->textFieldArrIndx--;
         do {
@@ -3445,6 +3502,335 @@ static int doEnvironment(sdl2_app *sdlApp)
     IMG_Quit();
 
     return event.type;
+}
+
+static int doCam(sdl2_app *sdlApp)
+{
+    AVFormatContext *fmt = NULL;
+    AVCodecContext *vctx = NULL;
+    AVCodecContext *actx = NULL;
+    struct SwrContext *swr = NULL;
+
+    SDL_Rect mutebarR, unmutebarR, pWaitR, exitbuttR;
+  
+    int vstream = -1;
+    int astream = -1;
+    int audio_buf_size = 192000;
+    int wasMuted;
+
+    AVPacket pkt;
+    AVFrame *frame = av_frame_alloc();
+
+    uint8_t *audio_buf = NULL;
+    audio_buf = (uint8_t*)malloc(audio_buf_size);
+
+    SDL_Texture *tex = NULL;
+    SDL_AudioDeviceID deviceId = 0;
+    SDL_Event event;
+
+    wasMuted = sdlApp->conf->muted;
+    sdlApp->conf->muted = 1;    // Prevent warnings
+    int muted = 0;
+
+    int got_keyframe = 0;
+
+    avformat_network_init();
+
+    av_log_set_level(AV_LOG_QUIET);
+
+    // Clear screen and show please wait ....
+    SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+    SDL_RenderClear(sdlApp->renderer);
+
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);  
+
+    pWaitR.w = win_w;
+    pWaitR.h = win_h;
+    pWaitR.x = 0;
+    pWaitR.y = 0;
+
+    exitbuttR.w = 50;
+    exitbuttR.h = 50;
+    exitbuttR.x = 30;
+    exitbuttR.y = 400;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
+
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
+
+    char pict[PATH_MAX];
+
+    SDL_Texture* pWait = NULL;
+    sprintf(pict , "%s/pwait.png", IMAGE_PATH);
+    pWait = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "pwait.png");  
+
+    SDL_RenderCopyEx(sdlApp->renderer, pWait, NULL, &pWaitR, 0, NULL, SDL_FLIP_NONE);
+    SDL_RenderPresent(sdlApp->renderer); 
+
+    SDL_Texture* pQuit = NULL;
+    sprintf(pict , "%s/quitButton.png", IMAGE_PATH);
+    pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
+    
+    int toggle = 1;
+    int running = 4;
+
+    while (running)
+    {
+        AVDictionary *opts = NULL;
+
+        char *proto[] = {"tcp", "udp"};
+
+        av_dict_set(&opts,"rtsp_transport", proto[(toggle = !toggle)],0);
+        av_dict_set(&opts,"fflags","nobuffer",0);
+        av_dict_set(&opts,"flags","low_delay",0);
+        av_dict_set(&opts,"max_delay","0",0);
+
+        if (avformat_open_input(&fmt, sdlApp->conf->cam_url, NULL, &opts) < 0)
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                 "Failed to open RTSP %s stream %s... retrying %d", sdlApp->conf->cam_url, proto[toggle], running);
+            SDL_Delay(1000);
+            av_dict_free(&opts);
+            running--;
+            continue;
+        }
+
+        if (avformat_find_stream_info(fmt,NULL) < 0)
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Stream info failed... retrying %d", running);
+            avformat_close_input(&fmt);
+            SDL_Delay(2000);
+            running--;
+            continue;
+        }
+
+        av_dict_free(&opts);
+
+        vstream = -1;
+        astream = -1;
+
+        for (int i=0;i<fmt->nb_streams;i++)
+        {
+            if (fmt->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && vstream==-1)
+                vstream = i;
+
+            if (fmt->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && astream==-1)
+                astream = i;
+        }
+
+        got_keyframe = 0;
+
+        /* VIDEO */
+
+        if (vstream >= 0)
+        {
+            const AVCodec *vcodec =
+                avcodec_find_decoder(fmt->streams[vstream]->codecpar->codec_id);
+
+            vctx = avcodec_alloc_context3(vcodec);
+            avcodec_parameters_to_context(vctx, fmt->streams[vstream]->codecpar);
+            avcodec_open2(vctx,vcodec,NULL);
+
+            tex = SDL_CreateTexture(
+                sdlApp->renderer,
+                SDL_PIXELFORMAT_YV12,
+                SDL_TEXTUREACCESS_STREAMING,
+                vctx->width,
+                vctx->height);
+        }
+
+        /* AUDIO */
+
+        if (astream >= 0)
+        {
+            const AVCodec *acodec =
+                avcodec_find_decoder(fmt->streams[astream]->codecpar->codec_id);
+
+            actx = avcodec_alloc_context3(acodec);
+            avcodec_parameters_to_context(actx, fmt->streams[astream]->codecpar);
+            avcodec_open2(actx,acodec,NULL);
+
+            SDL_AudioSpec want;
+            SDL_zero(want);
+            want.freq = 48000;
+            want.format = AUDIO_S16SYS;
+            want.channels = 2;
+            want.samples = 4096;
+
+            if (sdlApp->conf->snd_useMixer) {
+
+                if ((deviceId = SDL_OpenAudioDevice(sdlApp->conf->snd_card_name, 0, &want, NULL, 0)) == 0) { 
+                    if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &want, NULL, 0)) == 0) { // Open default
+                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                            "Failed to SDL_OpenAudioDevice %s: %s", sdlApp->conf->snd_card_name, SDL_GetError()); 
+                    }
+                }
+            }
+
+            if (deviceId)
+                SDL_PauseAudioDevice(deviceId,0);
+
+            AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+
+            if (swr_alloc_set_opts2(
+                &swr,
+                &stereo,
+                AV_SAMPLE_FMT_S16,
+                48000,
+                &actx->ch_layout,
+                actx->sample_fmt,
+                actx->sample_rate,
+                0,
+                NULL) < 0)
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "swr_alloc_set_opts2 failed. Giving up");
+                running = 0;
+                break;
+            }
+
+            if (swr_init(swr) < 0)
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "swr_init failed. Giving up");
+                running = 0;
+                break;
+            }
+        }
+
+        while (running && av_read_frame(fmt, &pkt) >= 0) {
+
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) {
+                    running = 0;
+                    break;
+                }
+
+                if (event.type == SDL_MOUSEBUTTONDOWN) {
+
+                    SDL_Point p = { event.button.x, event.button.y };
+
+                    if (Scaled_PointInRect(sdlApp, &p, &exitbuttR)) {
+                        running = 0;
+                        break;
+                    }
+                    
+                    if (Scaled_PointInRect(sdlApp, &p, &mutebarR)) {
+                        muted = !muted;
+                    }
+                }
+            }
+
+            /* VIDEO */
+
+            if (pkt.stream_index == vstream)
+            {
+                if (!got_keyframe)
+                {
+                    if (!(pkt.flags & AV_PKT_FLAG_KEY))
+                    {
+                        av_packet_unref(&pkt);
+                        continue;
+                    }
+                    got_keyframe = 1;
+                }
+
+                avcodec_send_packet(vctx,&pkt);
+
+                while (avcodec_receive_frame(vctx,frame) == 0)
+                {
+                    SDL_UpdateYUVTexture(
+                        tex,
+                        NULL,
+                        frame->data[0],frame->linesize[0],
+                        frame->data[1],frame->linesize[1],
+                        frame->data[2],frame->linesize[2]);
+
+                    SDL_RenderClear(sdlApp->renderer);
+                    SDL_RenderCopy(sdlApp->renderer,tex,NULL,NULL);
+
+                    // Draw Exit button
+                    if (pQuit != NULL) {
+                        SDL_RenderCopyEx(sdlApp->renderer, pQuit, NULL, &exitbuttR, 0, NULL, SDL_FLIP_NONE);
+                    }
+
+                    if (deviceId) {
+                        if (muted == 0) {
+                            SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+                        } else {
+                            SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+                        }
+                    }
+
+                    SDL_RenderPresent(sdlApp->renderer);
+                }
+            }
+
+            /* AUDIO */
+
+            if (pkt.stream_index == astream && actx && swr)
+            {
+                avcodec_send_packet(actx,&pkt);
+
+                while (avcodec_receive_frame(actx,frame) == 0)
+                {
+                    uint8_t *out_planes[1] = { audio_buf };
+
+                    int out_samples = swr_convert(
+                        swr,
+                        out_planes,
+                        audio_buf_size/4,
+                        (const uint8_t**)frame->data,
+                        frame->nb_samples);
+
+                    if (out_samples > 0 && deviceId > 0 && !muted)
+                    {
+                        int out_size = out_samples * 2 * 2;
+                        SDL_QueueAudio(deviceId,audio_buf,out_size);
+                    }
+                }
+            }
+
+            av_packet_unref(&pkt);
+        }
+
+        avformat_close_input(&fmt);
+        SDL_Delay(1000);
+    }
+
+    if (vctx) avcodec_free_context(&vctx);
+    if (actx) avcodec_free_context(&actx);
+    if (frame) av_frame_free(&frame);
+    if (swr) swr_free(&swr);
+    if (audio_buf) free(audio_buf);
+
+    if (deviceId) {
+        SDL_CloseAudioDevice(deviceId);
+    }
+
+    if (tex != NULL) {
+        SDL_DestroyTexture(tex);
+    }
+
+    if (pWait != NULL) {
+        SDL_DestroyTexture(pWait);
+    }
+
+    if (pQuit != NULL) {
+        SDL_DestroyTexture(pQuit);
+    }
+
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
+
+    sdlApp->conf->muted = wasMuted;
+
+    IMG_Quit();
+
+    return COGPAGE;
 }
 
 #ifdef DIGIFLOW
@@ -3488,9 +3874,9 @@ static int doWater(sdl2_app *sdlApp)
     gaugeR.x = 19;
     gaugeR.y = 18;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     netStatbarR.w = noNetStatbarR.w = 25;
@@ -3644,13 +4030,22 @@ static int doWater(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer) {
-            // Read the pixels from the current render target and save them onto the surface
-            // This will slow down the application a bit.
-            SDL_RenderReadPixels(sdlApp->renderer, NULL, SDL_GetWindowPixelFormat(sdlApp->window),
-                sdlApp->conf->vncPixelBuffer->pixels, sdlApp->conf->vncPixelBuffer->pitch);
-            doRGBconv(sdlApp);
-            rfbMarkRectAsModified(sdlApp->conf->vncServer, 0, 0, sdlApp->conf->window_w, sdlApp->conf->window_h);
+        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+        {
+            SDL_RenderReadPixels(
+                sdlApp->renderer,
+                NULL,
+                SDL_PIXELFORMAT_BGR888,
+                sdlApp->conf->vncPixelBuffer->pixels,
+                sdlApp->conf->vncPixelBuffer->pitch
+            );
+
+            rfbMarkRectAsModified(
+                sdlApp->conf->vncServer,
+                0, 0,
+                sdlApp->conf->window_w,
+                sdlApp->conf->window_h
+            );
         }
 
         SDL_Delay(1000);
@@ -3759,9 +4154,9 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
     SDL_Rect textField_rect;
 
-    menuBarR.w = 340;
+    menuBarR.w = 393;
     menuBarR.h = 50;
-    menuBarR.x = 430;
+    menuBarR.x = 400;
     menuBarR.y = 400;
 
     int progress = 10;
@@ -3948,17 +4343,6 @@ static void closeSDL2(sdl2_app *sdlApp)
     SDL_Quit();
 }
 
-void force_raise(SDL_Window *window) {
-    SDL_SysWMinfo info;
-    SDL_VERSION(&info.version);
-    if (SDL_GetWindowWMInfo(window, &info)) {
-        Display *dpy = info.info.x11.display;
-        Window win = info.info.x11.window;
-        XRaiseWindow(dpy, win);
-        XFlush(dpy);
-    }
-}
-
 static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
 {
     SDL_Surface* Loading_Surf;
@@ -4024,8 +4408,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     }
 
     if (configParams->runWrn) {
-        if (SDL_getenv("SDL_AUDIODRIVER") == NULL) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_AUDIODRIVER (alsa/pulse) not set in environment. Cannot play warnings");
+        if (!configParams->snd_useMixer) {
             configParams->runWrn = 0;
         } else {
             threadWrn = SDL_CreateThread(threadWarn, "threadWarn", configParams);
@@ -4066,9 +4449,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 
-    force_raise(sdlApp->window);
 //    SDL_RaiseWindow(sdlApp->window);
-//    SDL_SetWindowAlwaysOnTop(sdlApp->window, SDL_TRUE);
+    SDL_SetWindowAlwaysOnTop(sdlApp->window, SDL_TRUE);
 
     return 0;
 }
@@ -4097,18 +4479,26 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
                 strcpy((sdlApp->subAppsCmd[c][1]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 1));
                 strcpy((sdlApp->subAppsIco[c][2]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 2));
                 sprintf(subtask, "which %s", sdlApp->subAppsCmd[c][0]);
+ 
                 *buff = '\0';
+
                 if ((fd = popen(subtask, "r")) != NULL) {
                     fgets(buff, sizeof(buff) , fd);
                     pclose(fd);
                 }
-                if (strlen(buff) < 2)
+                if (strlen(buff) < 2) {
                     sdlApp->subAppsCmd[c][0] = NULL;
+                }
 
-                if (c++ >= TSKPAGE) break;
+                if (c++ >= TSKPAGE) {
+                    break;
+                }
             }
-            if (c >1)
+
+            if (c >1) {
                 sdlApp->subAppsCmd[0][0] = "1"; // Checked
+            }
+
             sqlite3_finalize(res);
         }
     }
@@ -4167,6 +4557,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         setpgid(0, 0);
         prctl(PR_SET_PDEATHSIG, SIGINT);
         execv ("/bin/bash", args);
+        _exit(1);  // fallback if exec fails
     }
 
     // You've picked my bones clean, speak now ...
@@ -4192,8 +4583,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
 static void init_alsa(configuration *configParams)
 {
-
-    const char *audioenv = getenv("AUDIODEV");  // e.g., "hw:2,0" for SDL2
+    const char *audioenv = configParams->snd_card;  // e.g., "hw:2,0" for SDL2
 
     if (audioenv) {
         // copy up to comma or end of string
@@ -4211,8 +4601,6 @@ static void init_alsa(configuration *configParams)
         strcpy(configParams->snd_card, "default");
     }
 
-    SDL_Log("Using ALSA device \"%s\". Export AUDIODEV=<your-audiodev> to use something else.", configParams->snd_card);
-
     snd_mixer_open(&configParams->mixer, 0);
     snd_mixer_attach(configParams->mixer, configParams->snd_card);
     snd_mixer_selem_register(configParams->mixer, NULL, NULL);
@@ -4229,9 +4617,20 @@ static void init_alsa(configuration *configParams)
 
     if (!configParams->elem) {
         configParams->snd_useMixer = 0;
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element");
     } else {
+        setenv("SDL_AUDIODRIVER", "alsa", 1);
+        SDL_Init(SDL_INIT_AUDIO);
         configParams->snd_useMixer = 1;
         snd_mixer_selem_get_playback_volume_range(configParams->elem, &configParams->snd_minv, &configParams->snd_maxv);
+
+        const char *number = 0;
+        const char *colon = strchr(configParams->snd_card, ':');
+        if (colon && *(colon + 1)) {
+            number = colon + 1;
+        }
+        strncpy(configParams->snd_card_name, SDL_GetAudioDeviceName(atoi(number),0), sizeof(((configuration *)0)->snd_card_name));
+        SDL_Log("Using ALSA mixer for \"%s\" by name of \"%s\"", configParams->snd_card, configParams->snd_card_name);
     }
 }
 
@@ -4242,7 +4641,6 @@ int main(int argc, char *argv[])
     sdl2_app sdlApp;
     char buf[FILENAME_MAX];
     struct stat stats;
-    FILE *fd;
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
@@ -4253,25 +4651,20 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
-    if (getenv("DISPLAY") != NULL) {    // Wait for X/Weston to become ready
+    if (getenv("DISPLAY") != NULL) {    // Wait for X/Xweston to become ready
         int i;
         for (i = 0; i < 5; i++) {
-            system("xdpyinfo  2>/dev/null | grep dimensions | awk '{printf \"%s\", $2}' >/tmp/d-data.txt");
-            if ((fd=fopen("/tmp/d-data.txt", "r")) != NULL) {
-                fstat(fileno(fd), &stats);
-                if (stats.st_size == 0) {
-                    fclose(fd);
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Retry (%d): failed to retrive screen size from X", i+1);
-                    sleep(2);
-                    continue;
-                }
-                fread(configParams.ssize, 1, sizeof(configParams.ssize), fd);
-                fclose(fd);
-                break;
+            Display *display;
+            if ((display = XOpenDisplay(NULL)) == NULL) {
+                sleep(2);
+                continue;
             }
+            XWindowAttributes wa;
+            XGetWindowAttributes(display, DefaultRootWindow(display), &wa);
+            sprintf(configParams.ssize, "%dx%d", wa.width, wa.height);
+            XCloseDisplay(display);
+            break;
         }
-
-        unlink("/tmp/d-data.txt");
         if (i >= 5) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from X/Weston. Terminating now!\n", argv[0]);
             return 1;
@@ -4352,12 +4745,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (configParams.runWrn == 1) {
-        init_alsa(&configParams);
-        if (configParams.snd_useMixer == 0) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element");
-        }
-    }
+    init_alsa(&configParams);
 
     if (useSyslog) {
         setlogmask (LOG_UPTO (LOG_NOTICE));
@@ -4400,7 +4788,7 @@ int main(int argc, char *argv[])
 
             if (pid0 == 0) {
                 // Disabe decorations from wm.
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start devilspie2");
+                SDL_Log("Attempt to start devilspie2");
                 char *args[] = { "/usr/bin/devilspie2", "-f", "/usr/local/etc/devilspie2",  NULL }; 
                 execvp(args[0], args);
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
@@ -4417,7 +4805,7 @@ int main(int argc, char *argv[])
 
                     for (int i = 1; i < 8; i++) {
 
-                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start a window manager");
+                        SDL_Log("Attempt to start a window manager");
 
                         pidWmMgr = fork();
 
@@ -4478,7 +4866,7 @@ int main(int argc, char *argv[])
                     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to initiate the splash screen");
                     char *args[] = { "/usr/bin/xloadimage", "-quiet", "-fullscreen", buf, NULL };
                     execvp(args[0], args);
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)\n", args[0], buf, strerror(errno));
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s %s : %s (non fatal)", args[0], buf, strerror(errno));
                     _exit(0);
                 }
             } else {
@@ -4496,7 +4884,6 @@ int main(int argc, char *argv[])
         if (SDL_getenv("WAYLAND_DISPLAY") != NULL) {
                 SDL_setenv("SDL_VIDEODRIVER", "wayland", 0);
                 SDL_Log("Using Wayland Videodriver");
-                configParams.useWln = 1;
                 configParams.useWm = 0;
             } else {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Neither x11 or wayland are available as SDL_VIDEODRIVER");
@@ -4506,13 +4893,14 @@ int main(int argc, char *argv[])
 
     if (configParams.configs > 1024) {
 
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Attempt to start the ttyd daemon for remote configurtions");
+        SDL_Log("Attempt to start the ttyd daemon for remote configurtion");
 
         pid_t pid = fork();
 
         if (pid == 0 ) {
 
             // Redirect stdout and stderr to /dev/null
+
             int fd = open("/dev/null", O_RDWR);
             if (fd >= 0) {
                // dup2(fd, STDOUT_FILENO);
@@ -4521,11 +4909,13 @@ int main(int argc, char *argv[])
                 close(fd);
             }
 
+			setenv("DISPLAY", ":0", 1);	// May be required by subtasks although not by ttyd itself.
+
             // Start the ttyd
             sprintf(buf, "%d", configParams.configs);
             char *args[] = { "/usr/bin/ttyd", "-p", buf, "--writable", "/usr/local/bin/sdlSpeedometer-config", NULL };
             execvp(args[0], args);
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s : %s (non fatal)\n", args[0], strerror(errno));
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s : %s (non fatal)", args[0], strerror(errno));
             _exit(0);
         }
 
@@ -4543,6 +4933,7 @@ int main(int argc, char *argv[])
 
     while(1)
     {
+        SDL_Delay(200);
         SDL_FlushEvents(SDL_FINGERDOWN, SDL_FINGERMOTION);
 
         switch (sdlApp.nextPage)
@@ -4563,6 +4954,8 @@ int main(int argc, char *argv[])
             case WTRPAGE: sdlApp.nextPage = doWater(&sdlApp);
                 break;
 #endif
+            case CAMPAGE: sdlApp.nextPage = doCam(&sdlApp);
+                break;
             case CALPAGE: sdlApp.nextPage = doCalibration(&sdlApp, &configParams);
                 break;
             case TSKPAGE: sdlApp.nextPage = doSubtask(&sdlApp, &configParams);

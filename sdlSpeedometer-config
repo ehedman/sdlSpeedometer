@@ -2,13 +2,17 @@
 
 # shellcheck disable=SC2181
 
-if [ "$DISPLAY" ]; then
+if [[ "$(readlink -f "$0")" == "/usr/local/bin/"* ]]; then
     SPEEDOMETER_DB=/usr/local/etc/speedometer/speedometer.db
+    installed=1
 else
+    unset DISPLAY
     SPEEDOMETER_DB=speedometer.db
+    installed=0
 fi
 
 if [ ! -f $SPEEDOMETER_DB ]; then
+    echo "Database $SPEEDOMETER_DB not found. Run ./sdlSpeedometer to create an initial database."
     exit 1
 fi
 
@@ -40,7 +44,7 @@ do_finish() {
     fi
   fi
 
-  if [ -s "$SQLFILE" ]; then
+  if [ -s "$SQLFILE" ] && [ $installed -eq 1 ]; then
     if systemctl status sdlSpeedometer.service &>/dev/null ; then
         sudo systemctl restart sdlSpeedometer.service &>/dev/null || true
     fi
@@ -165,6 +169,18 @@ Enter the port number of the VNC Server
   fi
 }
 
+do_set_camera_url() {
+    whiptail --msgbox "\
+Enter the URL to an RTSP Camera
+" 20 70 1
+
+  CURRENT_CAMERA_URL=$(sqlite3 $SPEEDOMETER_DB 'SELECT camurl FROM config;')
+  NEW_CURRENT_CAMERA_URL=$(whiptail --inputbox "Please enter the camera URL" 20 60 -- "$CURRENT_CAMERA_URL" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_CURRENT_CAMERA_URL" ]; then
+    echo "UPDATE config SET camurl = '$NEW_CURRENT_CAMERA_URL' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
 do_set_compass_offset() {
     whiptail --msgbox "\
 Enter the manual compass offset, Max -10 to + 10 degrees
@@ -224,6 +240,79 @@ Enter the audible high current level warning message
   if [ -n "$NEW_CURRENT_WARNING" ]; then
     echo "UPDATE warnings SET highcurrw = '$NEW_CURRENT_WARNING' WHERE Id=1;" >> "$SQLFILE"
   fi
+}
+
+is_pulseaudio() {
+  pgrep pulseaudio > /dev/null || pgrep pipewire-pulse > /dev/null
+  return $?
+}
+
+do_set_audio_device() {
+
+    CURRENT_AUDIO_DEVICE=$(sqlite3 $SPEEDOMETER_DB 'SELECT audiodev FROM config;' | awk -F'[:,]' '{print $2}')
+
+    if is_pulseaudio ; then
+    oIFS="$IFS"
+ 
+    list=$(sudo -u $USER XDG_RUNTIME_DIR=/run/user/$SUDO_UID LANG=C pactl list sinks | grep -e "Sink #" -e "alsa.card_name" | sed s/*//g | sed s/^[' '\\t]*//g | sed s/'Sink #'//g | sed s/'alsa.card_name = '//g | sed s/'bcm2835 '//g | sed s/\"//g | tr '\n' '/')
+    if [ -n "$list" ] ; then
+        IFS="/"
+        AUDIO_OUT=$(whiptail --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 ${list} 3>&1 1>&2 2>&3)
+    else
+        whiptail --msgbox "No internal audio devices found" 20 60 1
+        return 1
+    fi
+    
+    if [ $? -eq 0 ]; then
+      sudo -u $USER XDG_RUNTIME_DIR=/run/user/$SUDO_UID pactl set-default-sink $AUDIO_OUT
+    fi
+    IFS="$oIFS"
+    else
+        if aplay -l | grep -q "bcm2835 ALSA"; then
+            AUDIO_OUT=$(whiptail --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 \
+              "0" "Auto" \
+              "1" "Force 3.5mm ('headphone') jack" \
+              "2" "Force HDMI" \
+            3>&1 1>&2 2>&3)
+
+            AUDIO_OUT=$1
+
+            if [ "$?" -eq 0 ] && [ -n "$AUDIO_OUT" ]; then
+                amixer cset numid=3 "$AUDIO_OUT"
+            fi
+        else
+            n=0
+            array=""
+            while [ $n -le 9 ]
+            do
+              CARD=$(LC_ALL=C aplay -l | grep "card $n" | cut -d [ -f 2 | cut -d ] -f 1)
+              if [ -z "$CARD" ] ; then
+                break
+              else
+                if [ -z "$array" ] ; then
+                  array=$n"/"$CARD
+                else
+                  #shellcheck disable=2027
+                  array=$array"/"$n"/"$CARD
+                fi
+              fi
+              n=$(( n+1 ))
+            done
+            if [ $n -eq 0 ] ; then
+              whiptail --msgbox "No audio devices found" 20 60 1
+              false
+            else
+              oIFS="$IFS"
+              IFS="/"
+              AUDIO_OUT=$(whiptail --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 ${array} 3>&1 1>&2 2>&3)
+              IFS="$oIFS"
+            fi
+            if [ "$?" -eq 0 ] && [ -n "$AUDIO_OUT" ]; then
+                NEW_AUDIO_DEVICE="hw:${AUDIO_OUT},0"
+                echo "UPDATE config SET audiodev = '$NEW_AUDIO_DEVICE' WHERE Id=1;" >> "$SQLFILE"
+            fi
+        fi
+    fi
 }
 
 do_hostname() {
@@ -459,7 +548,9 @@ do_config_menu() {
     "16 Depth warning" "Enter the audible depth level warning" \
     "17 Voltage warning" "Enter the audible low voltage level warning" \
     "18 Current warning" "Enter the audible high current level warning" \
-    "19 Configuration" "Run raspi-config" \
+    "19 Audio Device" "Enter the audio device used for spoken warnings" \
+    "20 RTSP Camera" "Enter the URL for an RTSP Camera" \
+    "21 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -478,13 +569,15 @@ do_config_menu() {
       10\ *) do_set_external_app 3 ;;
       11\ *) do_set_external_app 4 ;;
       12\ *) do_set_external_app 5 ;;
-      13\ *) do_set_external_app 7 ;;
+      13\ *) do_set_external_app 6 ;;
       14\ *) do_set_compass_offset ;;
       15\ *) do_set_compass_roll_offset ;;
       16\ *) do_set_depth_warning ;;
       17\ *) do_set_voltage_warning ;;
       18\ *) do_set_current_warning ;;
-      19\ *) do_raspi_config ;;
+      19\ *) do_set_audio_device ;;
+      20\ *) do_set_camera_url ;;
+      21\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi

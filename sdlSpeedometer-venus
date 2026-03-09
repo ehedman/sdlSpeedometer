@@ -30,5 +30,5 @@ mkdir -p "$PROFILE/Default"
   --disable-translate \
   --incognito \
   --single-process \
-  http://"${ip}":"${port}"/navi/victron-gui-v2.php &>/tmp/junk
+  http://"${ip}":"${port}"/navi/victron-gui-v2.php
 

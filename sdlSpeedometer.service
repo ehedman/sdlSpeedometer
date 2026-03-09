@@ -2,13 +2,15 @@
 [Unit]
 Description=Marine instrument application
 DefaultDependencies=no
-After=weston.service
+After=weston-kiosk.service
+Requires=weston-kiosk.service
 
 [Service]
 Type=simple
 User=NOTYET
 PAMName=login
 EnvironmentFile=/etc/default/sdlSpeedometer
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 ExecStart=/usr/local/bin/sdlSpeedometer $ARGS
 Restart=always
 RestartSec=1

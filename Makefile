@@ -21,10 +21,16 @@ endif
 
 LDFLAGS+=-lX11 -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
 
+LDFLAGS+=-lavformat -lavcodec -lavutil -lswscale -lswresample
+
 ifeq ($(shell test -e /usr/local/include/plotsdl/plot.h && echo -n yes),yes)
 CFLAGS+=-DPLOTSDL
 LDFLAGS+=-lplotsdl
 endif
+
+RED=\033[1;31m
+GREEN=\033[1;32m
+RESET=\033[0m
 
 all: $(BIN)
 
@@ -41,14 +47,21 @@ install:
 	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config
 	sudo install -m 0755 -g root -o root sdlSpeedometer-reset -D $(DEST)/bin/sdlSpeedometer-reset
 	sudo install -m 0755 -g root -o root sdlSpeedometer-stat -D $(DEST)/bin/sdlSpeedometer-stat
-	sudo install -m 0755 -g root -o root sdlSpeedometer-kiosk -D $(DEST)/bin/sdlSpeedometer-kiosk
-	sudo install -m 0755 -g root -o root sdlSpeedometer-gui-v2 -D $(DEST)/bin/sdlSpeedometer-gui-v2
+	sudo install -m 0755 -g root -o root sdlSpeedometer-browser -D $(DEST)/bin/sdlSpeedometer-browser
+	sudo install -m 0755 -g root -o root sdlSpeedometer-venus -D $(DEST)/bin/sdlSpeedometer-venus
 	sudo install -m 0755 -g root -o root sdlSpeedometer-camera -D $(DEST)/bin/sdlSpeedometer-camera
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
 	sudo mkdir -p $(DEST)/share/sounds
 	sudo install -m 0644 -g root -o root ./sounds/* -D $(DEST)/share/sounds
-	install -m 0644 -g $(GRP) -o $$LOGNAME weston.ini -D $(HOME)/.config
+
+	@if [ -e $(HOME)/.config/weston.ini ]; then \
+		/usr/bin/echo -e "$(RED)$(HOME)/.config/weston.ini exists, not overwriting$(RESET)"; \
+	else \
+		install -m 0644 -g $(GRP) -o $$LOGNAME weston.ini -D $(HOME)/.config; \
+		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/weston.ini installed successfully$(RESET)"; \
+	fi
+
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
 	sudo mkdir -p $(DEST)/etc/speedometer
 	sudo chown $$LOGNAME:$(GRP) $(DEST)/etc/speedometer
@@ -80,6 +93,10 @@ stop:
 
 start:
 	-sudo systemctl start sdlSpeedometer.service
+	-systemctl status sdlSpeedometer.service --no-pager -l || true
+
+restart:
+	-sudo systemctl restart sdlSpeedometer.service
 	-systemctl status sdlSpeedometer.service --no-pager -l || true
 
 status:

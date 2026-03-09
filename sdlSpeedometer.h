@@ -67,7 +67,6 @@ typedef struct {
     short port;
     char server[100];
     int useWm;
-    int useWln;
     rfbScreenInfoPtr vncServer;
     SDL_Surface* vncPixelBuffer;
     float scale;
@@ -91,6 +90,8 @@ typedef struct {
     long snd_minv, snd_maxv;
     int snd_useMixer;
     char snd_card[32];
+    char snd_card_name[100];
+    char cam_url[200];
 } configuration;
 
 enum sdlPages {
@@ -99,8 +100,9 @@ enum sdlPages {
     DPTPAGE,
     WNDPAGE,
     GPSPAGE,
-    CALPAGE,
     PWRPAGE,
+    CAMPAGE,
+    CALPAGE,
     TSKPAGE,
     WTRPAGE  
 };
