@@ -41,7 +41,6 @@ install:
 	sudo install -m 0755 -g root -o root sdlSpeedometer-stat -D $(DEST)/bin/sdlSpeedometer-stat
 	sudo install -m 0755 -g root -o root sdlSpeedometer-browser -D $(DEST)/bin/sdlSpeedometer-browser
 	sudo install -m 0755 -g root -o root sdlSpeedometer-venus -D $(DEST)/bin/sdlSpeedometer-venus
-	sudo install -m 0755 -g root -o root sdlSpeedometer-camera -D $(DEST)/bin/sdlSpeedometer-camera
 	sudo mkdir -p $(DEST)/share/images
 	sudo install -m 0644 -g root -o root ./img/* -D $(DEST)/share/images
 	sudo mkdir -p $(DEST)/share/sounds
