@@ -32,20 +32,24 @@
 #include <libswscale/swscale.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
+#include <linux/videodev2.h>
 #include <libavutil/log.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <curl/curl.h>
 #include <termios.h>
 #include <libgen.h>
 #include <sys/prctl.h>
 #include <time.h>
+#include <math.h>
 #include <syslog.h>
-
 #include <errno.h>
 
 #include "sdlSpeedometer.h"
@@ -92,7 +96,6 @@
 #define BLACK   1
 #define WHITE   2
 #define RED     3
-#define DWRN    10  // Turn RED at depth < 10
 
 static int useSyslog = 0;
 
@@ -105,8 +108,9 @@ static warnings warn;
 void logCallBack(char *userdata, int category, SDL_LogPriority priority, const char *message)
 {
     FILE *out = priority == SDL_LOG_PRIORITY_ERROR? stderr : stdout;
+    category = 0;
 
-    if (useSyslog)
+    if (useSyslog+category)
         syslog (LOG_NOTICE, message, getuid ());
     else
         fprintf(out, "[%s] %s\n", basename(userdata), message);
@@ -167,9 +171,9 @@ int  configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, depthw REAL, lowvoltw REAL, highcurrw REAL)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, depthw REAL, draftw REAL, lowvoltw REAL, highcurrw REAL)", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO warnings (depthw, lowvoltw, highcurrw) VALUES(5.0, 11.7, 9.0)");
+                    sprintf(buf, "INSERT INTO warnings (depthw, draftw, lowvoltw, highcurrw) VALUES(5.0, 2.1, 11.7, 9.0)");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -234,11 +238,12 @@ int  configureDb(configuration *configParams)
     }
 
     // Fetch warnings
-    rval = sqlite3_prepare_v2(conn, "select depthw,lowvoltw,highcurrw from warnings", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select depthw, draftw, lowvoltw,highcurrw from warnings", -1, &res, &tail);        
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         warn.depthw    = sqlite3_column_double(res, 0);
-        warn.lowvoltw  = sqlite3_column_double(res, 1);
-        warn.highcurrw = sqlite3_column_double(res, 2);
+        warn.draftw    = sqlite3_column_double(res, 1);
+        warn.lowvoltw  = sqlite3_column_double(res, 2);
+        warn.highcurrw = sqlite3_column_double(res, 3);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch warning values from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -1101,12 +1106,12 @@ static int threadVnc(void *conf)
     long usec;
     sdlApp->conf->vncServer->desktopName = "Live Video sdlSpeedometer";
     sdlApp->conf->vncServer->alwaysShared=(1==1);
-    sdlApp->conf->vncServer->cursor = NULL;
+ //   sdlApp->conf->vncServer->cursor = NULL;
     sdlApp->conf->vncServer->newClientHook = vncNewclient;
     sdlApp->conf->vncServer->screenData = sdlApp;
     sdlApp->conf->vncServer->ptrAddEvent = vncClientTouch;
     sdlApp->conf->vncServer->port = sdlApp->conf->vncPort;
-    sdlApp->conf->vncServer->deferUpdateTime = 3;
+    sdlApp->conf->vncServer->deferUpdateTime = 20;
 
     rfbInitServer(sdlApp->conf->vncServer);           
 
@@ -1156,23 +1161,13 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
     TTF_SizeText(font,"0", &f_width, &f_height);
 
     if (l >1)
-        rect->x = x + abs((strlen(text)-l)*f_width)/2;  // Align towards (l)
+        rect->x = x + abs((strlen(text)-l))*f_width/2;  // Align towards (l)
     else
        rect->x = x;
     rect->y = y;
     rect->w = text_width;
     rect->h = text_height;
 }
-
-
-static int Scaled_PointInRect(sdl2_app *sdlApp, SDL_Point *p, SDL_Rect *rect)
-{ 
-    p->x /= sdlApp->conf->scale;
-    p->y /= sdlApp->conf->scale;
-
-    return (SDL_PointInRect(p, rect));
-}
-
 
 static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 {
@@ -1186,7 +1181,7 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 
     if (event->type == SDL_FINGERDOWN) {
         x = event->tfinger.x* sdlApp->conf->window_w;
-        y = event->tfinger.y* sdlApp->conf->window_h;
+        y = event->tfinger.y* sdlApp->conf->window_h; 
     } else if (event->type == SDL_MOUSEBUTTONDOWN) {
         x = event->button.x;
         y = event->button.y;
@@ -1211,7 +1206,7 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 
     if (sdlApp->curPage != DPTPAGE)
         sdlApp->plotMode = 1;
-  
+
     if (y > 370  && y < 480)
     {
         if (x > 403 && x < 453)
@@ -1235,7 +1230,7 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 
         }
         if (x > 718 && x < 775)
-           return CAMPAGE;
+           return VIDPAGE;
 
         if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
             if (x > 30 && x < 80)
@@ -1470,6 +1465,27 @@ static int threadWarn(void *conf)
     return 0;
 }
 
+inline static void doVnc(sdl2_app *sdlApp)
+{
+    if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
+    {
+        SDL_RenderReadPixels(
+            sdlApp->renderer,
+            NULL,
+            SDL_PIXELFORMAT_BGR888,
+            sdlApp->conf->vncPixelBuffer->pixels,
+            sdlApp->conf->vncPixelBuffer->pitch
+        );
+
+        rfbMarkRectAsModified(
+            sdlApp->conf->vncServer,
+            0, 0,
+            sdlApp->conf->window_w,
+            sdlApp->conf->window_h
+        );
+    }
+}
+
 // Present the compass with heading ant roll
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -1606,6 +1622,8 @@ static int doCompass(sdl2_app *sdlApp)
         }
         if (doBreak == 1) break;
 
+        SDL_RenderClear(sdlApp->renderer);
+
         ct = time(NULL);    // Get a timestamp for this turn 
 
         if (!(ct - cnmea.rmc_gps_ts > S_TIMEOUT)) {
@@ -1699,7 +1717,7 @@ static int doCompass(sdl2_app *sdlApp)
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -1743,23 +1761,7 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-        {
-            SDL_RenderReadPixels(
-                sdlApp->renderer,
-                NULL,
-                SDL_PIXELFORMAT_BGR888,
-                sdlApp->conf->vncPixelBuffer->pixels,
-                sdlApp->conf->vncPixelBuffer->pitch
-            );
-
-            rfbMarkRectAsModified(
-                sdlApp->conf->vncServer,
-                0, 0,
-                sdlApp->conf->window_w,
-                sdlApp->conf->window_h
-            );
-        }
+        doVnc(sdlApp);
 
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*200;
@@ -1784,6 +1786,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(windDir);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(calBar);
@@ -1912,6 +1915,8 @@ static int doSumlog(sdl2_app *sdlApp)
         }
         if (doBreak == 1) break;
 
+        SDL_RenderClear(sdlApp->renderer);
+
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
 
@@ -1972,7 +1977,7 @@ static int doSumlog(sdl2_app *sdlApp)
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -2017,23 +2022,7 @@ static int doSumlog(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-        {
-            SDL_RenderReadPixels(
-                sdlApp->renderer,
-                NULL,
-                SDL_PIXELFORMAT_BGR888,
-                sdlApp->conf->vncPixelBuffer->pixels,
-                sdlApp->conf->vncPixelBuffer->pitch
-            );
-
-            rfbMarkRectAsModified(
-                sdlApp->conf->vncServer,
-                0, 0,
-                sdlApp->conf->window_w,
-                sdlApp->conf->window_h
-            );
-        }
+        doVnc(sdlApp);
 
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*200;
@@ -2055,6 +2044,7 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
@@ -2172,6 +2162,8 @@ static int doGps(sdl2_app *sdlApp)
             }
         }
         if (doBreak == 1) break;
+
+        SDL_RenderClear(sdlApp->renderer);
         
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
@@ -2215,7 +2207,7 @@ static int doGps(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeGps, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_hdm, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 190, 142, 3, msg_hdm, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         get_text_and_rect(sdlApp->renderer, 290, 168, 1, msg_src, fontMG, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
@@ -2238,7 +2230,7 @@ static int doGps(sdl2_app *sdlApp)
         }
 
          if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -2278,23 +2270,7 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-        {
-            SDL_RenderReadPixels(
-                sdlApp->renderer,
-                NULL,
-                SDL_PIXELFORMAT_BGR888,
-                sdlApp->conf->vncPixelBuffer->pixels,
-                sdlApp->conf->vncPixelBuffer->pitch
-            );
-
-            rfbMarkRectAsModified(
-                sdlApp->conf->vncServer,
-                0, 0,
-                sdlApp->conf->window_w,
-                sdlApp->conf->window_h
-            );
-        }
+        doVnc(sdlApp);
 
         sdlApp->textFieldArrIndx--;
         do {
@@ -2310,6 +2286,7 @@ static int doGps(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeGps);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
@@ -2404,28 +2381,6 @@ static int doDepth(sdl2_app *sdlApp)
     float angle = 0;
     float dynUpd;
 
-#ifdef PLOTSDL
-    static float depthBuf[25];
-    static plot_params params;
-
-    params.screen_width=760;
-    params.screen_heigth=350;
-    params.font_text_path=DEFAULT_FONT;
-    params.font_text_size=12;
-    params.hide_backgroud = 1;
-    params.hide_caption = 1;
-    params.caption_text_x="Time (s)";
-    params.caption_text_y="Depth (m)";
-    params.scale_x = 1;
-    params.max_x = sizeof(depthBuf)/sizeof(float);
-    params.screen = sdlApp->window;
-    params.renderer = sdlApp->renderer;
-    params.offset_x = 0;
-    params.offset_y = 40;
-    for (int i=0; i< sizeof(depthBuf)/sizeof(float); i++)
-        depthBuf[i]= cnmea.dbt_ts > S_TIMEOUT? cnmea.dbt : 0.0;
-#endif
-
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
@@ -2469,6 +2424,8 @@ static int doDepth(sdl2_app *sdlApp)
             }
         }
         if (doBreak == 1) break;
+
+        SDL_RenderClear(sdlApp->renderer);
 
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -2597,99 +2554,227 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
 
-#ifdef PLOTSDL
+        static double depthHist[DHISTORY];
+        static int histHead;
+        static int histCount;
+
+        inline double auto_scale(double maxDepth)
+        {
+            int scale = 10;
+
+            while (scale < maxDepth)
+                scale += 10;
+
+            return scale;
+        }
+
+        inline void draw_text(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y)
+        {
+            SDL_Color c = {220,220,220,255};
+
+            SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
+            SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
+
+            SDL_Rect d = {x,y,s->w,s->h};
+
+            SDL_RenderCopy(r,t,NULL,&d);
+
+            SDL_FreeSurface(s);
+            SDL_DestroyTexture(t);
+        }
+
         if (sdlApp->plotMode)
         {
-            // The captionlist and coordlist lists
-            captionlist caption_list = NULL;
-            coordlist coordinate_list = NULL;
-            int j=0;
 
-            // Hidden but must be defined
-            caption_list=push_back_caption(caption_list,"Depth", 0, (cnmea.dbt <= warn.depthw? 0xFF0000 : 0x00FF00));
+            int w=DWINDOW_W;
+            int h=DWINDOW_H;
+            char buf[32];
 
-            int avtd = 0;
-            float awd = 0;
+            SDL_Rect plot = {80,60,w-120,h-175};
+            depthHist[histHead] = cnmea.dbt;
 
-            // Populate plot parameter object
-            depthBuf[0] = cnmea.dbt;
+            histHead = (histHead+1)%DHISTORY;
 
-            for (int i=sizeof(depthBuf)/sizeof(float); i >0; i--)
-            {
-                coordinate_list=push_back_coord(coordinate_list, 0, j, depthBuf[j]);
-                if (depthBuf[j] && avtd < 6) {
-                    awd += depthBuf[j];
-                    avtd++;
-                }
-                if (j++)
-                    depthBuf[i] = depthBuf[i-1];    // History shift
+            if(histCount<DHISTORY)
+                histCount++;
+
+            double maxDepth=0;
+
+            for(int i=0;i<histCount;i++)
+                if(depthHist[i]>maxDepth)
+                    maxDepth=depthHist[i];
+
+            double yMax = auto_scale(maxDepth);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer,12,18,28,255);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer,25,35,55,255);
+            SDL_RenderFillRect(sdlApp->renderer,&plot);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer,150,150,150,255);
+            SDL_RenderDrawRect(sdlApp->renderer,&plot);
+
+            /* ---------- DEPTH ZONES ---------- */
+
+            // Beräkna var den röda zonen slutar (toppen av det röda)
+            int redY = plot.y + plot.h - (warn.depthw / yMax) * plot.h;
+            
+            // Rita den röda zonen (botten)
+            SDL_Rect red = {plot.x, redY, plot.w, plot.y + plot.h - redY};
+            SDL_SetRenderDrawColor(sdlApp->renderer, 70, 0, 0, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &red);
+
+            // Rita den tonade zonen i 6 steg från redY upp till plot.y
+            int steps = 30;
+            float stepHeight = (float)(redY - plot.y) / steps;
+
+            for (int i = 0; i < steps; i++) {
+                SDL_Rect section;
+                section.x = plot.x;
+                section.w = plot.w;
+                // Vi ritar nerifrån och upp
+                section.y = redY - (int)((i + 1) * stepHeight);
+                section.h = (int)stepHeight + 1; // +1 för att undvika glipor vid avrundning
+
+                // Linjär interpolering av färg:
+                // i=0 (nära rött): r=70, g=0
+                // i=5 (toppen):    r=0,  g=60
+                int r = 20 - (i * 20 / (steps - 1));
+                int g = (i * 160 / (steps - 1));
+
+                SDL_SetRenderDrawColor(sdlApp->renderer, r, g, 0, 255);
+                SDL_RenderFillRect(sdlApp->renderer, &section);
             }
 
-            awd /= avtd;
+            SDL_SetRenderDrawColor(sdlApp->renderer,70,0,0,255);
+            SDL_RenderFillRect(sdlApp->renderer,&red);
 
-            // Adjust y-scale according to sampled average watt
-            params.max_y = 1000; params.scale_y = 75;    // Default
-            if (awd < 500) {params.max_y = 500;    params.scale_y = 50;}
-            if (awd < 200) {params.max_y = 220;    params.scale_y = 20;}
-            if (awd < 100) {params.max_y = 120;    params.scale_y = 10;}
-            if (awd < 40)  {params.max_y = 50;     params.scale_y = 5;}
-            if (awd < 20)  {params.max_y = 30;     params.scale_y = 3;}
-            if (awd < 6)   {params.max_y = 8;      params.scale_y = 1;}
-            //if (awd < 3)   {params.max_y = 5;      params.scale_y = 1;}
-           
-            params.caption_list = caption_list;
-            if(doPlot)
-	            params.coordinate_list = coordinate_list;
+            int thresholdY =
+                plot.y + plot.h -
+                (warn.depthw/yMax)*plot.h;
 
-            plot_graph(&params);
+            SDL_SetRenderDrawColor(sdlApp->renderer,255,70,70,255);
+
+            SDL_RenderDrawLine(
+                sdlApp->renderer,
+                plot.x,
+                thresholdY,
+                plot.x+plot.w,
+                thresholdY);
+
+            if (cnmea.dbt < 35) {
+                sprintf(buf,"%.1f m",warn.depthw);
+                draw_text(sdlApp->renderer,fontSrc,buf,plot.x,thresholdY);
+            }
+
+            int thresholdW =
+                plot.y + plot.h -
+                (warn.draftw/yMax)*plot.h;
+
+            SDL_SetRenderDrawColor(sdlApp->renderer,255,255,0,255);
+
+            SDL_RenderDrawLine(
+                sdlApp->renderer,
+                plot.x,
+                thresholdW,
+                plot.x+plot.w,
+                thresholdW);
+
+            if (cnmea.dbt < 35) {
+                sprintf(buf,"%.1f m",warn.draftw);
+                draw_text(sdlApp->renderer,fontSrc,buf,plot.x,thresholdW);
+            }
+
+            size_t newest = (histHead+DHISTORY-1)%DHISTORY;
+
+            double stepX = (double)plot.w/(DHISTORY-1);
+
+            int prevX=0,prevY=0;
+
+            for(size_t age=histCount; age>0; age--)
+            {
+                size_t a = age-1;
+
+                size_t idx = (newest+DHISTORY-a)%DHISTORY;
+
+                double v = depthHist[idx];
+
+                if(v>yMax) v=yMax;
+
+                int x = plot.x + plot.w - a*stepX;
+
+                int y = plot.y + plot.h -
+                        (v/yMax)*plot.h;
+
+                if((int)age<histCount)
+                {
+                    SDL_SetRenderDrawColor(sdlApp->renderer,50,180,255,255);
+                    SDL_RenderDrawLine(sdlApp->renderer,prevX,prevY,x,y);
+                }
+
+                prevX=x;
+                prevY=y;
+            }
+
+            sprintf(buf,"%.0f m",yMax);
+            draw_text(sdlApp->renderer,fontSrc,buf,20,plot.y-6);
+
+            sprintf(buf,"%.0f m",yMax/2);
+            draw_text(sdlApp->renderer,fontSrc,buf,28,plot.y+plot.h/2-6);
+
+            draw_text(sdlApp->renderer,fontSrc,"0 m",40,plot.y+plot.h-10);
+
+            // ----- TIME MARKERS -----
+
+            const char *labels[] = {"-20s","-15s","-10s","-5s","Now"};
+            int marks = 5;
+
+            for(int i=0;i<marks;i++)
+            {
+                int x = plot.x + (plot.w * i)/(marks-1);
+
+                SDL_SetRenderDrawColor(sdlApp->renderer,180,180,180,255);
+
+                SDL_RenderDrawLine(
+                    sdlApp->renderer,
+                    x,
+                    plot.y + plot.h,
+                    x,
+                    plot.y + plot.h + 6);
+
+                draw_text(
+                    sdlApp->renderer,
+                    fontSrc,
+                    labels[i],
+                    x - 15,
+                    plot.y + plot.h + 10);
+            }
         }
-#endif
-
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-        {
-            SDL_RenderReadPixels(
-                sdlApp->renderer,
-                NULL,
-                SDL_PIXELFORMAT_BGR888,
-                sdlApp->conf->vncPixelBuffer->pixels,
-                sdlApp->conf->vncPixelBuffer->pitch
-            );
-
-            rfbMarkRectAsModified(
-                sdlApp->conf->vncServer,
-                0, 0,
-                sdlApp->conf->window_w,
-                sdlApp->conf->window_h
-            );
-        }
+        doVnc(sdlApp);
 
         if (!sdlApp->plotMode) {
-        
             // Reduce CPU load if only short scale movements
             dynUpd = (1/fabsf(angle -t_angle))*200;
             dynUpd = dynUpd > 200? 200:dynUpd;
             SDL_Delay(30+(int)dynUpd);
         }   else {
-            SDL_Delay(1000);
+            SDL_Delay(70);
+
         }
 
         sdlApp->textFieldArrIndx--;
         do {
             SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
         } while (sdlApp->textFieldArrIndx-- >0);
+
     }
 
     if (subTaskbar != NULL) {
         SDL_DestroyTexture(subTaskbar);
     }
-
-#ifdef PLOTSDL
-    params.screen_width=0;
-    plot_graph(&params);
-#endif
 
     SDL_DestroyTexture(gaugeDepth);
     SDL_DestroyTexture(gaugeDepthW);
@@ -2697,10 +2782,12 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
     TTF_CloseFont(fontLarge);
+    TTF_CloseFont(fontMedium);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
@@ -2827,6 +2914,8 @@ static int doWind(sdl2_app *sdlApp)
         }
         if (doBreak == 1) break;
 
+        SDL_RenderClear(sdlApp->renderer);
+
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
@@ -2838,8 +2927,9 @@ static int doWind(sdl2_app *sdlApp)
 
         if (ct - cnmea.vwr_ts > S_TIMEOUT)
             sprintf(msg_vwra, "----");
-        else
-            sprintf(msg_vwra, "%.0f%c", cnmea.vwra, 0xb0);
+        else {
+            sprintf(msg_vwra, " %.0f%c", cnmea.vwra, 0xb0);
+        }
 
         // True wind speed
          if (ct -  cnmea.vwt_ts > S_TIMEOUT || cnmea.vwts == 0)
@@ -2924,7 +3014,7 @@ static int doWind(sdl2_app *sdlApp)
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <DWRN? RED : WHITE);
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -2959,23 +3049,7 @@ static int doWind(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
  
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-        {
-            SDL_RenderReadPixels(
-                sdlApp->renderer,
-                NULL,
-                SDL_PIXELFORMAT_BGR888,
-                sdlApp->conf->vncPixelBuffer->pixels,
-                sdlApp->conf->vncPixelBuffer->pitch
-            );
-
-            rfbMarkRectAsModified(
-                sdlApp->conf->vncServer,
-                0, 0,
-                sdlApp->conf->window_w,
-                sdlApp->conf->window_h
-            );
-        }
+        doVnc(sdlApp);
         
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle_a -t_angle_a))*200;
@@ -2997,6 +3071,7 @@ static int doWind(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeNeedleTrue);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
@@ -3008,22 +3083,6 @@ static int doWind(sdl2_app *sdlApp)
     IMG_Quit();
 
     return event.type;
-}
-
-static void set_alsa_volume(sdl2_app *sdlApp, float percent)
-{   
-    long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
-
-    snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
-}
-
-
-static float get_current_volume(sdl2_app *sdlApp)
-{
-    long volume;
-    snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
-
-    return (float)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
 }
 
 // Present Environmant page (Non standard NMEA)
@@ -3114,8 +3173,8 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_Rect textField_rect;
 
     SDL_Rect slider = {
-        (WINDOW_WIDTH - SLIDER_WIDTH) / 2,
-        (WINDOW_HEIGHT - SLIDER_HEIGHT) / 2,
+        (SWINDOW_WIDTH - SLIDER_WIDTH) / 2,
+        (SWINDOW_HEIGHT - SLIDER_HEIGHT) / 2,
         SLIDER_WIDTH,
         SLIDER_HEIGHT
     };
@@ -3145,29 +3204,20 @@ static int doEnvironment(sdl2_app *sdlApp)
     char msg_curr_bank[20] = {"Bank -"};
     char msg_temp_loca[20] = {"--"};
 
-#ifdef PLOTSDL
-    float powerBuf[25];
+    inline void set_alsa_volume(sdl2_app *sdlApp, float percent)
+    {   
+        long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
 
-    plot_params params;
+        snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
+    }
 
-    params.screen_width=760;
-    params.screen_heigth=210;
-    params.font_text_path=DEFAULT_FONT;
-    params.font_text_size=12;
-    params.hide_backgroud = 1;
-    params.hide_caption = 1;
-    params.caption_text_x="Time (s)";
-    params.caption_text_y="Watt";
-    params.scale_x = 1;
-    params.max_x = sizeof(powerBuf)/sizeof(float);
-    params.screen = sdlApp->window;
-    params.renderer = sdlApp->renderer;
-    params.offset_x = 0;
-    params.offset_y = 190;
+    inline float get_current_volume(sdl2_app *sdlApp)
+    {
+        long volume;
+        snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
 
-    memset(powerBuf, 0, sizeof(powerBuf));
-
-#endif
+        return (float)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
+    }
 
     // Volume adjustments
     float volume_percent = 0.0;
@@ -3203,9 +3253,9 @@ static int doEnvironment(sdl2_app *sdlApp)
             if (sdlApp->conf->snd_useMixer && !sdlApp->conf->muted) {
                 if (event.type == SDL_MOUSEMOTION && dragging) {
 
-                    SDL_Point p = { event.motion.x, event.motion.y };
+                    SDL_Point p = (SDL_Point){event.motion.x/sdlApp->conf->scale, event.motion.y/sdlApp->conf->scale};
 
-                    if (Scaled_PointInRect(sdlApp, &p, &slider)) {
+                    if (SDL_PointInRect(&p, &slider)) {
                         int mouseY = p.y;
 
                         float rel = (float)(slider.y + slider.h - mouseY) / slider.h;
@@ -3231,9 +3281,9 @@ static int doEnvironment(sdl2_app *sdlApp)
                     break;
                 }
 
-                SDL_Point p = { event.button.x, event.button.y };
+                SDL_Point p = (SDL_Point){event.button.x/sdlApp->conf->scale, event.button.y/sdlApp->conf->scale};
 
-                if (Scaled_PointInRect(sdlApp, &p, &slider)) {
+                if (SDL_PointInRect(&p, &slider)) {
                     dragging = 1;
                 }
             }
@@ -3243,6 +3293,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             }
 
         if (doBreak == 1) break;
+
+        SDL_RenderClear(sdlApp->renderer);
 
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -3294,8 +3346,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 164, 170, 0, msg_volt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 146, 240, 0, msg_volt_bank, fontLarge,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            //get_text_and_rect(sdlApp->renderer, 146, 240, 0, msg_volt_bank, fontLarge,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            //SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         }
 
@@ -3308,8 +3360,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 386, 170, 0, msg_curr, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 370, 240, 0, msg_curr_bank, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            //get_text_and_rect(sdlApp->renderer, 370, 240, 0, msg_curr_bank, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            //SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         }
 
@@ -3320,8 +3372,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 605, 170, 0, msg_temp, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 586, 240, 0, msg_temp_loca, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            //get_text_and_rect(sdlApp->renderer, 586, 240, 0, msg_temp_loca, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            //SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (sdlApp->conf->netStat == 1) {
@@ -3356,55 +3408,195 @@ static int doEnvironment(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
-#ifdef PLOTSDL
+        static double powerHist[PHISTORY];
+        static double voltHist[PHISTORY];
+
+        static int histHead;
+        static int histCount;
+
+        inline double auto_scale(double maxVal)
+        {
+            if(maxVal <= 50) return 50;
+            if(maxVal <= 500) return 500;
+            return 1000;
+        }
+
+        inline void draw_text(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y)
+        {
+            SDL_Color c={230,230,230,255};
+
+            SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
+            SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
+
+            SDL_Rect d={x,y,s->w,s->h};
+
+            SDL_RenderCopy(r,t,NULL,&d);
+
+            SDL_FreeSurface(s);
+            SDL_DestroyTexture(t);
+        }
+
+        inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
+        {
+            SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
+            SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
+
+            SDL_Rect d={x,y,s->w,s->h};
+
+            SDL_RenderCopy(r,t,NULL,&d);
+
+            SDL_FreeSurface(s);
+            SDL_DestroyTexture(t);
+        }
+
+        // Do plotting
         if (cnmea.startTime && !dragging)
         {
-            // The captionlist and coordlist lists
-            captionlist caption_list = NULL;
-            coordlist coordinate_list = NULL;
-            int j=0;
+            SDL_Rect plot={100,240,PWINDOW_W-100,PWINDOW_H-120};
 
-            // Hidden but must be defined
-            caption_list=push_back_caption(caption_list,"Power consumption", 0, (curr_value >=0? 0x00FF00 : 0xFF0000));
+            double power = fabs(cnmea.volt * cnmea.curr);
+            double volt = fabs(cnmea.volt);
 
-            int avtp = 0;
-            float avpw = 0;
+            powerHist[histHead]=power;
+            voltHist[histHead]=volt;
 
-            // Populate plot parameter object
-            powerBuf[0] = fabs(cnmea.volt * cnmea.curr);
+            histHead=(histHead+1)%PHISTORY;
 
-            for (int i=sizeof(powerBuf)/sizeof(float); i >0; i--)
+            if(histCount<PHISTORY)
+                histCount++;
+
+            double maxPower=0;
+
+            for(int i=0;i<SCALE_WINDOW;i++)
             {
-                coordinate_list=push_back_coord(coordinate_list, 0, j, powerBuf[j]);
-                if (powerBuf[j] && avtp < 6) {
-                    avpw += powerBuf[j];
-                    avtp++;
-                }
-                if (j++)
-                    powerBuf[i] = powerBuf[i-1];    // History shift
+                int idx=(histHead-i-1+PHISTORY)%PHISTORY;
+
+                if(powerHist[idx]>maxPower)
+                    maxPower=powerHist[idx];
             }
 
-            avpw /= avtp;
+            double yMax=auto_scale(maxPower);
 
-            // Adjust y-scale according to sampled average watt
-            params.max_y = 1000; params.scale_y = 75;    // Default
-            if (avpw < 500) {params.max_y = 500;    params.scale_y = 50;}
-            if (avpw < 200) {params.max_y = 220;    params.scale_y = 20;}
-            if (avpw < 100) {params.max_y = 120;    params.scale_y = 10;}
-            if (avpw < 40)  {params.max_y = 50;     params.scale_y = 5;}
-            if (avpw < 20)  {params.max_y = 30;     params.scale_y = 3;}
-            if (avpw < 6)   {params.max_y = 8;      params.scale_y = 1;}
-            //if (avpw < 3)   {params.max_y = 5;      params.scale_y = 1;}
-           
-            params.caption_list = caption_list;
-            if(doPlot)
-	            params.coordinate_list = coordinate_list;
+            SDL_SetRenderDrawColor(sdlApp->renderer,30,40,60,255);
+            SDL_RenderFillRect(sdlApp->renderer,&plot);
 
-            plot_graph(&params);
+            SDL_SetRenderDrawColor(sdlApp->renderer,160,160,160,255);
+            SDL_RenderDrawRect(sdlApp->renderer,&plot);
+
+            for(int i=1;i<5;i++)
+            {
+                int y=plot.y+i*plot.h/5;
+
+                SDL_SetRenderDrawColor(sdlApp->renderer,70,70,80,255);
+                SDL_RenderDrawLine(sdlApp->renderer,plot.x,y,plot.x+plot.w,y);
+            }
+
+            int newest=(histHead+PHISTORY-1)%PHISTORY;
+
+            double stepX=(double)plot.w/(PHISTORY-1);
+
+            int prevPX=0,prevPY=0;
+            int prevVX=0,prevVY=0;
+
+            for(int age=histCount;age>0;age--)
+            {
+                int a=age-1;
+                int idx=(newest+PHISTORY-a)%PHISTORY;
+
+                int x=plot.x+plot.w-a*stepX;
+
+                double p=powerHist[idx];
+                if(p>yMax) p=yMax;
+
+                int py=plot.y+plot.h-(p/yMax)*plot.h;
+
+                double v=voltHist[idx];
+
+                int vy=plot.y+plot.h-((v-8.0)/8.0)*plot.h;
+
+                if(age<histCount)
+                {
+                    if (cnmea.curr >=0 )
+                        SDL_SetRenderDrawColor(sdlApp->renderer,60,255,140,255);
+                    else
+                        SDL_SetRenderDrawColor(sdlApp->renderer,255,100,100,255);
+
+                    SDL_RenderDrawLine(sdlApp->renderer,prevPX,prevPY,x,py);
+
+                    SDL_SetRenderDrawColor(sdlApp->renderer,220,140,50,255);
+                    SDL_RenderDrawLine(sdlApp->renderer,prevVX,prevVY,x,vy);
+                }
+
+                prevPX=x;
+                prevPY=py;
+
+                prevVX=x;
+                prevVY=vy;
+            }
+
+            char buf[32];
+            SDL_Color c;
+
+            if (cnmea.curr >=0 )
+                c = (SDL_Color){100,255,100,255};
+            else
+                c = (SDL_Color){255,100,100,255};
+
+            sprintf(buf,"%.1f W",power);
+            draw_textc(sdlApp->renderer,fontLarge,buf, plot.x-75 ,plot.y-30, c);
+
+            sprintf(buf,"%.0f W",yMax);
+            draw_text(sdlApp->renderer,fontSmall,buf,25,plot.y-6);
+
+            sprintf(buf,"%.0f W",yMax/2);
+            draw_text(sdlApp->renderer,fontSmall,buf,30,plot.y+plot.h/2-6);
+
+            draw_text(sdlApp->renderer,fontSmall,"0 W",45,plot.y+plot.h-10);
+
+            for(int v=8;v<=16;v++)
+            {
+                int y=plot.y+plot.h-((v-8.0)/8.0)*plot.h;
+
+                SDL_SetRenderDrawColor(sdlApp->renderer,120,120,120,255);
+
+                SDL_RenderDrawLine(
+                    sdlApp->renderer,
+                    plot.x+plot.w,
+                    y,
+                    plot.x+plot.w+6,
+                    y);
+
+                char txt[8];
+                sprintf(txt,"%d",v);
+
+                draw_text(sdlApp->renderer,fontSmall,txt,plot.x+plot.w+10,y-7);
+            }
+
+            draw_text(sdlApp->renderer,fontSmall,"Volts",plot.x+plot.w+10,plot.y-20);
+
+            int ticks=25;
+
+            for(int i=0;i<=ticks;i++)
+            {
+                int x=plot.x+(plot.w*i)/ticks;
+
+                SDL_SetRenderDrawColor(sdlApp->renderer,170,170,170,255);
+
+                SDL_RenderDrawLine(
+                    sdlApp->renderer,
+                    x,
+                    plot.y+plot.h,
+                    x,
+                    plot.y+plot.h+6);
+
+                char label[6];
+                sprintf(label,"%d",25-i);
+
+                draw_text(sdlApp->renderer,fontSmall,label,x-6,plot.y+plot.h+10);
+            }
         }
-#endif
-
-        if (sdlApp->conf->snd_useMixer && !sdlApp->conf->muted) {
+    
+        if (sdlApp->conf->snd_useMixer && sdlApp->conf->snd_showMixer && !sdlApp->conf->muted) {
 
             slider.x = w - SLIDER_WIDTH - RIGHT_MARGIN;
             slider.w = SLIDER_WIDTH;
@@ -3449,26 +3641,10 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
  
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-        {
-            SDL_RenderReadPixels(
-                sdlApp->renderer,
-                NULL,
-                SDL_PIXELFORMAT_BGR888,
-                sdlApp->conf->vncPixelBuffer->pixels,
-                sdlApp->conf->vncPixelBuffer->pitch
-            );
-
-            rfbMarkRectAsModified(
-                sdlApp->conf->vncServer,
-                0, 0,
-                sdlApp->conf->window_w,
-                sdlApp->conf->window_h
-            );
-        }
+        doVnc(sdlApp);
 
         if (!dragging) {
-            SDL_Delay(1000);
+            SDL_Delay(90);
         }
 
         sdlApp->textFieldArrIndx--;
@@ -3481,10 +3657,6 @@ static int doEnvironment(sdl2_app *sdlApp)
         SDL_DestroyTexture(subTaskbar);
     }
 
-#ifdef PLOTSDL
-    params.screen_width=0;
-    plot_graph(&params);
-#endif
     SDL_DestroyTexture(gaugeVolt);
     SDL_DestroyTexture(gaugeVolt24);
     SDL_DestroyTexture(gaugeCurr);
@@ -3494,6 +3666,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_DestroyTexture(needleTemp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar); 
+    SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);  
     TTF_CloseFont(fontTod);
@@ -3504,7 +3677,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     return event.type;
 }
 
-static int doCam(sdl2_app *sdlApp)
+static int doCamera(sdl2_app *sdlApp)
 {
     AVFormatContext *fmt = NULL;
     AVCodecContext *vctx = NULL;
@@ -3517,6 +3690,7 @@ static int doCam(sdl2_app *sdlApp)
     int astream = -1;
     int audio_buf_size = 192000;
     int wasMuted;
+    int running = 0;
 
     AVPacket pkt;
     AVFrame *frame = av_frame_alloc();
@@ -3538,10 +3712,6 @@ static int doCam(sdl2_app *sdlApp)
 
     av_log_set_level(AV_LOG_QUIET);
 
-    // Clear screen and show please wait ....
-    SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
-    SDL_RenderClear(sdlApp->renderer);
-
     int win_w, win_h;
     SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);  
 
@@ -3552,8 +3722,8 @@ static int doCam(sdl2_app *sdlApp)
 
     exitbuttR.w = 50;
     exitbuttR.h = 50;
-    exitbuttR.x = 30;
-    exitbuttR.y = 400;
+    exitbuttR.x = win_w - 60;
+    exitbuttR.y = win_h - 60;
 
     mutebarR.w = unmutebarR.w = 25;
     mutebarR.h = unmutebarR.h = 25;
@@ -3577,7 +3747,7 @@ static int doCam(sdl2_app *sdlApp)
     pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
     
     int toggle = 1;
-    int running = 4;
+    running = 4;
 
     while (running)
     {
@@ -3614,7 +3784,7 @@ static int doCam(sdl2_app *sdlApp)
         vstream = -1;
         astream = -1;
 
-        for (int i=0;i<fmt->nb_streams;i++)
+        for (int i=0;i<(int)fmt->nb_streams;i++)
         {
             if (fmt->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && vstream==-1)
                 vstream = i;
@@ -3629,8 +3799,7 @@ static int doCam(sdl2_app *sdlApp)
 
         if (vstream >= 0)
         {
-            const AVCodec *vcodec =
-                avcodec_find_decoder(fmt->streams[vstream]->codecpar->codec_id);
+            const AVCodec *vcodec = avcodec_find_decoder(fmt->streams[vstream]->codecpar->codec_id);
 
             vctx = avcodec_alloc_context3(vcodec);
             avcodec_parameters_to_context(vctx, fmt->streams[vstream]->codecpar);
@@ -3663,7 +3832,6 @@ static int doCam(sdl2_app *sdlApp)
             want.samples = 4096;
 
             if (sdlApp->conf->snd_useMixer) {
-
                 if ((deviceId = SDL_OpenAudioDevice(sdlApp->conf->snd_card_name, 0, &want, NULL, 0)) == 0) { 
                     if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &want, NULL, 0)) == 0) { // Open default
                         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
@@ -3701,6 +3869,8 @@ static int doCam(sdl2_app *sdlApp)
             }
         }
 
+        int hideQuit = 0;
+
         while (running && av_read_frame(fmt, &pkt) >= 0) {
 
             while (SDL_PollEvent(&event)) {
@@ -3709,17 +3879,29 @@ static int doCam(sdl2_app *sdlApp)
                     break;
                 }
 
-                if (event.type == SDL_MOUSEBUTTONDOWN) {
+                if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN) {
 
-                    SDL_Point p = { event.button.x, event.button.y };
+                    hideQuit=50;
 
-                    if (Scaled_PointInRect(sdlApp, &p, &exitbuttR)) {
+                    SDL_Point p;
+                    int x, y;
+                    if (event.type == SDL_FINGERDOWN) {
+                        x = event.tfinger.x* sdlApp->conf->window_w;
+                        y = event.tfinger.y* sdlApp->conf->window_h;
+                        p = (SDL_Point){ x, y };
+                    } else {
+                        p = (SDL_Point){event.button.x/sdlApp->conf->scale, event.button.y/sdlApp->conf->scale};
+                    }
+
+                    if (SDL_PointInRect( &p, &exitbuttR)) {
                         running = 0;
                         break;
                     }
                     
-                    if (Scaled_PointInRect(sdlApp, &p, &mutebarR)) {
-                        muted = !muted;
+                    if (event.type == SDL_FINGERDOWN) {
+                        if (SDL_PointInRect(&p, &mutebarR)) {
+                            muted = !muted;
+                        }
                     }
                 }
             }
@@ -3754,7 +3936,8 @@ static int doCam(sdl2_app *sdlApp)
 
                     // Draw Exit button
                     if (pQuit != NULL) {
-                        SDL_RenderCopyEx(sdlApp->renderer, pQuit, NULL, &exitbuttR, 0, NULL, SDL_FLIP_NONE);
+                        if (hideQuit-- >=0)
+                            SDL_RenderCopyEx(sdlApp->renderer, pQuit, NULL, &exitbuttR, 0, NULL, SDL_FLIP_NONE);
                     }
 
                     if (deviceId) {
@@ -3766,6 +3949,8 @@ static int doCam(sdl2_app *sdlApp)
                     }
 
                     SDL_RenderPresent(sdlApp->renderer);
+
+                    doVnc(sdlApp);
                 }
             }
 
@@ -3830,8 +4015,529 @@ static int doCam(sdl2_app *sdlApp)
 
     IMG_Quit();
 
-    return COGPAGE;
+    return sdlApp->curPage;
 }
+
+static int findAudiodevice(char *dname, void *ptr)
+{
+    audRunner *doRun = ptr;
+
+    int card = -1;
+    snd_ctl_t *handle;
+    snd_ctl_card_info_t *info;
+    int found = 0;
+
+    snd_ctl_card_info_alloca(&info);
+
+    // Loopa through all audio cards
+    while (snd_card_next(&card) == 0 && card >= 0) {
+        char hw_name[32];
+        sprintf(hw_name, "hw:%d", card);
+
+        if (snd_ctl_open(&handle, hw_name, 0) < 0) continue;
+        if (snd_ctl_card_info(handle, info) >= 0) {
+            const char *id = snd_ctl_card_info_get_id(info);
+            const char *longname = snd_ctl_card_info_get_name(info);
+
+            // Check if requested name is there
+            if (strstr(id, dname) || strstr(longname, dname)) {
+                // Check for a PCM-device on this card
+                int dev = -1;
+                snd_pcm_info_t *pcminfo;
+                snd_pcm_info_alloca(&pcminfo);
+
+                while (snd_ctl_pcm_next_device(handle, &dev) == 0 && dev >= 0) {
+                    snd_pcm_info_set_device(pcminfo, dev);
+                    snd_pcm_info_set_subdevice(pcminfo, 0);
+                    snd_pcm_info_set_stream(pcminfo, SND_PCM_STREAM_CAPTURE);
+
+                    if (snd_ctl_pcm_info(handle, pcminfo) >= 0) {
+                        //printf("Found %s Capture: hw:%d,%d\n", doRun->snd_card_dev, card, dev);
+                        snprintf(doRun->snd_card_dev, sizeof(doRun->snd_card_dev),"hw:%d,%d", card, dev);
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+        }
+        snd_ctl_close(handle);
+    }
+
+    return found;
+
+}
+
+static int threadAudio(void *ptr)
+{
+    audRunner *doRun = ptr;
+    int dnm;
+    int found=0;
+    snd_pcm_t *capture_handle;
+    snd_pcm_t *playback_handle;
+ 
+    while ((!doRun->run)) {
+        SDL_Delay(1000); 
+    }
+
+    // Use arecord -l to insert a new device here
+     char *dnames[]={   "MS2109", \
+                        "Guermok USB2 Video", \
+                        "MS2130", \
+                        "MS2131", \
+                        "default" \
+                    };
+
+    for (dnm = 0; dnm < sizeof(dnames)/sizeof(char*); dnm++) {
+        if ((found=findAudiodevice(dnames[dnm], doRun)) == 1)
+            break;
+    }
+
+    if (!found) {
+        strcpy(doRun->snd_card_dev, dnames[--dnm]);
+    }
+
+    SDL_Log("A/V PCM Device: %s named %s", doRun->snd_card_dev, dnames[dnm]);
+
+    // 1. Open device
+    if (snd_pcm_open(&capture_handle, doRun->snd_card_dev, SND_PCM_STREAM_CAPTURE, 0) != 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "snd_pcm_open audio source failed on %s: %s", doRun->snd_card_dev, SDL_GetError());
+        SDL_Log("Format ~/.asoundrc to define the default capture PCM audio card");
+        return 0;
+    }
+
+    snprintf(doRun->snd_card_dev, sizeof(doRun->snd_card_dev), "plug%s", doRun->snd_card);
+
+    // 2. Open Speaker (Output) - "default" works usually best
+    if (snd_pcm_open(&playback_handle, doRun->snd_card_dev, SND_PCM_STREAM_PLAYBACK, 0) != 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "snd_pcm_open audio device %s failed. Trying defaut %s", doRun->snd_card_dev, SDL_GetError());
+        if (snd_pcm_open(&playback_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) != 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "snd_pcm_open audio device %s failed: %s", "default", SDL_GetError());
+            snd_pcm_close(capture_handle);
+            return 0;
+        }
+    }
+
+    // 3. Configure both of them (must have the same settings!)
+    unsigned int rate = 48000;
+    snd_pcm_set_params(capture_handle,  SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 2, rate, 1, 200000);
+    snd_pcm_set_params(playback_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 2, rate, 1, 200000);
+
+
+    // Properly enable the sound devices
+    snd_pcm_prepare(capture_handle);
+    snd_pcm_prepare(playback_handle);
+
+    // Explicit start the sound capture
+    snd_pcm_start(capture_handle);
+
+    short buffer[FRAME_SIZE * 2]; // *2 since we have two channels (stereo)
+
+    while (doRun->run) {
+        long r = snd_pcm_readi(capture_handle, buffer, FRAME_SIZE);
+        
+        if (r < 0) {
+            // recover handles both -EPIPE and -ESTRPIPE
+            r = snd_pcm_recover(capture_handle, r, 0);
+            if (r < 0) continue; // retry
+        }
+
+        if (r > 0 && !doRun->mute) {
+            long w = snd_pcm_writei(playback_handle, buffer, r);
+            if (w < 0) {
+                w = snd_pcm_recover(playback_handle, w, 0);
+            }
+        }
+    }
+    snd_pcm_close(capture_handle);
+    snd_pcm_close(playback_handle);
+
+    return 0;
+}
+
+static int doVideoCapture(sdl2_app *sdlApp)
+{
+    SDL_Rect mutebarR, unmutebarR, exitbuttR;
+    SDL_Thread *audioThread = NULL;
+    int wasMuted;
+
+    static audRunner doRun;
+
+    doRun.run = 0;
+    doRun.astat = 1;
+    strncpy(doRun.snd_card, sdlApp->conf->snd_card, sizeof(doRun.snd_card));
+
+    if ((audioThread = SDL_CreateThread(threadAudio, "videoAudio", &doRun)) == NULL) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread videoAudio failed: %s", SDL_GetError());
+        doRun.astat = 0;
+    } else SDL_DetachThread(audioThread);
+
+    struct buffer {
+        void *start;
+        size_t length;
+    };
+
+    int w, h;
+    SDL_GetWindowSize(sdlApp->window, &w, &h);
+
+    exitbuttR.w = 50;
+    exitbuttR.h = 50;
+    exitbuttR.x = w - 60;
+    exitbuttR.y = h - 60;
+
+    mutebarR.w = unmutebarR.w = 25;
+    mutebarR.h = unmutebarR.h = 25;
+    mutebarR.x = unmutebarR.x = 70;
+    mutebarR.y = unmutebarR.y = 20;
+
+    if (!strlen(sdlApp->conf->vid_device))
+        return sdlApp->curPage;
+
+    int vfd = open(sdlApp->conf->vid_device, O_RDWR);
+    if (vfd < 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Open video device %s failed: %s", sdlApp->conf->vid_device, SDL_GetError());
+        return sdlApp->curPage;
+    }
+
+    char pict[PATH_MAX];
+    SDL_Texture* pQuit = NULL;
+    sprintf(pict , "%s/quitButton.png", IMAGE_PATH);
+    pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
+
+    // Use "v4l2-ctl --list-formats-ex" to figure out supported resolutions
+    // 640x480 is good enough for a 8" display. Higher resolutions increase stuttering.
+    int win_w=640;
+    int win_h=480;
+
+    struct v4l2_format fmt = {0};
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.width = win_w;
+    fmt.fmt.pix.height = win_h;
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+    fmt.fmt.pix.field = V4L2_FIELD_NONE;
+
+    if (ioctl(vfd, VIDIOC_S_FMT, &fmt) < 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "ioctl VIDIOC_S_FMT on %s failed: %s", sdlApp->conf->vid_device, SDL_GetError());
+        close(vfd);
+        return sdlApp->curPage;
+    }
+
+    struct v4l2_requestbuffers req = {0};
+    req.count =  VIDEO_BUFFERS;;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+
+    if(ioctl(vfd, VIDIOC_REQBUFS, &req) < 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "ioctl VIDIOC_REQBUFS on %s failed: %s", sdlApp->conf->vid_device, SDL_GetError());
+        close(vfd);
+        return sdlApp->curPage;
+    }
+
+    struct buffer buffers[VIDEO_BUFFERS];
+
+    for (int i=0;i<VIDEO_BUFFERS;i++)
+    {
+        struct v4l2_buffer buf = {0};
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+        if(ioctl(vfd, VIDIOC_QUERYBUF, &buf) < 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "ioctl VIDIOC_QUERYBUF on %s failed: %s", sdlApp->conf->vid_device, SDL_GetError());
+            close(vfd);
+            return sdlApp->curPage;
+        }
+        buffers[i].length = buf.length;
+        buffers[i].start = mmap(NULL, buf.length, PROT_READ|PROT_WRITE, MAP_SHARED, vfd, buf.m.offset);
+        if(!buffers[i].start) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "ioctl VIDIOC_QUERYBUF on %s failed: %s", sdlApp->conf->vid_device, SDL_GetError());
+            close(vfd);
+            return sdlApp->curPage;
+        }
+        if(ioctl(vfd, VIDIOC_QBUF, &buf) < 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "ioctl VIDIOC_QBUF on %s failed: %s", sdlApp->conf->vid_device, SDL_GetError());
+            close(vfd);
+            return sdlApp->curPage;
+        }
+    }
+
+    wasMuted = sdlApp->conf->muted;
+    sdlApp->conf->muted = 1;    // Prevent warnings
+
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
+
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(vfd, VIDIOC_STREAMON, &type);
+
+    SDL_Texture *tex = SDL_CreateTexture(
+        sdlApp->renderer,
+        SDL_PIXELFORMAT_YUY2,
+        SDL_TEXTUREACCESS_STREAMING,
+        win_w,
+        win_h);
+
+    SDL_Event e;
+    int running = 1;
+
+    doRun.run = 1;
+    doRun.mute = 0;
+
+    int hideQuit = 0;
+ 
+    while (running)
+    {
+        while (SDL_PollEvent(&e)) 
+        {
+            if (e.type == SDL_QUIT) {
+                running = 0;
+                break;
+            }
+
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+
+                hideQuit=100;
+
+                SDL_Point p;
+                int x, y;
+                if (e.type == SDL_FINGERDOWN) {
+                    x = e.tfinger.x* sdlApp->conf->window_w;
+                    y = e.tfinger.y* sdlApp->conf->window_h;
+                    p = (SDL_Point){ x, y };
+                } else {
+                    p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
+                }
+
+                if (SDL_PointInRect(&p, &exitbuttR)) {
+                    running = 0;
+                    break;
+                }
+                
+                if (e.type == SDL_FINGERDOWN) {
+                    if (SDL_PointInRect(&p, &mutebarR)) {
+                        doRun.mute = !doRun.mute;
+                    }
+                }
+            }
+        }
+
+        // --- Video ---
+        struct v4l2_buffer buf = {0};
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        if(ioctl(vfd, VIDIOC_DQBUF, &buf) < 0) continue;
+
+        SDL_UpdateTexture(tex, NULL, buffers[buf.index].start, win_w*2);
+        SDL_RenderClear(sdlApp->renderer);
+        SDL_RenderCopy(sdlApp->renderer, tex, NULL, NULL);
+
+        ioctl(vfd, VIDIOC_QBUF, &buf);
+
+        // Draw Exit button
+        if (pQuit != NULL) {
+            if (hideQuit-- >=0)
+                SDL_RenderCopyEx(sdlApp->renderer, pQuit, NULL, &exitbuttR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        if (doRun.astat) {
+            if (doRun.mute == 0) { 
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+
+        SDL_RenderPresent(sdlApp->renderer);
+
+        doVnc(sdlApp);
+    }
+
+    doRun.run = 0;  // Take down audio thread
+
+    ioctl(vfd, VIDIOC_STREAMOFF, &type);
+
+    for(int i=0;i<VIDEO_BUFFERS;i++)
+        munmap(buffers[i].start, buffers[i].length);
+
+    close(vfd);
+
+    if (pQuit != NULL) {
+        SDL_DestroyTexture(pQuit);
+    }
+
+    SDL_DestroyTexture(muteBar);
+    SDL_DestroyTexture(unmuteBar);
+    SDL_DestroyTexture(tex);
+
+    sdlApp->conf->muted = wasMuted;
+
+    IMG_Quit();
+
+    return sdlApp->curPage;
+}
+
+static int doVideo(sdl2_app *sdlApp)
+{
+    TTF_Font *font = TTF_OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28);
+
+    typedef struct {
+        SDL_Rect circle;
+        SDL_Rect text_rect;
+        SDL_Texture *text;
+    } RadioButton;
+
+    SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg,
+                            SDL_Color color, SDL_Rect *rect)
+    {
+        SDL_Surface *surf = TTF_RenderUTF8_Blended(font, msg, color);
+        SDL_Texture *tex = SDL_CreateTextureFromSurface(r, surf);
+
+        rect->w = surf->w;
+        rect->h = surf->h;
+
+        SDL_FreeSurface(surf);
+        return tex;
+    }
+
+    void drawRadio(SDL_Renderer *r, RadioButton *b, int selected)
+    {
+        SDL_RenderDrawRect(r, &b->circle);
+
+        if(selected)
+        {
+            SDL_Rect dot = {
+                b->circle.x + 5,
+                b->circle.y + 5,
+                b->circle.w - 10,
+                b->circle.h - 10
+            };
+            SDL_RenderFillRect(r, &dot);
+        }
+
+        SDL_RenderCopy(r, b->text, NULL, &b->text_rect);
+    }
+
+    SDL_Color black = {0,0,0,255};
+
+    RadioButton r1, r2, r3;
+    SDL_Rect commit;
+
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h); 
+
+    int centerX = win_w/2;
+    int centerY = win_h/2;
+
+    int spacing = 60;
+
+    r1.circle = (SDL_Rect){centerX - 120, centerY - spacing*2, 20, 20};
+    r2.circle = (SDL_Rect){centerX - 120, centerY - spacing, 20, 20};
+    r3.circle = (SDL_Rect){centerX - 120, centerY, 20, 20};
+
+    r1.text = renderText(sdlApp->renderer, font, "CAM capture", black, &r1.text_rect);
+    r2.text = renderText(sdlApp->renderer, font, "HDMI capture", black, &r2.text_rect);
+    r3.text = renderText(sdlApp->renderer, font, "Leave", black, &r3.text_rect);
+
+    r1.text_rect.x = r1.circle.x + 35;
+    r1.text_rect.y = r1.circle.y - 5;
+
+    r2.text_rect.x = r2.circle.x + 35;
+    r2.text_rect.y = r2.circle.y - 5;
+
+    r3.text_rect.x = r3.circle.x + 35;
+    r3.text_rect.y = r3.circle.y - 5;
+
+    commit = (SDL_Rect){centerX-70, centerY + 90, 140, 50};
+
+    SDL_Rect commit_text_rect;
+    SDL_Texture *commit_text = renderText(sdlApp->renderer, font, "Commit", black, &commit_text_rect);
+
+    commit_text_rect.x = commit.x + (commit.w - commit_text_rect.w)/2;
+    commit_text_rect.y = commit.y + (commit.h - commit_text_rect.h)/2;
+
+    int selected = 0;
+    int running = 1;
+
+    SDL_Event e;
+
+    while(running)
+    {
+        while(SDL_PollEvent(&e))
+        {        
+            if(e.type == SDL_QUIT)
+                running = 0;
+
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            {
+                SDL_Point p;
+                int x, y;
+                if (e.type == SDL_FINGERDOWN) {
+                    x = e.tfinger.x* sdlApp->conf->window_w;
+                    y = e.tfinger.y* sdlApp->conf->window_h;
+                    p = (SDL_Point){ x, y };
+                } else {
+                    p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
+                }
+
+                if (SDL_PointInRect(&p, &r1.circle) || SDL_PointInRect(&p, &r1.text_rect))
+                    selected = 1;
+
+                if (strlen(sdlApp->conf->vid_device)) {
+                    if (SDL_PointInRect(&p, &r2.circle) || SDL_PointInRect(&p, &r2.text_rect))
+                        selected = 2;
+                }
+
+                if (SDL_PointInRect(&p, &r3.circle) || SDL_PointInRect(&p, &r3.text_rect))
+                    selected = 3;
+
+                if (SDL_PointInRect( &p, &commit))
+                {
+                    running = 0;
+                }
+            }
+        }
+
+        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+
+        SDL_SetRenderDrawColor(sdlApp->renderer,0,0,0,255);
+
+        drawRadio(sdlApp->renderer,&r1,selected==1);
+        if (!strlen(sdlApp->conf->vid_device)) {
+            SDL_SetRenderDrawColor(sdlApp->renderer,255,100,0,255);
+            SDL_RenderDrawLine(sdlApp->renderer,commit.x-60,commit.y-140,commit.x+186,commit.y-140);
+        }
+
+        SDL_SetRenderDrawColor(sdlApp->renderer,0,0,0,255);
+
+        drawRadio(sdlApp->renderer,&r2,selected==2);
+        drawRadio(sdlApp->renderer,&r3,selected==3);
+
+        if (selected) {
+            SDL_RenderDrawRect(sdlApp->renderer,&commit);
+            SDL_RenderCopy(sdlApp->renderer,commit_text,NULL,&commit_text_rect);
+        }
+
+        SDL_RenderPresent(sdlApp->renderer);
+
+        doVnc(sdlApp);
+    }
+
+    SDL_DestroyTexture(r1.text);
+    SDL_DestroyTexture(r2.text);
+    SDL_DestroyTexture(r3.text);
+    SDL_DestroyTexture(commit_text);
+
+    TTF_CloseFont(font);
+
+    IMG_Quit();
+
+    if (selected == 1)
+        return doCamera(sdlApp);
+
+    if (selected == 2)
+        return doVideoCapture(sdlApp);
+
+    return sdlApp->curPage;
+}
+
 
 #ifdef DIGIFLOW
 // Present Fresh Water data. Dendent on project  https://github.com/ehedman/flowSensor
@@ -3849,7 +4555,6 @@ static int doWater(sdl2_app *sdlApp)
     static char buffer_t[60];
 
     sdlApp->curPage = WTRPAGE;
-
 
     TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
     TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 40);
@@ -3950,6 +4655,8 @@ static int doWater(sdl2_app *sdlApp)
             }
         }
         if (doBreak == 1) break;
+
+        SDL_RenderClear(sdlApp->renderer);
         
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -4030,23 +4737,7 @@ static int doWater(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-        {
-            SDL_RenderReadPixels(
-                sdlApp->renderer,
-                NULL,
-                SDL_PIXELFORMAT_BGR888,
-                sdlApp->conf->vncPixelBuffer->pixels,
-                sdlApp->conf->vncPixelBuffer->pitch
-            );
-
-            rfbMarkRectAsModified(
-                sdlApp->conf->vncServer,
-                0, 0,
-                sdlApp->conf->window_w,
-                sdlApp->conf->window_h
-            );
-        }
+        doVnc(sdlApp);
 
         SDL_Delay(1000);
 
@@ -4059,6 +4750,7 @@ static int doWater(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeWtr);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
+    SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(textBox);
@@ -4249,7 +4941,10 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         }
         if (doBreak == 1) break;
 
+        SDL_RenderClear(sdlApp->renderer);
+
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+
 
         if (seconds ++ > 10) {
             sprintf(msg_cal, "Calibration about to begin in %d seconds", progress--);
@@ -4301,6 +4996,8 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
                     break;
                 }
             }
+
+            SDL_RenderClear(sdlApp->renderer);
 
             get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -4475,9 +5172,9 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
         {
             while (sqlite3_step(res) != SQLITE_DONE) {  
 
-                strcpy((sdlApp->subAppsCmd[c][0]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 0));
-                strcpy((sdlApp->subAppsCmd[c][1]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 1));
-                strcpy((sdlApp->subAppsIco[c][2]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 2));
+                strncpy((sdlApp->subAppsCmd[c][0]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 0), PATH_MAX);
+                strncpy((sdlApp->subAppsCmd[c][1]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 1), PATH_MAX);
+                strncpy((sdlApp->subAppsIco[c][2]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 2), PATH_MAX);
                 sprintf(subtask, "which %s", sdlApp->subAppsCmd[c][0]);
  
                 *buff = '\0';
@@ -4490,7 +5187,7 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
                     sdlApp->subAppsCmd[c][0] = NULL;
                 }
 
-                if (c++ >= TSKPAGE) {
+                if (c++ >= VIDPAGE) {
                     break;
                 }
             }
@@ -4581,28 +5278,29 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     return status;
 }
 
-static void init_alsa(configuration *configParams)
+static void init_av(configuration *configParams)
 {
-    const char *audioenv = configParams->snd_card;  // e.g., "hw:2,0" for SDL2
+    const char *adev = configParams->snd_card;  // e.g., "hw:2,0" for SDL2
+    char card[sizeof(configParams->snd_card)];
 
-    if (audioenv) {
+    if (adev) {
         // copy up to comma or end of string
-        const char *comma = strchr(audioenv, ',');
+        const char *comma = strchr(adev, ',');
         if (comma) {
-            size_t len = comma - audioenv;
-            if (len >= sizeof(configParams->snd_card)) len = sizeof(configParams->snd_card)-1;
-            strncpy(configParams->snd_card, audioenv, len);
-            configParams->snd_card[len] = '\0';
+            size_t len = comma - adev;
+            if (len >= sizeof(card)) len = sizeof(card)-1;
+            strncpy(card, adev, len);
+            card[len] = '\0';
         } else {
-            strncpy(configParams->snd_card, audioenv, sizeof(configParams->snd_card)-1);
-            configParams->snd_card[sizeof(configParams->snd_card)-1] = '\0';
+            strncpy(card, adev, sizeof(card)-1);
+            card[sizeof(card)-1] = '\0';
         }
     } else {
-        strcpy(configParams->snd_card, "default");
+        strcpy(card, "default");
     }
 
     snd_mixer_open(&configParams->mixer, 0);
-    snd_mixer_attach(configParams->mixer, configParams->snd_card);
+    snd_mixer_attach(configParams->mixer, card);
     snd_mixer_selem_register(configParams->mixer, NULL, NULL);
     snd_mixer_load(configParams->mixer);
 
@@ -4617,20 +5315,102 @@ static void init_alsa(configuration *configParams)
 
     if (!configParams->elem) {
         configParams->snd_useMixer = 0;
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element");
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element for %s", adev);
     } else {
         setenv("SDL_AUDIODRIVER", "alsa", 1);
         SDL_Init(SDL_INIT_AUDIO);
         configParams->snd_useMixer = 1;
+        configParams->snd_showMixer = 1;
         snd_mixer_selem_get_playback_volume_range(configParams->elem, &configParams->snd_minv, &configParams->snd_maxv);
 
-        const char *number = 0;
-        const char *colon = strchr(configParams->snd_card, ':');
+        const char *target_card_num = 0;
+        const char *colon = strchr(card, ':');
         if (colon && *(colon + 1)) {
-            number = colon + 1;
+            target_card_num = colon + 1;
         }
-        strncpy(configParams->snd_card_name, SDL_GetAudioDeviceName(atoi(number),0), sizeof(((configuration *)0)->snd_card_name));
-        SDL_Log("Using ALSA mixer for \"%s\" by name of \"%s\"", configParams->snd_card, configParams->snd_card_name);
+
+        int cardn = -1;
+        char sdl_compat_name[256] = {'\0'};
+
+        while (snd_card_next(&cardn) == 0 && cardn >= 0) {
+            if (cardn == atoi(target_card_num)) {
+                char *card_short;
+                snd_card_get_name(cardn, &card_short);
+
+                // Find PCM name
+                char hw_name[60];
+                sprintf(hw_name, "hw:%d", cardn);
+
+                snd_ctl_t *handle;
+                if (snd_ctl_open(&handle, hw_name, 0) >= 0) {
+                    snd_pcm_info_t *pcminfo;
+                    snd_pcm_info_alloca(&pcminfo);
+
+                    // Check unit (0) to get the name
+                    snd_pcm_info_set_device(pcminfo, 0);
+                    snd_pcm_info_set_subdevice(pcminfo, 0);
+                    snd_pcm_info_set_stream(pcminfo, SND_PCM_STREAM_PLAYBACK);
+
+                    if (snd_ctl_pcm_info(handle, pcminfo) >= 0) {
+                        const char *device_name = snd_pcm_info_get_name(pcminfo);
+                        // Create the the format "ShortName, UnitName"
+                        // Example: "USB Audio, USB Audio"
+                        snprintf(sdl_compat_name, sizeof(sdl_compat_name), "%s, %s", card_short, device_name);
+                    }
+                    snd_ctl_close(handle);
+                }
+
+                if (strlen(sdl_compat_name)) {
+                    if (strstr(sdl_compat_name, "hdmi")) configParams->snd_showMixer = 0; // Goes to decoder/tv mixer
+                    strncpy(configParams->snd_card_name, sdl_compat_name, sizeof(((configuration *)0)->snd_card_name));
+                    SDL_Log("Using ALSA device %s named \"%s\"", card, configParams->snd_card_name);
+                } else {
+                    configParams->snd_showMixer = 0;
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to find audio device name for %s", card);
+                }
+
+                free(card_short);
+                break;
+            }
+        }
+
+    }
+
+    /** Video **/
+    int fd=0;
+    int ndev;
+    struct v4l2_capability caps;
+    struct v4l2_input input;
+    char dev_name[60];
+
+    for (ndev=0; ndev <64; ndev++) {
+        sprintf(configParams->vid_device, "/dev/video%d", ndev);
+        if ((fd = open(configParams->vid_device, O_RDWR)) <0) {
+            continue;
+        }
+
+        memset(&input, 0, sizeof(input));
+        input.index = 0;
+
+        if (ioctl(fd, VIDIOC_ENUMINPUT, &input) == 0) {
+            sprintf(dev_name, "Found Video Capture - %s: ", (char*)input.name);
+            if (ioctl(fd, VIDIOC_QUERYCAP, &caps) == 0) {
+                if ((caps.device_caps & (V4L2_CAP_VIDEO_OUTPUT | V4L2_CAP_VIDEO_OUTPUT_MPLANE))) {
+                    close(fd);
+                    continue;
+                }
+                strcat(dev_name, (char*)caps.card);
+            }
+            close(fd); 
+            break;
+        }
+        close(fd);
+    }
+    if (ndev >= 63) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "No video capture card found");
+        *configParams->vid_device = 0;
+    } else {
+        SDL_Log("%s\n", dev_name);
     }
 }
 
@@ -4692,7 +5472,7 @@ int main(int argc, char *argv[])
                 break;
             case 'c':   exit(EXIT_SUCCESS);         // Check/Create databasse only and exit
                 break;
-            case 'C':   configParams.configs = atoi(optarg);    // Remote configuration shell
+            case 'C':   configParams.runTyd = atoi(optarg);    // Remote configuration shell
                 break;
             case 'g':   configParams.runGps = 0;    // Diable GPS data collection
                 break;
@@ -4720,7 +5500,7 @@ int main(int argc, char *argv[])
             default:
                 fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -w -z -s -v (version)\n", basename(argv[0]));
                 fprintf(stderr, "       Where: -l use syslog : -c Create database only: -P show cursor : -g Disable GPS : -i Disable i2c : -p Play warnings\n");
-                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -C <port> Remote config : -z Scale factor : -s Window size w/h\n");
+                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -C port>1024 Remote config : -z Scale factor : -s Window size w/h\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -4745,7 +5525,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    init_alsa(&configParams);
+    init_av(&configParams);
 
     if (useSyslog) {
         setlogmask (LOG_UPTO (LOG_NOTICE));
@@ -4780,6 +5560,7 @@ int main(int argc, char *argv[])
         int status;
 
         if (configParams.useWm  == 1 && system("xprop -root|grep -q _NET_CLIENT_LIST >/dev/null 2>&1") != 0) {
+            // Deprecated Xorg section
 
             sprintf(buf, "xrandr -s %dx%d &>/dev/null", configParams.window_w, configParams.window_h);
             system(buf);
@@ -4891,7 +5672,7 @@ int main(int argc, char *argv[])
             }
     }
 
-    if (configParams.configs > 1024) {
+    if (configParams.runTyd > 1024) {
 
         SDL_Log("Attempt to start the ttyd daemon for remote configurtion");
 
@@ -4899,7 +5680,7 @@ int main(int argc, char *argv[])
 
         if (pid == 0 ) {
 
-            // Redirect stdout and stderr to /dev/null
+            // Redirect stdout to /dev/null
 
             int fd = open("/dev/null", O_RDWR);
             if (fd >= 0) {
@@ -4912,11 +5693,13 @@ int main(int argc, char *argv[])
 			setenv("DISPLAY", ":0", 1);	// May be required by subtasks although not by ttyd itself.
 
             // Start the ttyd
-            sprintf(buf, "%d", configParams.configs);
+            sprintf(buf, "%d", configParams.runTyd); // Default port 7600
             char *args[] = { "/usr/bin/ttyd", "-p", buf, "--writable", "/usr/local/bin/sdlSpeedometer-config", NULL };
             execvp(args[0], args);
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s : %s (non fatal)", args[0], strerror(errno));
             _exit(0);
+        } else {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed: remote config ttyd is less than 1024 (non fatal)");
         }
 
         configParams.ttydPID = pid;
@@ -4954,7 +5737,7 @@ int main(int argc, char *argv[])
             case WTRPAGE: sdlApp.nextPage = doWater(&sdlApp);
                 break;
 #endif
-            case CAMPAGE: sdlApp.nextPage = doCam(&sdlApp);
+            case VIDPAGE: sdlApp.nextPage = doVideo(&sdlApp);
                 break;
             case CALPAGE: sdlApp.nextPage = doCalibration(&sdlApp, &configParams);
                 break;

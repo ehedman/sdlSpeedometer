@@ -6,23 +6,34 @@
 #ifdef HAS_SMBUS_H
 #include <i2c/smbus.h>
 #endif
-
-#ifdef PLOTSDL
-#include <plotsdl/plot.h>
-#include <plotsdl/llist.h>
-#endif
-
 #include <alsa/asoundlib.h>
 
+//Dendent on project  https://github.com/ehedman/flowSensor
+//#define DIGIFLOW
+
+
 // Volume slider
-#define WINDOW_WIDTH 20
-#define WINDOW_HEIGHT 300
+#define SWINDOW_WIDTH 20
+#define SWINDOW_HEIGHT 300
 #define SLIDER_WIDTH 20
 #define SLIDER_HEIGHT 300
 #define RIGHT_MARGIN 20
 
-//Dendent on project  https://github.com/ehedman/flowSensor
-#define DIGIFLOW
+// Power plot
+#define PWINDOW_W 700
+#define PWINDOW_H 250
+#define PHISTORY 250
+#define SCALE_WINDOW 50
+
+// Depth plot
+#define DWINDOW_W 800
+#define DWINDOW_H 480
+#define DHISTORY 300
+
+// Video
+#define VIDEO_BUFFERS 4
+#define AUDIO_BUFFER_FRAMES 1024
+#define FRAME_SIZE 1024
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
@@ -47,22 +58,13 @@ typedef struct {
     float depthw;
 } calibration;
 
-
-typedef struct {
-    int run;
-    float latitude;
-    float longitude;
-    float declination;
-    char progress[200];
-    int i2cFile;
-} calRunner;
-
 typedef struct {
     int runGps;
     int runi2c;
     int runNet;
     int runVnc;
     int runWrn;
+    int runTyd;
     int numThreads;
     short port;
     char server[100];
@@ -83,15 +85,16 @@ typedef struct {
     int muted;
     int subTaskPID;
     int cursor;
-    int configs;
     int ttydPID;
     snd_mixer_t *mixer;
     snd_mixer_elem_t *elem;
     long snd_minv, snd_maxv;
     int snd_useMixer;
-    char snd_card[32];
-    char snd_card_name[100];
+    int snd_showMixer;
+    char snd_card[60];
+    char snd_card_name[256];
     char cam_url[200];
+    char vid_device[60];
 } configuration;
 
 enum sdlPages {
@@ -101,7 +104,7 @@ enum sdlPages {
     WNDPAGE,
     GPSPAGE,
     PWRPAGE,
-    CAMPAGE,
+    VIDPAGE,
     CALPAGE,
     TSKPAGE,
     WTRPAGE  
@@ -111,19 +114,38 @@ typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
     char *fontPath;
-    char *subAppsCmd[TSKPAGE][TSKPAGE];
-    char *subAppsIco[TSKPAGE][TSKPAGE];
+    char *subAppsCmd[VIDPAGE][VIDPAGE];
+    char *subAppsIco[VIDPAGE][VIDPAGE];
     int nextPage;
     int curPage;
     int plotMode;
-    SDL_Texture* textFieldArr[20];
+    SDL_Texture* textFieldArr[60];
     int textFieldArrIndx;
     configuration *conf;
 } sdl2_app;
 
 
 typedef struct {
+    int run;
+    float latitude;
+    float longitude;
+    float declination;
+    char progress[200];
+    int i2cFile;
+} calRunner;
+
+typedef struct {
+    volatile int run;
+    int mute;
+    int astat;
+    char snd_card[60];
+    char snd_card_dev[60];
+} audRunner;
+
+
+typedef struct {
     float depthw;
+    float draftw;
     float lowvoltw;
     float highcurrw;
 } warnings;

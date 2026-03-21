@@ -26,10 +26,11 @@ Currently there are nine virtual instrument working (data source within brackets
     Log           : SOW, SOG (NMEA-net)
     Wind          : Real, Relative and speed (NMEA-net)
     Depth         : With low water warning and water temp (NMEA-net)
-    Environment   : Page with Voltage, Current, Temp and Power plotting (proprietary NMEA net "$P" sentences)
+    Environment   : Page with Voltage, Current, Temp, volume and Power plotting (proprietary NMEA net "$P" sentences)
     Water         : Page with fresh water tank status and TDS quality (Requires https://github.com/ehedman/flowSensor)
     Victron Venus : Victron Venus sub-system (Requires https://github.com/ehedman/victron-venus-container)
     RTSP Camera   : Capture video from an RTSP camera
+    HDMI Capture  : Capture HDMI Video and Audio (used for plotters with HDMI out)
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 
@@ -72,9 +73,6 @@ The SDL2 packages needed are:
 - sudo apt install libwebp-dev libvncserver-dev 
 - sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev 
 - sudo apt install libswresample-dev ffmpeg v4l-utils
-
-### Other libraries 
-- Optionally [plot-sdl](https://github.com/bertrandmartel/plot-sdl) to plot a live power shart.
 
 ### External applications to be launched from sdlSpeedometer
 - sudo apt install xygrib-maps xygrib

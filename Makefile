@@ -13,20 +13,12 @@ CFLAGS+=-DHAS_SMBUS_H
 LDFLAGS+=-li2c
 endif
 
-LDFLAGS+=-lasound
-
 ifeq ($(shell test -e $(GETC) && echo -n yes),yes)
 CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
 endif
 
 LDFLAGS+=-lX11 -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lm -lvncserver
-
-LDFLAGS+=-lavformat -lavcodec -lavutil -lswscale -lswresample
-
-ifeq ($(shell test -e /usr/local/include/plotsdl/plot.h && echo -n yes),yes)
-CFLAGS+=-DPLOTSDL
-LDFLAGS+=-lplotsdl
-endif
+LDFLAGS+=-lasound -lavformat -lavcodec -lavutil -lswresample
 
 RED=\033[1;31m
 GREEN=\033[1;32m
@@ -34,7 +26,7 @@ RESET=\033[0m
 
 all: $(BIN)
 
-override CFLAGS+= -Wall -g -std=gnu99 -D_REENTRANT
+override CFLAGS+= -Wall -Wno-format-truncation -Wno-stringop-truncation -g -std=gnu99 -D_REENTRANT
 
 $(BIN): $(SRCS) $(HDRS)
 	$(CC) $(SRCS) $(CFLAGS) $(EXTRA_CFLAGS) $(LDFLAGS) -o $(BIN)

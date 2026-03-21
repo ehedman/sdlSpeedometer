@@ -50,7 +50,6 @@ do_finish() {
     fi
   fi
 
-  rm -f "$SQLFILE"
   exit $RET
 }
 
@@ -218,6 +217,18 @@ Enter the audible depth warning message level in decimal meters
   fi
 }
 
+do_set_wessel_draft() {
+    whiptail --msgbox "\
+Enter the wessel draft in decimal meters
+" 20 70 1
+
+  CURRENT_DRAFT_WARNING=$(sqlite3 $SPEEDOMETER_DB 'SELECT draftw FROM warnings;')
+  NEW_DRAFT_WARNING=$(whiptail --inputbox "Please enter the the wessel draft in meters" 20 60 -- "$CURRENT_DRAFT_WARNING" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_DRAFT_WARNING" ]; then
+    echo "UPDATE warnings SET draftw = '$NEW_DRAFT_WARNING' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
 do_set_voltage_warning() {
     whiptail --msgbox "\
 Enter the audible low voltage level warning message 
@@ -254,15 +265,15 @@ do_set_audio_device() {
     if is_pulseaudio ; then
     oIFS="$IFS"
  
-    list=$(sudo -u $USER XDG_RUNTIME_DIR=/run/user/$SUDO_UID LANG=C pactl list sinks | grep -e "Sink #" -e "alsa.card_name" | sed s/*//g | sed s/^[' '\\t]*//g | sed s/'Sink #'//g | sed s/'alsa.card_name = '//g | sed s/'bcm2835 '//g | sed s/\"//g | tr '\n' '/')
+    list=$(pactl list sinks | grep -e "Sink #" -e "alsa.card_name" | sed s/*//g | sed s/^[' '\\t]*//g | sed s/'Sink #'//g | sed s/'alsa.card_name = '//g | sed s/'bcm2835 '//g | sed s/\"//g | tr '\n' '/')
     if [ -n "$list" ] ; then
         IFS="/"
         AUDIO_OUT=$(whiptail --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 ${list} 3>&1 1>&2 2>&3)
+
     else
         whiptail --msgbox "No internal audio devices found" 20 60 1
         return 1
-    fi
-    
+    fi  
     if [ $? -eq 0 ]; then
       sudo -u $USER XDG_RUNTIME_DIR=/run/user/$SUDO_UID pactl set-default-sink $AUDIO_OUT
     fi
@@ -287,7 +298,8 @@ do_set_audio_device() {
             do
               CARD=$(LC_ALL=C aplay -l | grep "card $n" | cut -d [ -f 2 | cut -d ] -f 1)
               if [ -z "$CARD" ] ; then
-                break
+                n=$(( n+1 ))
+                continue
               else
                 if [ -z "$array" ] ; then
                   array=$n"/"$CARD
@@ -298,6 +310,7 @@ do_set_audio_device() {
               fi
               n=$(( n+1 ))
             done
+
             if [ $n -eq 0 ] ; then
               whiptail --msgbox "No audio devices found" 20 60 1
               false
@@ -546,11 +559,12 @@ do_config_menu() {
     "14 Compass offset" "Enter manual compass offset" \
     "15 Compass roll offset" "Enter manual compass roll offset" \
     "16 Depth warning" "Enter the audible depth level warning" \
-    "17 Voltage warning" "Enter the audible low voltage level warning" \
-    "18 Current warning" "Enter the audible high current level warning" \
-    "19 Audio Device" "Enter the audio device used for spoken warnings" \
-    "20 RTSP Camera" "Enter the URL for an RTSP Camera" \
-    "21 Configuration" "Run raspi-config" \
+    "17 Wessel draft" "Enter the wessel draft level warning" \
+    "18 Voltage warning" "Enter the audible low voltage level warning" \
+    "19 Current warning" "Enter the audible high current level warning" \
+    "20 Audio Device" "Enter the audio device used for spoken warnings" \
+    "21 RTSP Camera" "Enter the URL for an RTSP Camera" \
+    "22 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -573,11 +587,12 @@ do_config_menu() {
       14\ *) do_set_compass_offset ;;
       15\ *) do_set_compass_roll_offset ;;
       16\ *) do_set_depth_warning ;;
-      17\ *) do_set_voltage_warning ;;
-      18\ *) do_set_current_warning ;;
-      19\ *) do_set_audio_device ;;
-      20\ *) do_set_camera_url ;;
-      21\ *) do_raspi_config ;;
+      17\ *) do_set_wessel_draft ;;
+      18\ *) do_set_voltage_warning ;;
+      19\ *) do_set_current_warning ;;
+      20\ *) do_set_audio_device ;;
+      21\ *) do_set_camera_url ;;
+      22\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi
