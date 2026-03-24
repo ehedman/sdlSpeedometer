@@ -1085,6 +1085,7 @@ static void vncClientTouch(int buttonMask, int x, int y, rfbClientPtr cl)
 static void vncClientGone(rfbClientPtr cl)
 {
     sdl2_app *sdlApp = cl->screen->screenData;
+    SDL_Log("rfbProcessClient: disconnect: Client #%d", sdlApp->conf->vncClients);
     sdlApp->conf->vncClients--; 
 }
 
@@ -1144,6 +1145,8 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
     if (text == NULL || !strlen(text))
         return;
 
+    textColor.a = 255;
+
     switch (color)
     {
         case BLACK: textColor.r = textColor.g = textColor.b = 0; break;
@@ -1164,24 +1167,27 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
         rect->x = x + abs((strlen(text)-l))*f_width/2;  // Align towards (l)
     else
        rect->x = x;
+
     rect->y = y;
     rect->w = text_width;
     rect->h = text_height;
 }
 
-static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
+inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 {
     // A simple event handler for touch screen buttons at fixed menu bar localtions
     
     int x, y;
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
 
     // Upside down screen
-    //x = WINDOW_W -(event->tfinger.x* sdlApp->conf->window_w);
-    //y = WINDOW_H -(event->tfinger.y* sdlApp->conf->window_h);
+    //x = WINDOW_W -(event->tfinger.x* win_w);
+    //y = WINDOW_H -(event->tfinger.y* win_h);
 
     if (event->type == SDL_FINGERDOWN) {
-        x = event->tfinger.x* sdlApp->conf->window_w;
-        y = event->tfinger.y* sdlApp->conf->window_h; 
+        x = event->tfinger.x* win_w;
+        y = event->tfinger.y* win_h; 
     } else if (event->type == SDL_MOUSEBUTTONDOWN) {
         x = event->button.x;
         y = event->button.y;
@@ -1190,16 +1196,20 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     x /= sdlApp->conf->scale;
     y /= sdlApp->conf->scale;
 
-    if (sdlApp->conf->runWrn && y > 15  && y < 50 &&  x > 65 && x < 100)
+    SDL_Point p = (SDL_Point){x, y};
+
+    SDL_Rect MutedR = {65,15,35,35};
+    if (sdlApp->conf->runWrn && SDL_PointInRect(&p, &MutedR))
     {
         if (event->type == SDL_FINGERDOWN) {
             sdlApp->conf->muted = !sdlApp->conf->muted;
         }
-            return 0;
+        return 0;
     }
 
-    if (event->user.code != 1 /* not for RFB */) {;
-        if (sdlApp->curPage == COGPAGE && sdlApp->conf->i2cFile != 0 && y > 60  && y < 85 && x > 10 && x < 40) {
+    SDL_Rect CalibR = {20,60,30,30};
+    if (event->user.code != 1 /* not for RFB */) {
+        if (sdlApp->curPage == COGPAGE && sdlApp->conf->i2cFile != 0 && SDL_PointInRect(&p, &CalibR)) {
             return CALPAGE;
         }
     }
@@ -1207,34 +1217,58 @@ static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     if (sdlApp->curPage != DPTPAGE)
         sdlApp->plotMode = 1;
 
-    if (y > 370  && y < 480)
-    {
-        if (x > 403 && x < 453)
-            return COGPAGE;
-        if (x > 460 && x < 510)
-            return SOGPAGE;
-        if (x > 517 && x < 565) {
-            sdlApp->plotMode = !sdlApp->plotMode;
-            return DPTPAGE;
-        }
-        if (x > 575 && x < 622)
-            return WNDPAGE;
-        if (x > 632 && x < 678)
-           return GPSPAGE;
-        if (x > 688 && x < 745) {
+    y = 403;    // Start y here and go left to right
+    SDL_Rect CogPageR = {y,400,50,50};
+    if (SDL_PointInRect(&p, &CogPageR)) {
+        return COGPAGE;
+    }
+
+    y+=57;
+    SDL_Rect SogPageR = {y,400,50,50};
+    if (SDL_PointInRect(&p, &SogPageR)) {
+        return SOGPAGE;
+    }
+
+    y+=57;
+    SDL_Rect DptPageR = {y,400,50,50};
+    if (SDL_PointInRect(&p, &DptPageR)) {
+        sdlApp->plotMode = !sdlApp->plotMode;
+        return DPTPAGE;
+    }
+
+    y+=57;
+    SDL_Rect WindPageR = {y,400,50,50};
+    if (SDL_PointInRect(&p, &WindPageR)) {
+        return WNDPAGE;
+    }
+
+    y+=57;
+    SDL_Rect GpsPageR = {y,400,50,50};
+    if (SDL_PointInRect(&p, &GpsPageR)) {
+        return GPSPAGE;
+    }
+
+    y+=57;
+    SDL_Rect PwrPageR = {y,400,50,50};
+    if (SDL_PointInRect(&p, &PwrPageR)) {
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE)
             return WTRPAGE;
 #endif
          return PWRPAGE;
+    }
 
-        }
-        if (x > 718 && x < 775)
-           return VIDPAGE;
+    y+=57;
+    SDL_Rect VidPageR = {y,400,50,50};
+    if (SDL_PointInRect(&p, &VidPageR)) {
+        return VIDPAGE;
+    }
 
-        if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
-            if (x > 30 && x < 80)
-                return TSKPAGE;
+    SDL_Rect TskPageR = {30,400,50,50};
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
+        /* not for RFB or no subtask declarations */
+        if (SDL_PointInRect(&p, &TskPageR)) {
+            return TSKPAGE;
         }
     }
     
@@ -1245,44 +1279,45 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
 
-    static SDL_Rect M1_rect;
+    SDL_Rect M1_rect;
 
-    get_text_and_rect(sdlApp->renderer, 410, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    int y = 414;    // Start y here and go left to right
+
+    get_text_and_rect(sdlApp->renderer, y, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 468, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    y+=57;
+    get_text_and_rect(sdlApp->renderer, y, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 526, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    y+=57;
+    get_text_and_rect(sdlApp->renderer, y, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 580, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    y+=57;
+    get_text_and_rect(sdlApp->renderer, y, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 638, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    y+=57;
+    get_text_and_rect(sdlApp->renderer, y, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    get_text_and_rect(sdlApp->renderer, 754, 416, 0, "CAM", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
-
-    if (sdlApp->conf->i2cFile == 0) {
-        get_text_and_rect(sdlApp->renderer, 696, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    y+=57;
 #ifdef DIGIFLOW
-        if (sdlApp->curPage == PWRPAGE) {
-            get_text_and_rect(sdlApp->renderer, 696, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect); 
-        } 
-#endif
+    if (sdlApp->curPage == PWRPAGE) {
+        get_text_and_rect(sdlApp->renderer, y, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect); 
     } else {
-        get_text_and_rect(sdlApp->renderer, 696, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
-#ifdef DIGIFLOW
-        if (sdlApp->curPage == PWRPAGE) {
-            get_text_and_rect(sdlApp->renderer, 696, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK); 
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
-        }
-#endif  
+        get_text_and_rect(sdlApp->renderer, y, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
     }
+#else
+    get_text_and_rect(sdlApp->renderer, y, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+#endif
 
+    y+=57;
+    get_text_and_rect(sdlApp->renderer, y, 416, 0, "CAM", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 }
 
@@ -1422,7 +1457,7 @@ static void playWarnSound(char *snd_card_name, char *wavFile)
     SDL_FreeWAV(wavBuffer);
 }
 
-// Check for warnings and play sound file periodically
+// Check for warnings and play sound files periodically
 static int threadWarn(void *conf)
 {
     configuration *configParams = conf;
@@ -1489,7 +1524,7 @@ inline static void doVnc(sdl2_app *sdlApp)
 // Present the compass with heading ant roll
 static int doCompass(sdl2_app *sdlApp)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect compassR, outerRingR, clinoMeterR, windDirR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, calbarR, textBoxR;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
@@ -1600,18 +1635,18 @@ static int doCompass(sdl2_app *sdlApp)
 
         int doBreak = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (event.type == TSKPAGE) {
+                    if (e.type == TSKPAGE) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -1797,13 +1832,13 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     IMG_Quit();
 
-    return event.type;
+    return e.type;
 }
 
 // Present the Sumlog (NMEA net only)
 static int doSumlog(sdl2_app *sdlApp)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
@@ -1893,18 +1928,18 @@ static int doSumlog(sdl2_app *sdlApp)
 
         int doBreak = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (event.type == TSKPAGE) {
+                    if (e.type == TSKPAGE) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -2055,13 +2090,13 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     IMG_Quit();
 
-    return event.type;
+    return e.type;
 }
 
 // Present GPS data
 static int doGps(sdl2_app *sdlApp)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect gaugeR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
 
     TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
@@ -2141,18 +2176,18 @@ static int doGps(sdl2_app *sdlApp)
 
         int doBreak = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (event.type == TSKPAGE) {
+                    if (e.type == TSKPAGE) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -2299,13 +2334,13 @@ static int doGps(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     IMG_Quit();
 
-    return event.type;
+    return e.type;
 }
 
 // Present Depth data (NMEA net only)
 static int doDepth(sdl2_app *sdlApp)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
@@ -2403,18 +2438,18 @@ static int doDepth(sdl2_app *sdlApp)
         int doBreak = 0;
         int doPlot = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (event.type == TSKPAGE) {
+                    if (e.type == TSKPAGE) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -2585,7 +2620,6 @@ static int doDepth(sdl2_app *sdlApp)
 
         if (sdlApp->plotMode)
         {
-
             int w=DWINDOW_W;
             int h=DWINDOW_H;
             char buf[32];
@@ -2794,13 +2828,13 @@ static int doDepth(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     IMG_Quit();
 
-    return event.type;
+    return e.type;
 }
 
 // Present Wind data (NMEA net only)
 static int doWind(sdl2_app *sdlApp)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
@@ -2892,18 +2926,18 @@ static int doWind(sdl2_app *sdlApp)
         time_t ct;
         int doBreak = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (event.type == TSKPAGE) {
+                    if (e.type == TSKPAGE) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -3082,13 +3116,30 @@ static int doWind(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     IMG_Quit();
 
-    return event.type;
+    return e.type;
 }
+
+
+void set_alsa_volume(sdl2_app *sdlApp, float percent)
+{   
+    long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
+
+    snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
+}
+
+float get_current_volume(sdl2_app *sdlApp)
+{
+    long volume;
+    snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
+
+    return (float)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
+}
+
 
 // Present Environmant page (Non standard NMEA)
 static int doEnvironment(sdl2_app *sdlApp)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect gaugeVoltR, gaugeCurrR, gaugeTempR, voltNeedleR, currNeedleR;
     SDL_Rect tempNeedleR, menuBarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, subTaskbarR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -3204,21 +3255,6 @@ static int doEnvironment(sdl2_app *sdlApp)
     char msg_curr_bank[20] = {"Bank -"};
     char msg_temp_loca[20] = {"--"};
 
-    inline void set_alsa_volume(sdl2_app *sdlApp, float percent)
-    {   
-        long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
-
-        snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
-    }
-
-    inline float get_current_volume(sdl2_app *sdlApp)
-    {
-        long volume;
-        snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
-
-        return (float)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
-    }
-
     // Volume adjustments
     float volume_percent = 0.0;
     int dragging = 0;
@@ -3243,17 +3279,17 @@ static int doEnvironment(sdl2_app *sdlApp)
         time_t ct;
         int doBreak = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
             if (sdlApp->conf->snd_useMixer && !sdlApp->conf->muted) {
-                if (event.type == SDL_MOUSEMOTION && dragging) {
+                if (e.type == SDL_MOUSEMOTION && dragging) {
 
-                    SDL_Point p = (SDL_Point){event.motion.x/sdlApp->conf->scale, event.motion.y/sdlApp->conf->scale};
+                    SDL_Point p = (SDL_Point){e.motion.x/sdlApp->conf->scale, e.motion.y/sdlApp->conf->scale};
 
                     if (SDL_PointInRect(&p, &slider)) {
                         int mouseY = p.y;
@@ -3269,11 +3305,11 @@ static int doEnvironment(sdl2_app *sdlApp)
                 }
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) 
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION) 
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (event.type == TSKPAGE) {
+                    if (e.type == TSKPAGE) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -3281,20 +3317,18 @@ static int doEnvironment(sdl2_app *sdlApp)
                     break;
                 }
 
-                SDL_Point p = (SDL_Point){event.button.x/sdlApp->conf->scale, event.button.y/sdlApp->conf->scale};
+                SDL_Point p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
 
                 if (SDL_PointInRect(&p, &slider)) {
                     dragging = 1;
                 }
             }
 
-            if (event.type == SDL_MOUSEBUTTONUP)
+            if (e.type == SDL_MOUSEBUTTONUP)
                 dragging = 0;
             }
 
         if (doBreak == 1) break;
-
-        SDL_RenderClear(sdlApp->renderer);
 
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -3333,6 +3367,8 @@ static int doEnvironment(sdl2_app *sdlApp)
                 sprintf(msg_kWhp, "%.1f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
         }
  
+        SDL_RenderClear(sdlApp->renderer);
+
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
         SDL_RenderCopyEx(sdlApp->renderer, cnmea.volt < v_max? gaugeVolt:gaugeVolt24, NULL, &gaugeVoltR, 0, NULL, SDL_FLIP_NONE);
@@ -3346,9 +3382,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 164, 170, 0, msg_volt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            //get_text_and_rect(sdlApp->renderer, 146, 240, 0, msg_volt_bank, fontLarge,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            //SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
+            get_text_and_rect(sdlApp->renderer, 156, 187, 0, msg_volt_bank, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct -  cnmea.curr_ts > S_TIMEOUT)) {
@@ -3360,9 +3395,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 386, 170, 0, msg_curr, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            //get_text_and_rect(sdlApp->renderer, 370, 240, 0, msg_curr_bank, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            //SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
+            get_text_and_rect(sdlApp->renderer, 380, 187, 0, msg_curr_bank, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (!(ct -  cnmea.temp_ts > S_TIMEOUT)) {
@@ -3372,8 +3406,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 605, 170, 0, msg_temp, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            //get_text_and_rect(sdlApp->renderer, 586, 240, 0, msg_temp_loca, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            //SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            get_text_and_rect(sdlApp->renderer, 598, 187, 0, msg_temp_loca, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         if (sdlApp->conf->netStat == 1) {
@@ -3674,7 +3708,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     TTF_CloseFont(fontLarge);
     IMG_Quit();
 
-    return event.type;
+    return e.type;
 }
 
 static int doCamera(sdl2_app *sdlApp)
@@ -3684,7 +3718,22 @@ static int doCamera(sdl2_app *sdlApp)
     AVCodecContext *actx = NULL;
     struct SwrContext *swr = NULL;
 
-    SDL_Rect mutebarR, unmutebarR, pWaitR, exitbuttR;
+    // Volume adjustments
+    float volume_percent = 0.0;
+    int dragging = 0;
+
+    SDL_Rect slider = {
+        (SWINDOW_WIDTH - SLIDER_WIDTH) / 2,
+        (SWINDOW_HEIGHT - SLIDER_HEIGHT) / 2,
+        SLIDER_WIDTH,
+        SLIDER_HEIGHT
+    };
+
+    if (sdlApp->conf->snd_useMixer) {
+        volume_percent = get_current_volume(sdlApp);
+    }
+
+    SDL_Rect mutebarR, unmutebarR, pWaitR, exitbuttR, bgR;
   
     int vstream = -1;
     int astream = -1;
@@ -3700,7 +3749,7 @@ static int doCamera(sdl2_app *sdlApp)
 
     SDL_Texture *tex = NULL;
     SDL_AudioDeviceID deviceId = 0;
-    SDL_Event event;
+    SDL_Event e;
 
     wasMuted = sdlApp->conf->muted;
     sdlApp->conf->muted = 1;    // Prevent warnings
@@ -3720,18 +3769,22 @@ static int doCamera(sdl2_app *sdlApp)
     pWaitR.x = 0;
     pWaitR.y = 0;
 
-    exitbuttR.w = 50;
-    exitbuttR.h = 50;
-    exitbuttR.x = win_w - 60;
-    exitbuttR.y = win_h - 60;
-
     mutebarR.w = unmutebarR.w = 25;
     mutebarR.h = unmutebarR.h = 25;
     mutebarR.x = unmutebarR.x = 70;
     mutebarR.y = unmutebarR.y = 20;
+    bgR.w = bgR.h = 30;
+    bgR.x = 68;
+    bgR.y = 18;
+
+    exitbuttR.w = 40;
+    exitbuttR.h = 40;
+    exitbuttR.x = 62;
+    exitbuttR.y = 60;
 
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
+    TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
 
     char pict[PATH_MAX];
 
@@ -3745,6 +3798,9 @@ static int doCamera(sdl2_app *sdlApp)
     SDL_Texture* pQuit = NULL;
     sprintf(pict , "%s/quitButton.png", IMAGE_PATH);
     pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
+
+    int w, h;
+    SDL_GetWindowSize(sdlApp->window, &w, &h);
     
     int toggle = 1;
     running = 4;
@@ -3873,24 +3929,44 @@ static int doCamera(sdl2_app *sdlApp)
 
         while (running && av_read_frame(fmt, &pkt) >= 0) {
 
-            while (SDL_PollEvent(&event)) {
-                if (event.type == SDL_QUIT) {
+            while (SDL_PollEvent(&e)) {
+                if (e.type == SDL_QUIT) {
                     running = 0;
                     break;
                 }
 
-                if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN) {
+                if (sdlApp->conf->snd_useMixer && !muted) {
+                    if (e.type == SDL_MOUSEMOTION && dragging) {
 
-                    hideQuit=50;
+                        SDL_Point p = (SDL_Point){e.motion.x/sdlApp->conf->scale, e.motion.y/sdlApp->conf->scale};
+
+                        if (SDL_PointInRect(&p, &slider)) {
+                            int mouseY = p.y;
+
+                            float rel = (float)(slider.y + slider.h - mouseY) / slider.h;
+
+                            if (rel < 0.0f) rel = 0.0f;
+                            if (rel > 1.0f) rel = 1.0f;
+
+                            volume_percent = rel;
+                            set_alsa_volume(sdlApp, volume_percent);
+                        }
+                    }
+                }
+
+                if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION)
+                {
+
+                    hideQuit=40;
 
                     SDL_Point p;
                     int x, y;
-                    if (event.type == SDL_FINGERDOWN) {
-                        x = event.tfinger.x* sdlApp->conf->window_w;
-                        y = event.tfinger.y* sdlApp->conf->window_h;
+                    if (e.type == SDL_FINGERDOWN) {
+                        x = e.tfinger.x* w;
+                        y = e.tfinger.y* h;
                         p = (SDL_Point){ x, y };
                     } else {
-                        p = (SDL_Point){event.button.x/sdlApp->conf->scale, event.button.y/sdlApp->conf->scale};
+                        p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
                     }
 
                     if (SDL_PointInRect( &p, &exitbuttR)) {
@@ -3898,13 +3974,24 @@ static int doCamera(sdl2_app *sdlApp)
                         break;
                     }
                     
-                    if (event.type == SDL_FINGERDOWN) {
+                    if (e.type == SDL_FINGERDOWN) {
                         if (SDL_PointInRect(&p, &mutebarR)) {
                             muted = !muted;
                         }
                     }
+
+                    p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
+
+                    if (SDL_PointInRect(&p, &slider)) {
+                        dragging = 1;
+                    }
                 }
+
+                if (e.type == SDL_MOUSEBUTTONUP)
+                    dragging = 0;
             }
+
+            if (running == 0) break;        
 
             /* VIDEO */
 
@@ -3941,11 +4028,61 @@ static int doCamera(sdl2_app *sdlApp)
                     }
 
                     if (deviceId) {
-                        if (muted == 0) {
-                            SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
-                        } else {
+                        if (muted == 1 || hideQuit > 0 ) {
+                            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 90);
+                            SDL_RenderFillRect(sdlApp->renderer, &bgR);
+                        }
+
+                        if (hideQuit > 0 && !muted) {
+                                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+                        }
+                        if (muted == 1) {
                             SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
                         }
+                    }
+
+                    if (sdlApp->conf->snd_useMixer && sdlApp->conf->snd_showMixer && hideQuit > 0 && !muted)
+                    {
+
+                        slider.x = w - SLIDER_WIDTH - RIGHT_MARGIN;
+                        slider.w = SLIDER_WIDTH;
+                        slider.h = SLIDER_HEIGHT;
+
+                        slider.y = h - SLIDER_HEIGHT - (int)(h * 0.25);
+
+                        /* Slider background */
+                        SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
+                        SDL_RenderFillRect(sdlApp->renderer, &slider);
+
+                        /* Filled portion */
+                        SDL_Rect fill = slider;
+                        fill.h = (int)(slider.h * volume_percent);
+                        fill.y = slider.y + (slider.h - fill.h);
+
+                        /* Slider foreground green to red */
+                        SDL_SetRenderDrawColor(sdlApp->renderer, (Uint8)(volume_percent * 200.0f), 200-(Uint8)(volume_percent * 150.0f), 0, 255);
+                        SDL_RenderFillRect(sdlApp->renderer, &fill);
+
+                        /* Render volume text */
+                        char text[16];
+                        int percent_display = (int)(volume_percent * 100.0f);
+                        snprintf(text, sizeof(text), "%d%%", percent_display);
+
+                        SDL_Color black = {0, 0, 0, 0};
+                        SDL_Surface *surface = TTF_RenderText_Blended(fontSmall, text, black);
+
+                        SDL_Texture *texture = SDL_CreateTextureFromSurface(sdlApp->renderer, surface);
+
+                        SDL_Rect textRect;
+                        textRect.w = surface->w;
+                        textRect.h = surface->h;
+                        textRect.x = slider.x -4;
+                        textRect.y = slider.y - 20;
+                        SDL_RenderCopy(sdlApp->renderer, texture, NULL, &textRect);
+
+                        SDL_FreeSurface(surface);
+                        SDL_DestroyTexture(texture);
+
                     }
 
                     SDL_RenderPresent(sdlApp->renderer);
@@ -4008,12 +4145,16 @@ static int doCamera(sdl2_app *sdlApp)
         SDL_DestroyTexture(pQuit);
     }
 
+    TTF_CloseFont(fontSmall);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
 
     sdlApp->conf->muted = wasMuted;
 
     IMG_Quit();
+
+    if (e.type == SDL_QUIT)
+        return e.type;
 
     return sdlApp->curPage;
 }
@@ -4156,7 +4297,8 @@ static int threadAudio(void *ptr)
 
 static int doVideoCapture(sdl2_app *sdlApp)
 {
-    SDL_Rect mutebarR, unmutebarR, exitbuttR;
+    SDL_Rect mutebarR, unmutebarR, exitbuttR, bgR;
+    TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     SDL_Thread *audioThread = NULL;
     int wasMuted;
 
@@ -4166,10 +4308,25 @@ static int doVideoCapture(sdl2_app *sdlApp)
     doRun.astat = 1;
     strncpy(doRun.snd_card, sdlApp->conf->snd_card, sizeof(doRun.snd_card));
 
-    if ((audioThread = SDL_CreateThread(threadAudio, "videoAudio", &doRun)) == NULL) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread videoAudio failed: %s", SDL_GetError());
+    if ((audioThread = SDL_CreateThread(threadAudio, "VideoAudio", &doRun)) == NULL) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread VideoAudio failed: %s", SDL_GetError());
         doRun.astat = 0;
     } else SDL_DetachThread(audioThread);
+
+    // Volume adjustments
+    float volume_percent = 0.0;
+    int dragging = 0;
+
+    SDL_Rect slider = {
+        (SWINDOW_WIDTH - SLIDER_WIDTH) / 2,
+        (SWINDOW_HEIGHT - SLIDER_HEIGHT) / 2,
+        SLIDER_WIDTH,
+        SLIDER_HEIGHT
+    };
+
+    if (sdlApp->conf->snd_useMixer) {
+        volume_percent = get_current_volume(sdlApp);
+    }
 
     struct buffer {
         void *start;
@@ -4179,15 +4336,18 @@ static int doVideoCapture(sdl2_app *sdlApp)
     int w, h;
     SDL_GetWindowSize(sdlApp->window, &w, &h);
 
-    exitbuttR.w = 50;
-    exitbuttR.h = 50;
-    exitbuttR.x = w - 60;
-    exitbuttR.y = h - 60;
+    exitbuttR.w = 40;
+    exitbuttR.h = 40;
+    exitbuttR.x = 62;
+    exitbuttR.y = 60;
 
     mutebarR.w = unmutebarR.w = 25;
     mutebarR.h = unmutebarR.h = 25;
     mutebarR.x = unmutebarR.x = 70;
     mutebarR.y = unmutebarR.y = 20;
+    bgR.w = bgR.h = 30;
+    bgR.x = 68;
+    bgR.y = 18;
 
     if (!strlen(sdlApp->conf->vid_device))
         return sdlApp->curPage;
@@ -4292,15 +4452,34 @@ static int doVideoCapture(sdl2_app *sdlApp)
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+            if (sdlApp->conf->snd_useMixer && !doRun.mute) {
+                if (e.type == SDL_MOUSEMOTION && dragging) {
 
-                hideQuit=100;
+                    SDL_Point p = (SDL_Point){e.motion.x/sdlApp->conf->scale, e.motion.y/sdlApp->conf->scale};
+
+                    if (SDL_PointInRect(&p, &slider)) {
+                        int mouseY = p.y;
+
+                        float rel = (float)(slider.y + slider.h - mouseY) / slider.h;
+
+                        if (rel < 0.0f) rel = 0.0f;
+                        if (rel > 1.0f) rel = 1.0f;
+
+                        volume_percent = rel;
+                        set_alsa_volume(sdlApp, volume_percent);
+                    }
+                }
+            }
+
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION)
+            {
+                hideQuit=130;
 
                 SDL_Point p;
                 int x, y;
                 if (e.type == SDL_FINGERDOWN) {
-                    x = e.tfinger.x* sdlApp->conf->window_w;
-                    y = e.tfinger.y* sdlApp->conf->window_h;
+                    x = e.tfinger.x* w;
+                    y = e.tfinger.y* h;
                     p = (SDL_Point){ x, y };
                 } else {
                     p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
@@ -4316,8 +4495,19 @@ static int doVideoCapture(sdl2_app *sdlApp)
                         doRun.mute = !doRun.mute;
                     }
                 }
+
+                p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
+
+                if (SDL_PointInRect(&p, &slider)) {
+                    dragging = 1;
+                }
             }
+
+            if (e.type == SDL_MOUSEBUTTONUP)
+                dragging = 0;
         }
+
+        if (running == 0) break;
 
         // --- Video ---
         struct v4l2_buffer buf = {0};
@@ -4329,6 +4519,8 @@ static int doVideoCapture(sdl2_app *sdlApp)
         SDL_RenderClear(sdlApp->renderer);
         SDL_RenderCopy(sdlApp->renderer, tex, NULL, NULL);
 
+        SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+
         ioctl(vfd, VIDIOC_QBUF, &buf);
 
         // Draw Exit button
@@ -4337,12 +4529,61 @@ static int doVideoCapture(sdl2_app *sdlApp)
                 SDL_RenderCopyEx(sdlApp->renderer, pQuit, NULL, &exitbuttR, 0, NULL, SDL_FLIP_NONE);
         }
 
-        if (doRun.astat) {
-            if (doRun.mute == 0) { 
-                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
-            } else {
+        if (doRun.astat) 
+        {
+            if (doRun.mute == 1 || hideQuit > 0 ) {
+                SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 90);
+                SDL_RenderFillRect(sdlApp->renderer, &bgR);
+            }
+
+            if (hideQuit > 0 && !doRun.mute) {
+                    SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+            if (doRun.mute == 1) {
                 SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
             }
+        }
+
+        if (sdlApp->conf->snd_useMixer && sdlApp->conf->snd_showMixer && hideQuit > 0 && !doRun.mute) {
+
+            slider.x = w - SLIDER_WIDTH - RIGHT_MARGIN;
+            slider.w = SLIDER_WIDTH;
+            slider.h = SLIDER_HEIGHT;
+
+            slider.y = h - SLIDER_HEIGHT - (int)(h * 0.25);
+
+            /* Slider background */
+            SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &slider);
+
+            /* Filled portion */
+            SDL_Rect fill = slider;
+            fill.h = (int)(slider.h * volume_percent);
+            fill.y = slider.y + (slider.h - fill.h);
+
+            /* Slider foreground green to red */
+            SDL_SetRenderDrawColor(sdlApp->renderer, (Uint8)(volume_percent * 200.0f), 200-(Uint8)(volume_percent * 150.0f), 0, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &fill);
+
+            /* Render volume text */
+            char text[16];
+            int percent_display = (int)(volume_percent * 100.0f);
+            snprintf(text, sizeof(text), "%d%%", percent_display);
+
+            SDL_Color black = {0, 0, 0, 0};
+            SDL_Surface *surface = TTF_RenderText_Blended(fontSmall, text, black);
+
+            SDL_Texture *texture = SDL_CreateTextureFromSurface(sdlApp->renderer, surface);
+
+            SDL_Rect textRect;
+            textRect.w = surface->w;
+            textRect.h = surface->h;
+            textRect.x = slider.x -4;
+            textRect.y = slider.y - 20;
+            SDL_RenderCopy(sdlApp->renderer, texture, NULL, &textRect);
+
+            SDL_FreeSurface(surface);
+            SDL_DestroyTexture(texture);
         }
 
         SDL_RenderPresent(sdlApp->renderer);
@@ -4363,6 +4604,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
         SDL_DestroyTexture(pQuit);
     }
 
+    TTF_CloseFont(fontSmall);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(tex);
@@ -4370,6 +4612,9 @@ static int doVideoCapture(sdl2_app *sdlApp)
     sdlApp->conf->muted = wasMuted;
 
     IMG_Quit();
+
+    if (e.type == SDL_QUIT)
+        return e.type;
 
     return sdlApp->curPage;
 }
@@ -4462,16 +4707,18 @@ static int doVideo(sdl2_app *sdlApp)
     {
         while(SDL_PollEvent(&e))
         {        
-            if(e.type == SDL_QUIT)
+            if(e.type == SDL_QUIT) {
                 running = 0;
+                break;
+            }
 
             if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 SDL_Point p;
                 int x, y;
                 if (e.type == SDL_FINGERDOWN) {
-                    x = e.tfinger.x* sdlApp->conf->window_w;
-                    y = e.tfinger.y* sdlApp->conf->window_h;
+                    x = e.tfinger.x* win_w;
+                    y = e.tfinger.y* win_h;
                     p = (SDL_Point){ x, y };
                 } else {
                     p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
@@ -4491,9 +4738,12 @@ static int doVideo(sdl2_app *sdlApp)
                 if (SDL_PointInRect( &p, &commit))
                 {
                     running = 0;
+                    break;
                 }
             }
         }
+
+        if (running == 0) break;
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
@@ -4530,20 +4780,22 @@ static int doVideo(sdl2_app *sdlApp)
     IMG_Quit();
 
     if (selected == 1)
-        return doCamera(sdlApp);
+         return doCamera(sdlApp);
 
     if (selected == 2)
-        return doVideoCapture(sdlApp);
+         return doVideoCapture(sdlApp);
 
-    return sdlApp->curPage;
+    if (selected == 3)
+        return sdlApp->curPage;
+
+    return e.type;
 }
-
 
 #ifdef DIGIFLOW
 // Present Fresh Water data. Dendent on project  https://github.com/ehedman/flowSensor
 static int doWater(sdl2_app *sdlApp)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect gaugeR, menuBarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
   
     FILE *tankFd;
@@ -4639,21 +4891,22 @@ static int doWater(sdl2_app *sdlApp)
 
         int doBreak = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
                     break;
                 }
             }
         }
+ 
         if (doBreak == 1) break;
 
         SDL_RenderClear(sdlApp->renderer);
@@ -4685,13 +4938,13 @@ static int doWater(sdl2_app *sdlApp)
 
         get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_tnk, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
+ 
         get_text_and_rect(sdlApp->renderer, 136, 216, 9, msg_lft, fontLA, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
+ 
         get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_flr, fontLO, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.fdate < ct+604800 ? RED : BLACK); // A week+
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-       
+     
         if (rval == 0) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cns, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -4709,12 +4962,13 @@ static int doWater(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+
         addMenuItems(sdlApp, fontSrc);
 
         get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+
 
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
@@ -4763,11 +5017,9 @@ static int doWater(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     IMG_Quit();
 
-    return event.type;
+    return e.type;
 }
-
 #endif /* DIGIFLOW */
-
 
 static int threadCalibrator(void *ptr)
 {
@@ -4825,7 +5077,7 @@ static int threadCalibrator(void *ptr)
 // Do calibration
 static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 {
-    SDL_Event event;
+    SDL_Event e;
     SDL_Rect menuBarR;
 
     TTF_Font* fontCAL =  TTF_OpenFont(sdlApp->fontPath, 28);
@@ -4924,16 +5176,16 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         sdlApp->textFieldArrIndx = 0;
         int doBreak = 0;
         
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&e)) {
 
-            if(event.type == SDL_QUIT ) {
+            if(e.type == SDL_QUIT ) {
                 doBreak = 1;
                 break;
             }
 
-            if(event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN)
+            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
-                if ((event.type=pageSelect(sdlApp, &event))) {
+                if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
                     break;
                 }
@@ -4975,7 +5227,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         while (1) {
 
             sdlApp->textFieldArrIndx = 0;
-            event.type = COGPAGE;
+            e.type = COGPAGE;
 
             if (threadCalib == NULL) {
 
@@ -5027,7 +5279,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
     TTF_CloseFont(fontPRG);
     TTF_CloseFont(fontSrc);
 
-    return event.type;
+    return e.type;
 }
 
 static void closeSDL2(sdl2_app *sdlApp)
@@ -5381,7 +5633,7 @@ static void init_av(configuration *configParams)
     int ndev;
     struct v4l2_capability caps;
     struct v4l2_input input;
-    char dev_name[60];
+    char dev_name[100] = {'\0'};
 
     for (ndev=0; ndev <64; ndev++) {
         sprintf(configParams->vid_device, "/dev/video%d", ndev);

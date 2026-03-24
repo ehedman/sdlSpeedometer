@@ -33,7 +33,7 @@ $(BIN): $(SRCS) $(HDRS)
 
 install:
 	rm -f $(BIN)
-	make $(BIN)  EXTRA_CFLAGS="-DPATH_INSTALL -O0 -Wno-stringop-truncation"
+	make $(BIN)  EXTRA_CFLAGS="-DPATH_INSTALL -O2 -Wno-stringop-truncation"
 	sudo install -m 0755 -g root -o root $(BIN) -D $(DEST)/bin/$(BIN)
 	sudo install -m 0755 -g root -o root spawnSubtask -D $(DEST)/bin/spawnSubtask
 	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config

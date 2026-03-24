@@ -107,7 +107,7 @@ enum sdlPages {
     VIDPAGE,
     CALPAGE,
     TSKPAGE,
-    WTRPAGE  
+    WTRPAGE
 };
 
 typedef struct {
