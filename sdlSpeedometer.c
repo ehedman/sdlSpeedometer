@@ -1549,7 +1549,7 @@ static int doCompass(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][0]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -1715,10 +1715,6 @@ static int doCompass(sdl2_app *sdlApp)
 
         t_angle_a = rotate_a(angle_a, res_a); res_a=0;
 
-        // Run needle with smooth acceleration
-//        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
-//        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
-
         SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
         SDL_RenderClear(sdlApp->renderer);
 
@@ -1831,7 +1827,7 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    IMG_Quit();
+    //IMG_Quit();
 
     return e.type;
 }
@@ -1897,7 +1893,7 @@ static int doSumlog(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][0]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -2089,7 +2085,7 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    IMG_Quit();
+    //IMG_Quit();
 
     return e.type;
 }
@@ -2122,7 +2118,7 @@ static int doGps(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][0]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -2333,7 +2329,7 @@ static int doGps(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    IMG_Quit();
+    //IMG_Quit();
 
     return e.type;
 }
@@ -2408,7 +2404,7 @@ static int doDepth(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][0]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -2827,7 +2823,7 @@ static int doDepth(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    IMG_Quit();
+    //IMG_Quit();
 
     return e.type;
 }
@@ -2896,7 +2892,7 @@ static int doWind(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][0]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -3115,7 +3111,7 @@ static int doWind(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    IMG_Quit();
+    //IMG_Quit();
 
     return e.type;
 }
@@ -3167,7 +3163,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
-        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][2]);
+        sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][0]);
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
@@ -3707,7 +3703,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontLarge);
-    IMG_Quit();
+    //IMG_Quit();
 
     return e.type;
 }
@@ -4153,7 +4149,7 @@ static int doCamera(sdl2_app *sdlApp)
 
     sdlApp->conf->muted = wasMuted;
 
-    IMG_Quit();
+    //IMG_Quit();
 
     if (e.type == SDL_QUIT)
         return e.type;
@@ -4614,7 +4610,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
     sdlApp->conf->muted = wasMuted;
 
-    IMG_Quit();
+    //IMG_Quit();
 
     if (e.type == SDL_QUIT)
         return e.type;
@@ -4780,7 +4776,7 @@ static int doVideo(sdl2_app *sdlApp)
 
     TTF_CloseFont(font);
 
-    IMG_Quit();
+    //IMG_Quit();
 
     if (selected == 1)
          return doCamera(sdlApp);
@@ -5018,7 +5014,7 @@ static int doWater(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    IMG_Quit();
+    //IMG_Quit();
 
     return e.type;
 }
@@ -5287,11 +5283,11 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
 static void closeSDL2(sdl2_app *sdlApp)
 {
-
     TTF_Quit();
     SDL_DestroyRenderer(sdlApp->renderer);
     SDL_DestroyWindow(sdlApp->window);
     SDL_VideoQuit();
+    IMG_Quit();
     SDL_Quit();
 }
 
@@ -5319,6 +5315,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             configParams->conn = NULL;
             return SDL_QUIT;
         }
+        int flags = IMG_INIT_PNG | IMG_INIT_JPG;
+        IMG_Init(flags);
     }
 
     if (configParams->runNet) {
@@ -5426,10 +5424,10 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
         if ((rval=sqlite3_prepare_v2(configParams->conn, "select task,args,icon from subtasks", -1, &res, &tail)) == SQLITE_OK)
         {
             while (sqlite3_step(res) != SQLITE_DONE) {  
-
                 strncpy((sdlApp->subAppsCmd[c][0]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 0), PATH_MAX);
                 strncpy((sdlApp->subAppsCmd[c][1]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 1), PATH_MAX);
-                strncpy((sdlApp->subAppsIco[c][2]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 2), PATH_MAX);
+                strncpy((sdlApp->subAppsIco[c][0]=(char*)malloc(PATH_MAX)), (char*)sqlite3_column_text(res, 2), PATH_MAX);
+
                 sprintf(subtask, "which %s", sdlApp->subAppsCmd[c][0]);
  
                 *buff = '\0';
@@ -5439,6 +5437,7 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
                     pclose(fd);
                 }
                 if (strlen(buff) < 2) {
+                    free(sdlApp->subAppsCmd[c][0]);
                     sdlApp->subAppsCmd[c][0] = NULL;
                 }
 
