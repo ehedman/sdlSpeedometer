@@ -1657,8 +1657,6 @@ static int doCompass(sdl2_app *sdlApp)
         }
         if (doBreak == 1) break;
 
-        SDL_RenderClear(sdlApp->renderer);
-
         ct = time(NULL);    // Get a timestamp for this turn 
 
         if (!(ct - cnmea.rmc_gps_ts > S_TIMEOUT)) {
@@ -1720,6 +1718,9 @@ static int doCompass(sdl2_app *sdlApp)
         // Run needle with smooth acceleration
 //        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
 //        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+
+        SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        SDL_RenderClear(sdlApp->renderer);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
         SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
@@ -4019,6 +4020,7 @@ static int doCamera(sdl2_app *sdlApp)
                         frame->data[2],frame->linesize[2]);
 
                     SDL_RenderClear(sdlApp->renderer);
+
                     SDL_RenderCopy(sdlApp->renderer,tex,NULL,NULL);
 
                     // Draw Exit button
@@ -4516,6 +4518,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
         if(ioctl(vfd, VIDIOC_DQBUF, &buf) < 0) continue;
 
         SDL_UpdateTexture(tex, NULL, buffers[buf.index].start, win_w*2);
+
         SDL_RenderClear(sdlApp->renderer);
         SDL_RenderCopy(sdlApp->renderer, tex, NULL, NULL);
 
