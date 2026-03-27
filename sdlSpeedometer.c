@@ -490,7 +490,7 @@ static int threadSerial(void *conf)
         time_t ct;
         int cnt;
         float hdm;
-
+  
         // The vessels network has precedence
         if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
             SDL_Delay(1000);
@@ -828,7 +828,7 @@ static int nmeaNetCollector(void* conf)
             float hdm;
 
             if (++retry > 10) break;
-
+               
             ts = time(NULL);        // Get a timestamp for this turn
 
             // Check if we got an NMEA response from the server
@@ -1010,6 +1010,7 @@ static int nmeaNetCollector(void* conf)
                     cnmea.kWhp=         atof(getf(7, nmeastr_p1));
                     cnmea.kWhn=         atof(getf(8, nmeastr_p1));
                     cnmea.startTime=    atol(getf(9, nmeastr_p1));
+
                     continue;
                 }
 
@@ -1171,6 +1172,7 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
     rect->y = y;
     rect->w = text_width;
     rect->h = text_height;
+
 }
 
 inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
@@ -1280,7 +1282,7 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
     // Add text on top of a simple menu bar
 
     SDL_Rect M1_rect;
-
+    
     int y = 414;    // Start y here and go left to right
 
     get_text_and_rect(sdlApp->renderer, y, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
@@ -1525,7 +1527,7 @@ inline static void doVnc(sdl2_app *sdlApp)
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect compassR, outerRingR, clinoMeterR, windDirR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, calbarR, textBoxR;
+    SDL_Rect compassR, outerRingR, clinoMeterR, windDirR, menuBarR, subTaskbarR, netStatbarR, mutebarR, calbarR, textBoxR;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -1579,16 +1581,15 @@ static int doCompass(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
-    netStatbarR.w = noNetStatbarR.w = 25;
-    netStatbarR.h = noNetStatbarR.h = 25;
-    netStatbarR.x = noNetStatbarR.x = 20;
-    netStatbarR.y = noNetStatbarR.y = 20;
-
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
 
     calbarR.w = 25;
     calbarR.h = 25;
@@ -1698,7 +1699,7 @@ static int doCompass(sdl2_app *sdlApp)
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
-                      
+
         angle = rotate(roundf(cnmea.hdm), res); res=0;
 
         // Run needle and roll with smooth acceleration
@@ -1713,7 +1714,7 @@ static int doCompass(sdl2_app *sdlApp)
         if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
         angle_a += offset;
 
-        t_angle_a = rotate_a(angle_a, res_a); res_a=0;
+        t_angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
 
         SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
         SDL_RenderClear(sdlApp->renderer);
@@ -1721,7 +1722,7 @@ static int doCompass(sdl2_app *sdlApp)
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
         SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
-        
+
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
             SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
 
@@ -1733,7 +1734,6 @@ static int doCompass(sdl2_app *sdlApp)
     
         get_text_and_rect(sdlApp->renderer, 200, 200, 3, msg_hdm, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-       
 
         get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -1768,7 +1768,7 @@ static int doCompass(sdl2_app *sdlApp)
         if (sdlApp->conf->netStat == 1) {
             SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
-            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->runWrn) {
@@ -1800,12 +1800,12 @@ static int doCompass(sdl2_app *sdlApp)
         dynUpd = dynUpd > 200? 200:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
-        
+
         sdlApp->textFieldArrIndx--;
         do {
             SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
         } while (sdlApp->textFieldArrIndx-- >0);
-        
+
     }
 
     if (subTaskbar != NULL) {
@@ -1827,7 +1827,6 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    //IMG_Quit();
 
     return e.type;
 }
@@ -1836,7 +1835,7 @@ static int doCompass(sdl2_app *sdlApp)
 static int doSumlog(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1863,15 +1862,15 @@ static int doSumlog(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
-    netStatbarR.w = noNetStatbarR.w = 25;
-    netStatbarR.h = noNetStatbarR.h = 25;
-    netStatbarR.x = noNetStatbarR.x = 20;
-    netStatbarR.y = noNetStatbarR.y = 20;
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -2036,7 +2035,7 @@ static int doSumlog(sdl2_app *sdlApp)
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
-            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->runWrn) {
@@ -2085,8 +2084,7 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    //IMG_Quit();
-
+  
     return e.type;
 }
 
@@ -2094,7 +2092,7 @@ static int doSumlog(sdl2_app *sdlApp)
 static int doGps(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
+    SDL_Rect gaugeR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;
 
     TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
     TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 30);
@@ -2140,15 +2138,15 @@ static int doGps(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
-    netStatbarR.w = noNetStatbarR.w = 25;
-    netStatbarR.h = noNetStatbarR.h = 25;
-    netStatbarR.x = noNetStatbarR.x = 20;
-    netStatbarR.y = noNetStatbarR.y = 20;
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -2196,7 +2194,7 @@ static int doGps(sdl2_app *sdlApp)
         if (doBreak == 1) break;
 
         SDL_RenderClear(sdlApp->renderer);
-        
+
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
 
@@ -2284,7 +2282,7 @@ static int doGps(sdl2_app *sdlApp)
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
-            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->runWrn) {
@@ -2329,8 +2327,7 @@ static int doGps(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    //IMG_Quit();
-
+ 
     return e.type;
 }
 
@@ -2338,7 +2335,7 @@ static int doGps(sdl2_app *sdlApp)
 static int doDepth(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontMedium =  TTF_OpenFont(sdlApp->fontPath, 24);
@@ -2383,15 +2380,15 @@ static int doDepth(sdl2_app *sdlApp)
     subTaskbarR.y = 400;
 
     netStatbarR.w = 25;
-    netStatbarR.w = noNetStatbarR.w = 25;
-    netStatbarR.h = noNetStatbarR.h = 25;
-    netStatbarR.x = noNetStatbarR.x = 20;
-    netStatbarR.y = noNetStatbarR.y = 20;
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -2505,6 +2502,7 @@ static int doDepth(sdl2_app *sdlApp)
         depth = cnmea.dbt;
         if (depth > 10.0) depth /=10;
 
+
         scale = depth * (maxangle/maxsdepth);
         angle = roundf(scale+minangle);
 
@@ -2565,7 +2563,7 @@ static int doDepth(sdl2_app *sdlApp)
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
-            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->runWrn) {
@@ -2823,7 +2821,6 @@ static int doDepth(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    //IMG_Quit();
 
     return e.type;
 }
@@ -2832,7 +2829,7 @@ static int doDepth(sdl2_app *sdlApp)
 static int doWind(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;;
+    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -2871,15 +2868,15 @@ static int doWind(sdl2_app *sdlApp)
     subTaskbarR.x = 30;
     subTaskbarR.y = 400;
 
-    netStatbarR.w = noNetStatbarR.w = 25;
-    netStatbarR.h = noNetStatbarR.h = 25;
-    netStatbarR.x = noNetStatbarR.x = 20;
-    netStatbarR.y = noNetStatbarR.y = 20;
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -3062,7 +3059,7 @@ static int doWind(sdl2_app *sdlApp)
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
-            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->runWrn) {
@@ -3111,7 +3108,6 @@ static int doWind(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    //IMG_Quit();
 
     return e.type;
 }
@@ -3138,7 +3134,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 {
     SDL_Event e;
     SDL_Rect gaugeVoltR, gaugeCurrR, gaugeTempR, voltNeedleR, currNeedleR;
-    SDL_Rect tempNeedleR, menuBarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, subTaskbarR;
+    SDL_Rect tempNeedleR, menuBarR, netStatbarR, mutebarR, subTaskbarR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
@@ -3203,15 +3199,15 @@ static int doEnvironment(sdl2_app *sdlApp)
     menuBarR.x = 400;
     menuBarR.y = 400;
 
-    netStatbarR.w = noNetStatbarR.w = 25;
-    netStatbarR.h = noNetStatbarR.h = 25;
-    netStatbarR.x = noNetStatbarR.x = 20;
-    netStatbarR.y = noNetStatbarR.y = 20;
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
 
     subTaskbarR.w = 50;
     subTaskbarR.h = 50;
@@ -3363,7 +3359,7 @@ static int doEnvironment(sdl2_app *sdlApp)
             else
                 sprintf(msg_kWhp, "%.1f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
         }
- 
+
         SDL_RenderClear(sdlApp->renderer);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
@@ -3410,7 +3406,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
-            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->runWrn) {
@@ -3703,8 +3699,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     TTF_CloseFont(fontTod);
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontLarge);
-    //IMG_Quit();
-
+ 
     return e.type;
 }
 
@@ -3730,7 +3725,7 @@ static int doCamera(sdl2_app *sdlApp)
         volume_percent = get_current_volume(sdlApp);
     }
 
-    SDL_Rect mutebarR, unmutebarR, pWaitR, exitbuttR, bgR;
+    SDL_Rect mutebarR, pWaitR, exitbuttR, bgR;
   
     int vstream = -1;
     int astream = -1;
@@ -3766,10 +3761,10 @@ static int doCamera(sdl2_app *sdlApp)
     pWaitR.x = 0;
     pWaitR.y = 0;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
     bgR.w = bgR.h = 30;
     bgR.x = 68;
     bgR.y = 18;
@@ -4149,8 +4144,6 @@ static int doCamera(sdl2_app *sdlApp)
 
     sdlApp->conf->muted = wasMuted;
 
-    //IMG_Quit();
-
     if (e.type == SDL_QUIT)
         return e.type;
 
@@ -4295,7 +4288,7 @@ static int threadAudio(void *ptr)
 
 static int doVideoCapture(sdl2_app *sdlApp)
 {
-    SDL_Rect mutebarR, unmutebarR, exitbuttR, bgR;
+    SDL_Rect mutebarR, exitbuttR, bgR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     SDL_Thread *audioThread = NULL;
     int wasMuted;
@@ -4339,10 +4332,10 @@ static int doVideoCapture(sdl2_app *sdlApp)
     exitbuttR.x = 62;
     exitbuttR.y = 60;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
     bgR.w = bgR.h = 30;
     bgR.x = 68;
     bgR.y = 18;
@@ -4610,8 +4603,6 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
     sdlApp->conf->muted = wasMuted;
 
-    //IMG_Quit();
-
     if (e.type == SDL_QUIT)
         return e.type;
 
@@ -4776,8 +4767,6 @@ static int doVideo(sdl2_app *sdlApp)
 
     TTF_CloseFont(font);
 
-    //IMG_Quit();
-
     if (selected == 1)
          return doCamera(sdlApp);
 
@@ -4795,7 +4784,7 @@ static int doVideo(sdl2_app *sdlApp)
 static int doWater(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, menuBarR, netStatbarR, noNetStatbarR, mutebarR, unmutebarR, textBoxR;
+    SDL_Rect gaugeR, menuBarR, netStatbarR, mutebarR, textBoxR;
   
     FILE *tankFd;
     int tankIndx = 0;
@@ -4835,15 +4824,15 @@ static int doWater(sdl2_app *sdlApp)
     menuBarR.x = 400;
     menuBarR.y = 400;
 
-    netStatbarR.w = noNetStatbarR.w = 25;
-    netStatbarR.h = noNetStatbarR.h = 25;
-    netStatbarR.x = noNetStatbarR.x = 20;
-    netStatbarR.y = noNetStatbarR.y = 20;
+    netStatbarR.w = 25;
+    netStatbarR.h = 25;
+    netStatbarR.x = 20;
+    netStatbarR.y = 20;
 
-    mutebarR.w = unmutebarR.w = 25;
-    mutebarR.h = unmutebarR.h = 25;
-    mutebarR.x = unmutebarR.x = 70;
-    mutebarR.y = unmutebarR.y = 20;
+    mutebarR.w = 25;
+    mutebarR.h = 25;
+    mutebarR.x = 70;
+    mutebarR.y = 20;
 
     textBoxR.w = 290;
     textBoxR.h = 42;
@@ -4909,7 +4898,7 @@ static int doWater(sdl2_app *sdlApp)
         if (doBreak == 1) break;
 
         SDL_RenderClear(sdlApp->renderer);
-        
+
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
@@ -4943,7 +4932,7 @@ static int doWater(sdl2_app *sdlApp)
  
         get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_flr, fontLO, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.fdate < ct+604800 ? RED : BLACK); // A week+
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-     
+
         if (rval == 0) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cns, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -4972,7 +4961,7 @@ static int doWater(sdl2_app *sdlApp)
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         } else {
-            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &noNetStatbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->runWrn) {
@@ -5014,8 +5003,7 @@ static int doWater(sdl2_app *sdlApp)
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
-    //IMG_Quit();
-
+ 
     return e.type;
 }
 #endif /* DIGIFLOW */
@@ -5289,6 +5277,7 @@ static void closeSDL2(sdl2_app *sdlApp)
     SDL_VideoQuit();
     IMG_Quit();
     SDL_Quit();
+
 }
 
 static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
@@ -5396,6 +5385,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     TTF_Init();
 
     Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND);
+ SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 

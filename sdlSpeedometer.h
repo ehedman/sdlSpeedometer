@@ -59,12 +59,12 @@ typedef struct {
 } calibration;
 
 typedef struct {
-    int runGps;
-    int runi2c;
-    int runNet;
-    int runVnc;
-    int runWrn;
-    int runTyd;
+    volatile int runGps;
+    volatile int runi2c;
+    volatile int runNet;
+    volatile int runVnc;
+    volatile int runWrn;
+    volatile int runTyd;
     int numThreads;
     short port;
     char server[100];
