@@ -253,8 +253,13 @@ int i2cinit(int bus)
         LSM9DS1 = 1;
     }
 
-    enableIMU(file);
+    if (LSM9DS0 + LSM9DS1 == 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Unable to find a BerryIMU (v1 or v2) on the i2c bus!");
+        return -1;
+    }
 
+    enableIMU(file);
+    
     return file;
 }
 
@@ -274,6 +279,9 @@ float i2cReadHdm(int file, calibration *calib)
 
     static float heading, curHeading;
     int result = 0;
+
+    if (LSM9DS0 + LSM9DS1 == 0)
+        return 0.0;
 
     if (sampleCnt++ < 5) {
         return curHeading;
@@ -370,6 +378,9 @@ float i2cReadRoll(int file, int dt, calibration *calib)
 
     int  acc_raw[3];
     int  gyr_raw[3];
+
+    if (LSM9DS0 + LSM9DS1 == 0)
+        return 0.0;
 
     //read ACC and GYR data
     readACC(acc_raw, file);

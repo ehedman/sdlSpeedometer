@@ -84,11 +84,13 @@
 #define IMAGE_PATH  "./img/"
 #define SQLDBPATH   "speedometer.db"
 #define SPAWNCMD    "./spawnSubtask"
+#define CONFICMD    "./sdlSpeedometer-config"
 #else
 #define SOUND_PATH  "/usr/local/share/sounds/"
 #define IMAGE_PATH  "/usr/local/share/images/"
 #define SQLDBPATH   "/usr/local/etc/speedometer/speedometer.db"
 #define SPAWNCMD    "/usr/local/bin/spawnSubtask"
+#define CONFICMD    "/usr/local/bin/sdlSpeedometer-config"
 #endif
 
 #define DEFAULT_BACKGROUND IMAGE_PATH "Default-bg.bmp"
@@ -105,7 +107,7 @@ static collected_nmea cnmea;
 
 static warnings warn;
 
-void logCallBack(char *userdata, int category, SDL_LogPriority priority, const char *message)
+static void logCallBack(char *userdata, int category, SDL_LogPriority priority, const char *message)
 {
     FILE *out = priority == SDL_LOG_PRIORITY_ERROR? stderr : stdout;
     category = 0;
@@ -117,7 +119,7 @@ void logCallBack(char *userdata, int category, SDL_LogPriority priority, const c
 }
 
 // The configuration database
-int  configureDb(configuration *configParams)
+static int configureDb(configuration *configParams)
 {
     sqlite3 *conn;
     sqlite3_stmt *res;
@@ -399,7 +401,7 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 
 // returns the true wind speed given boat speed, apparent wind speed and apparent wind direction in degrees
 // https://github.com/drasgardian/truewind
-double trueWindSpeed(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
+static double trueWindSpeed(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
 {
     // convert degres to radians
     double apparentWindDirectionRadian = apparentWindDirection * (M_PI/180);
@@ -409,7 +411,7 @@ double trueWindSpeed(double boatSpeed, double apparentWindSpeed, double apparent
 
 // returns the true wind direction given boat speed, apparent wind speed and apparent wind direction in degrees
 // https://github.com/drasgardian/truewind
-double trueWindDirection(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
+static double trueWindDirection(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
 {
 
     int convert180 = 0;
@@ -440,7 +442,7 @@ double trueWindDirection(double boatSpeed, double apparentWindSpeed, double appa
 #define MAX_LONGITUDE 180
 #define MAX_LATITUDE   90
 
-float dms2dd(float coordinates, const char *val)
+static float dms2dd(float coordinates, const char *val)
 { // Degrees Minutes Seconds to Decimal Degrees
 
     // Check limits
@@ -1136,10 +1138,10 @@ static int threadVnc(void *conf)
 inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char *text,
         TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) 
 {
-    int text_width;
-    int text_height;
-    int f_width;
-    int f_height;
+    int text_width = 0;
+    int text_height = 0;
+    int f_width = 0;
+    int f_height = 0;
     SDL_Surface *surface;
     SDL_Color textColor;
 
@@ -1155,8 +1157,24 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
         case RED:   textColor.r = 255; textColor.g = textColor.b = 0; break;
     }
 
-    surface = TTF_RenderText_Solid(font, text, textColor);
+    if (color == WHITE || color == RED) {
+        SDL_Color textColorB;
+        textColorB.r = 0; textColorB.g = 0;  textColorB.b = 0;  textColorB.a = 0;
+        if ((surface = TTF_RenderUTF8_LCD(font,text, textColor, textColorB)) != NULL) {
+            Uint32 colorkey = SDL_MapRGB(surface->format, 0, 0, 0);
+            SDL_SetColorKey(surface, SDL_TRUE, colorkey);
+        }
+    } else {
+      surface = TTF_RenderText_Solid(font, text, textColor);
+    }
+    if (surface == NULL) return;
+
     *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (*texture == NULL) {
+        SDL_FreeSurface(surface);
+        return;
+    }
+
     text_width = surface->w;
     text_height = surface->h;
     SDL_FreeSurface(surface);
@@ -1172,7 +1190,6 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
     rect->y = y;
     rect->w = text_width;
     rect->h = text_height;
-
 }
 
 inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
@@ -1219,40 +1236,35 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     if (sdlApp->curPage != DPTPAGE)
         sdlApp->plotMode = 1;
 
-    y = 403;    // Start y here and go left to right
-    SDL_Rect CogPageR = {y,400,50,50};
-    if (SDL_PointInRect(&p, &CogPageR)) {
+    x = 403;    // Start x here and go left to right
+    SDL_Rect MenuItemR = {x,400,50,50};
+    if (SDL_PointInRect(&p, &MenuItemR)) { // COG
         return COGPAGE;
     }
-
-    y+=57;
-    SDL_Rect SogPageR = {y,400,50,50};
-    if (SDL_PointInRect(&p, &SogPageR)) {
+    
+    MenuItemR.x +=57;
+    if (SDL_PointInRect(&p, &MenuItemR)) {  // SOG
         return SOGPAGE;
     }
 
-    y+=57;
-    SDL_Rect DptPageR = {y,400,50,50};
-    if (SDL_PointInRect(&p, &DptPageR)) {
+    MenuItemR.x +=57;
+    if (SDL_PointInRect(&p, &MenuItemR)) { // DPT
         sdlApp->plotMode = !sdlApp->plotMode;
         return DPTPAGE;
     }
 
-    y+=57;
-    SDL_Rect WindPageR = {y,400,50,50};
-    if (SDL_PointInRect(&p, &WindPageR)) {
+    MenuItemR.x +=57;
+    if (SDL_PointInRect(&p, &MenuItemR)) { // WND
         return WNDPAGE;
     }
 
-    y+=57;
-    SDL_Rect GpsPageR = {y,400,50,50};
-    if (SDL_PointInRect(&p, &GpsPageR)) {
+    MenuItemR.x +=57;
+    if (SDL_PointInRect(&p, &MenuItemR)) { // GPS
         return GPSPAGE;
     }
 
-    y+=57;
-    SDL_Rect PwrPageR = {y,400,50,50};
-    if (SDL_PointInRect(&p, &PwrPageR)) {
+    MenuItemR.x +=57;
+    if (SDL_PointInRect(&p, &MenuItemR)) { // PWR
 #ifdef DIGIFLOW
         if (sdlApp->curPage == PWRPAGE)
             return WTRPAGE;
@@ -1260,9 +1272,8 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
          return PWRPAGE;
     }
 
-    y+=57;
-    SDL_Rect VidPageR = {y,400,50,50};
-    if (SDL_PointInRect(&p, &VidPageR)) {
+    MenuItemR.x +=57;
+    if (SDL_PointInRect(&p, &MenuItemR)) {
         return VIDPAGE;
     }
 
@@ -1283,43 +1294,43 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 
     SDL_Rect M1_rect;
     
-    int y = 414;    // Start y here and go left to right
+    int x = 414;    // Start y here and go left to right
 
-    get_text_and_rect(sdlApp->renderer, y, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    y+=57;
-    get_text_and_rect(sdlApp->renderer, y, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    x+=57;
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    y+=57;
-    get_text_and_rect(sdlApp->renderer, y, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    x+=57;
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    y+=57;
-    get_text_and_rect(sdlApp->renderer, y, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    x+=57;
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    y+=57;
-    get_text_and_rect(sdlApp->renderer, y, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    x+=57;
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
-    y+=57;
+    x+=57;
 #ifdef DIGIFLOW
     if (sdlApp->curPage == PWRPAGE) {
-        get_text_and_rect(sdlApp->renderer, y, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, x, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect); 
     } else {
-        get_text_and_rect(sdlApp->renderer, y, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, x, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
     }
 #else
-    get_text_and_rect(sdlApp->renderer, y, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 #endif
 
-    y+=57;
-    get_text_and_rect(sdlApp->renderer, y, 416, 0, "CAM", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    x+=57;
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, "CAM", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 }
 
@@ -1531,21 +1542,25 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
     SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
-    SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
     SDL_Texture* windDir = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windDir.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
-    SDL_Texture* calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
-
+    SDL_Texture* clinoMeter = NULL;
+    SDL_Texture* calBar = NULL;
     SDL_Texture* subTaskbar = NULL;
+
+    if (sdlApp->conf->i2cFile != 0) {
+        calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png");
+        clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
+    }
 
     sdlApp->curPage = COGPAGE;
 
@@ -1606,7 +1621,7 @@ static int doCompass(sdl2_app *sdlApp)
     windDirR.x = 120;
     windDirR.y = 122;
 
-    SDL_Rect textField_rect;
+    SDL_Rect textField_rect = {0,0,0,0};
 
     float t_angle = 0;
     float angle = 0;
@@ -1624,7 +1639,7 @@ static int doCompass(sdl2_app *sdlApp)
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
-        char msg_hdm[40] = { "" };
+        char msg_hdm[40] = { "-" };
         char msg_rll[40] = { "" };
         char msg_sog[40] = { "" };
         char msg_stw[40] = { "" };
@@ -1638,16 +1653,16 @@ static int doCompass(sdl2_app *sdlApp)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (e.type == TSKPAGE) {
+                    if (e.type == TSKPAGE && subTaskbar != NULL) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -1685,8 +1700,11 @@ static int doCompass(sdl2_app *sdlApp)
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
         // Magnetic Roll
-        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
             sprintf(msg_rll, "%.0f", fabs(roll=cnmea.roll));
+            if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
+            else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
+        }
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
@@ -1705,10 +1723,7 @@ static int doCompass(sdl2_app *sdlApp)
         // Run needle and roll with smooth acceleration
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
-
-        if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
-        else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
-
+     
         angle_a = cnmea.vwra; // 0-180
 
         if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
@@ -1735,8 +1750,10 @@ static int doCompass(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 200, 200, 3, msg_hdm, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
+            get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
@@ -1758,7 +1775,7 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -1783,13 +1800,13 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, calBar, NULL, &calbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
+        addMenuItems(sdlApp, fontSrc);
+
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
-
-        SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp, fontSrc);
 
         SDL_RenderPresent(sdlApp->renderer);
 
@@ -1808,20 +1825,21 @@ static int doCompass(sdl2_app *sdlApp)
 
     }
 
-    if (subTaskbar != NULL) {
+    if (subTaskbar != NULL)
         SDL_DestroyTexture(subTaskbar);
-    }
+    if (clinoMeter != NULL)
+        SDL_DestroyTexture(clinoMeter);
+    if (calBar != NULL)
+        SDL_DestroyTexture(calBar);
 
     SDL_DestroyTexture(compassRose);
     SDL_DestroyTexture(outerRing);
-    SDL_DestroyTexture(clinoMeter);
     SDL_DestroyTexture(windDir);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
-    SDL_DestroyTexture(unmuteBar);
-    SDL_DestroyTexture(calBar);
+    SDL_DestroyTexture(unmuteBar);  
     SDL_DestroyTexture(textBox);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
@@ -1840,7 +1858,16 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
+
+    SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
+    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
+    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
+    SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
+    SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
 
     gaugeR.w = 440;
     gaugeR.h = 440;
@@ -1876,15 +1903,6 @@ static int doSumlog(sdl2_app *sdlApp)
     textBoxR.h = 42;
     textBoxR.x = 470;
     textBoxR.y = 106;
-
-    SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
-    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
-    SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
-    SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
-    SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
-    SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
-    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
-    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -1926,16 +1944,16 @@ static int doSumlog(sdl2_app *sdlApp)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (e.type == TSKPAGE) {
+                    if (e.type == TSKPAGE && subTaskbar != NULL) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -2020,7 +2038,7 @@ static int doSumlog(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
          if (stw) {
@@ -2100,7 +2118,7 @@ static int doGps(sdl2_app *sdlApp)
     TTF_Font* fontMG =  TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
@@ -2173,16 +2191,16 @@ static int doGps(sdl2_app *sdlApp)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (e.type == TSKPAGE) {
+                    if (e.type == TSKPAGE && subTaskbar != NULL) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -2272,7 +2290,7 @@ static int doGps(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -2341,7 +2359,7 @@ static int doDepth(sdl2_app *sdlApp)
     TTF_Font* fontMedium =  TTF_OpenFont(sdlApp->fontPath, 24);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
     SDL_Texture* gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
@@ -2434,16 +2452,16 @@ static int doDepth(sdl2_app *sdlApp)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (e.type == TSKPAGE) {
+                    if (e.type == TSKPAGE && subTaskbar != NULL) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -2553,7 +2571,7 @@ static int doDepth(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -2568,7 +2586,7 @@ static int doDepth(sdl2_app *sdlApp)
 
         if (sdlApp->conf->runWrn) {
             if (!sdlApp->plotMode) {
-                get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
+                get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
 
@@ -2834,7 +2852,7 @@ static int doWind(sdl2_app *sdlApp)
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
     SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
@@ -2922,16 +2940,16 @@ static int doWind(sdl2_app *sdlApp)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (e.type == TSKPAGE) {
+                    if (e.type == TSKPAGE && subTaskbar != NULL) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -3049,7 +3067,7 @@ static int doWind(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect); 
 
         if (subTaskbar != NULL) {
@@ -3113,14 +3131,14 @@ static int doWind(sdl2_app *sdlApp)
 }
 
 
-void set_alsa_volume(sdl2_app *sdlApp, float percent)
+static void set_alsa_volume(sdl2_app *sdlApp, float percent)
 {   
     long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
 
     snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
 }
 
-float get_current_volume(sdl2_app *sdlApp)
+static float get_current_volume(sdl2_app *sdlApp)
 {
     long volume;
     snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
@@ -3137,7 +3155,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_Rect tempNeedleR, menuBarR, netStatbarR, mutebarR, subTaskbarR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 18);
-    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
@@ -3167,17 +3185,17 @@ static int doEnvironment(sdl2_app *sdlApp)
     gaugeVoltR.w = 200;
     gaugeVoltR.h = 200;
     gaugeVoltR.x = 80;
-    gaugeVoltR.y = 30;
+    gaugeVoltR.y = 33;
 
     gaugeCurrR.w = 200;
     gaugeCurrR.h = 200;
     gaugeCurrR.x = 300;
-    gaugeCurrR.y = 30;
+    gaugeCurrR.y = 33;
 
     gaugeTempR.w = 200;
     gaugeTempR.h = 200;
     gaugeTempR.x = 520;
-    gaugeTempR.y = 30;
+    gaugeTempR.y = 33;
 
     voltNeedleR.w = 100;
     voltNeedleR.h = 62;
@@ -3274,7 +3292,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
@@ -3298,11 +3316,11 @@ static int doEnvironment(sdl2_app *sdlApp)
                 }
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION) 
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION) 
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
-                    if (e.type == TSKPAGE) {
+                    if (e.type == TSKPAGE && subTaskbar != NULL) {
                         SDL_SetTextureColorMod(subTaskbar, 128, 128, 128);
                         SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
                         SDL_RenderPresent(sdlApp->renderer);
@@ -3420,7 +3438,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSmall);
 
-        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (cnmea.startTime)
@@ -3649,7 +3667,7 @@ static int doEnvironment(sdl2_app *sdlApp)
             int percent_display = (int)(volume_percent * 100.0f);
             snprintf(text, sizeof(text), "%d%%", percent_display);
 
-            SDL_Color black = {0, 0, 0, 0};
+            SDL_Color black = {255, 255, 255, 0};
             SDL_Surface *surface = TTF_RenderText_Blended(fontSmall, text, black);
 
             SDL_Texture *texture = SDL_CreateTextureFromSurface(sdlApp->renderer, surface);
@@ -4061,7 +4079,7 @@ static int doCamera(sdl2_app *sdlApp)
                         int percent_display = (int)(volume_percent * 100.0f);
                         snprintf(text, sizeof(text), "%d%%", percent_display);
 
-                        SDL_Color black = {0, 0, 0, 0};
+                        SDL_Color black = {125, 125, 125, 0};
                         SDL_Surface *surface = TTF_RenderText_Blended(fontSmall, text, black);
 
                         SDL_Texture *texture = SDL_CreateTextureFromSurface(sdlApp->renderer, surface);
@@ -4196,7 +4214,6 @@ static int findAudiodevice(char *dname, void *ptr)
     }
 
     return found;
-
 }
 
 static int threadAudio(void *ptr)
@@ -4462,7 +4479,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
                 }
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION)
             {
                 hideQuit=130;
 
@@ -4562,7 +4579,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
             int percent_display = (int)(volume_percent * 100.0f);
             snprintf(text, sizeof(text), "%d%%", percent_display);
 
-            SDL_Color black = {0, 0, 0, 0};
+            SDL_Color black = {125, 125, 125, 0};
             SDL_Surface *surface = TTF_RenderText_Blended(fontSmall, text, black);
 
             SDL_Texture *texture = SDL_CreateTextureFromSurface(sdlApp->renderer, surface);
@@ -4697,12 +4714,12 @@ static int doVideo(sdl2_app *sdlApp)
     {
         while(SDL_PollEvent(&e))
         {        
-            if(e.type == SDL_QUIT) {
+            if (e.type == SDL_QUIT) {
                 running = 0;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 SDL_Point p;
                 int x, y;
@@ -4802,7 +4819,7 @@ static int doWater(sdl2_app *sdlApp)
     TTF_Font* fontMG =  TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
-    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 12);
+    TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* gaugeWtr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "dflow.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
@@ -4881,12 +4898,12 @@ static int doWater(sdl2_app *sdlApp)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
@@ -4954,7 +4971,7 @@ static int doWater(sdl2_app *sdlApp)
 
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 620, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
 
@@ -5165,12 +5182,12 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         
         while (SDL_PollEvent(&e)) {
 
-            if(e.type == SDL_QUIT ) {
+            if (e.type == SDL_QUIT) {
                 doBreak = 1;
                 break;
             }
 
-            if(e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
@@ -5322,7 +5339,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     if (configParams->runi2c) {
         threadI2C = SDL_CreateThread(i2cCollector, "i2cCollector", configParams);
 
-        if (NULL == threadI2C) {
+        if (0 == threadI2C) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadI2C failed: %s", SDL_GetError());
         } else SDL_DetachThread(threadI2C);
     }
@@ -5385,11 +5402,9 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     TTF_Init();
 
     Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND);
- SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
     Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
     SDL_FreeSurface(Loading_Surf);
 
-//    SDL_RaiseWindow(sdlApp->window);
     SDL_SetWindowAlwaysOnTop(sdlApp->window, SDL_TRUE);
 
     return 0;
@@ -5428,6 +5443,8 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
                 }
                 if (strlen(buff) < 2) {
                     free(sdlApp->subAppsCmd[c][0]);
+                    free(sdlApp->subAppsCmd[c][1]);
+                    free(sdlApp->subAppsIco[c][0]);
                     sdlApp->subAppsCmd[c][0] = NULL;
                 }
 
@@ -5506,7 +5523,6 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     // ... before I reclaim the meat. (Solonius)
 
     configParams->subTaskPID = 0;
-    (void)configureDb(configParams);   // Fetch eventually a new configuration
 
     // Regain SDL2 control
     configParams->runGps = runners[0];
@@ -5690,7 +5706,7 @@ int main(int argc, char *argv[])
             break;
         }
         if (i >= 5) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from X/Weston. Terminating now!\n", argv[0]);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from X/Xweston. Terminating now!\n", argv[0]);
             return 1;
         }
     }  else {
@@ -5744,7 +5760,7 @@ int main(int argc, char *argv[])
             default:
                 fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -w -z -s -v (version)\n", basename(argv[0]));
                 fprintf(stderr, "       Where: -l use syslog : -c Create database only: -P show cursor : -g Disable GPS : -i Disable i2c : -p Play warnings\n");
-                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -C port>1024 Remote config : -z Scale factor : -s Window size w/h\n");
+                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -C (port>1024) Remote config : -z Scale factor : -s Window size w/h\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -5787,7 +5803,7 @@ int main(int argc, char *argv[])
             configParams.vncServer->frameBuffer = configParams.vncPixelBuffer->pixels;
             configParams.vncServer->ipv6port = 0;
         } else {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateRGBSurfac failed: %s. VNC Server disabled!", SDL_GetError());
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateRGBSurface failed: %s. VNC Server disabled!", SDL_GetError());
             configParams.runVnc = 0;
         }
     }
@@ -5798,7 +5814,7 @@ int main(int argc, char *argv[])
     if (SDL_getenv("DISPLAY") != NULL) {
 
         SDL_setenv("SDL_VIDEODRIVER", "x11", 0);
-        SDL_Log("Using X11 Videodriver");
+        SDL_Log("Using X11/Xweston Videodriver");
 
         pid_t pid0, pid1=0, pid2;
         int status;
@@ -5849,7 +5865,7 @@ int main(int argc, char *argv[])
 
                             char *args[] = { "/usr/bin/xfwm4", "--sm-client-disable", "--compositor=off", NULL };
                             execvp(args[0], args);
-
+                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s: %s (non fatal)\n", args[0], strerror(errno));
                             _exit(1);
                         }
 
@@ -5937,13 +5953,11 @@ int main(int argc, char *argv[])
 			setenv("DISPLAY", ":0", 1);	// May be required by subtasks although not by ttyd itself.
 
             // Start the ttyd
-            sprintf(buf, "%d", configParams.runTyd); // Default port 7600
-            char *args[] = { "/usr/bin/ttyd", "-p", buf, "--writable", "/usr/local/bin/sdlSpeedometer-config", NULL };
+            sprintf(buf, "%d", configParams.runTyd);
+            char *args[] = { "/usr/bin/ttyd", "-p", buf, "--writable", CONFICMD, NULL };
             execvp(args[0], args);
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s : %s (non fatal)", args[0], strerror(errno));
             _exit(0);
-        } else {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed: remote config ttyd is less than 1024 (non fatal)");
         }
 
         configParams.ttydPID = pid;
