@@ -1,7 +1,7 @@
 /*
  * sdlSpeedometer.c
  *
- *  Copyright (C) 2026 by Erland Hedman <erland@hedmanshome.se>
+ *  Copyright (C) 2018-2026 by Erland Hedman <erland@hedmanshome.se>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -9,15 +9,12 @@
  * 2 of the License, or (at your option) any later version.
  *
  * Desription:
- * Use the BerryGPS-IMUv2 to collect GPS and compass data to be presented
- * on an SDL2 driven framebuffer display typically on a Raspberry Pi.
- * Optionally collect nautical NMEA-0183 sentences from a NMEA network server.
+ * This application collect nautical NMEA-0183 sentences from an NMEA network server or an USB dongle, also from a NMEA-2K to NMEA-0183 USB device.
+ * Optionally use the BerryGPS-IMUv2 to collect GPS and compass data.
+ * This app can use both interfaces simultaneously and if the network goes away the BerryGPS takes over.
  *
  * BerryGPS-IMUv2 presentation:
  *   http://ozzmaker.com/new-products-berrygps-berrygps-imu/
- *
- * SDL2 for framebuffer instructions found here:
- *   http://blog.shahada.abubakar.net/post/hardware-accelerated-sdl-2-on-raspberry-pi
  *
  */
 #include <X11/Xlib.h>
@@ -98,6 +95,7 @@
 #define BLACK   1
 #define WHITE   2
 #define RED     3
+#define GREEN   4
 
 static int useSyslog = 0;
 
@@ -268,7 +266,7 @@ static int configureDb(configuration *configParams)
 }
 
  // Extract an item from an NMEA sentence
-static char *getf(int pos, char *str)
+static char *getf(int pos, const char *str)
 {
     int len=strlen(str);
     int i,j,k;
@@ -1135,7 +1133,7 @@ static int threadVnc(void *conf)
 - x, y: upper left corner.
 - texture, rect: outputs.
 */
-inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, char *text,
+inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, const char *text,
         TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) 
 {
     int text_width = 0;
@@ -1155,9 +1153,10 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
         case BLACK: textColor.r = textColor.g = textColor.b = 0; break;
         case WHITE: textColor.r = textColor.g = textColor.b = 255; break;
         case RED:   textColor.r = 255; textColor.g = textColor.b = 0; break;
+        case GREEN: textColor.r = 0; textColor.g = 255; textColor.b = 0; break;
     }
 
-    if (color == WHITE || color == RED) {
+    if (color == WHITE || color == RED || color == GREEN) {
         SDL_Color textColorB;
         textColorB.r = 0; textColorB.g = 0;  textColorB.b = 0;  textColorB.a = 0;
         if ((surface = TTF_RenderUTF8_LCD(font,text, textColor, textColorB)) != NULL) {
@@ -1294,7 +1293,7 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 
     SDL_Rect M1_rect;
     
-    int x = 414;    // Start y here and go left to right
+    int x = 414;    // Start x here and go left to right
 
     get_text_and_rect(sdlApp->renderer, x, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
@@ -1538,7 +1537,6 @@ inline static void doVnc(sdl2_app *sdlApp)
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect compassR, outerRingR, clinoMeterR, windDirR, menuBarR, subTaskbarR, netStatbarR, mutebarR, calbarR, textBoxR;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -1555,14 +1553,10 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
     SDL_Texture* clinoMeter = NULL;
     SDL_Texture* calBar = NULL;
-    SDL_Texture* subTaskbar = NULL;
-
-    if (sdlApp->conf->i2cFile != 0) {
-        calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png");
-        clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
-    }
 
     sdlApp->curPage = COGPAGE;
+
+    SDL_Texture* subTaskbar = NULL;
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
@@ -1571,57 +1565,23 @@ static int doCompass(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    compassR.w = 372;
-    compassR.h = 372;
-    compassR.x = 54;
-    compassR.y = 52;
+    if (sdlApp->conf->i2cFile != 0) {
+        calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png");
+        clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
+    }
 
-    outerRingR.w = 440;
-    outerRingR.h = 440;
-    outerRingR.x = 19;
-    outerRingR.y = 18;
-
-    clinoMeterR.w = 136;
-    clinoMeterR.h = 136;
-    clinoMeterR.x = 171;
-    clinoMeterR.y = 178;
-
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
-
-    subTaskbarR.w = 50;
-    subTaskbarR.h = 50;
-    subTaskbarR.x = 30;
-    subTaskbarR.y = 400;
-
-    netStatbarR.w = 25;
-    netStatbarR.h = 25;
-    netStatbarR.x = 20;
-    netStatbarR.y = 20;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-
-    calbarR.w = 25;
-    calbarR.h = 25;
-    calbarR.x = 20;
-    calbarR.y = 60;
-
-    textBoxR.w = 290;
-    textBoxR.h = 42;
-    textBoxR.x = 470;
-    textBoxR.y = 106;
-
-    windDirR.w = 240;
-    windDirR.h = 240;
-    windDirR.x = 120;
-    windDirR.y = 122;
-
+    SDL_Rect outerRingR     = {19,18,440,440};
+    SDL_Rect menuBarR       = {400,400,393,50};
+    SDL_Rect subTaskbarR    = {30,400,50,50};
+    SDL_Rect netStatbarR    = {20,20,25,25};
+    SDL_Rect mutebarR       = {70,20,25,25};
+    SDL_Rect textBoxR       = {470,106,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
+
+    SDL_Rect calbarR        = {20,60,25,25};
+    SDL_Rect compassR       = {54,52,372,372};
+    SDL_Rect clinoMeterR    = {171,178,136,136};
+    SDL_Rect windDirR       = {120,122,240,240};
 
     float t_angle = 0;
     float angle = 0;
@@ -1853,7 +1813,6 @@ static int doCompass(sdl2_app *sdlApp)
 static int doSumlog(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -1869,44 +1828,9 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
 
-    gaugeR.w = 440;
-    gaugeR.h = 440;
-    gaugeR.x = 19;
-    gaugeR.y = 18;
-
-    needleR.w = 240;
-    needleR.h = 240;
-    needleR.x = 120;
-    needleR.y = 122;
-
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
-
-    subTaskbarR.w = 50;
-    subTaskbarR.h = 50;
-    subTaskbarR.x = 30;
-    subTaskbarR.y = 400;
-
-    netStatbarR.w = 25;
-    netStatbarR.h = 25;
-    netStatbarR.x = 20;
-    netStatbarR.y = 20;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-
-    textBoxR.w = 290;
-    textBoxR.h = 42;
-    textBoxR.x = 470;
-    textBoxR.y = 106;
+    sdlApp->curPage = SOGPAGE;
 
     SDL_Texture* subTaskbar = NULL;
-
-    sdlApp->curPage = SOGPAGE;
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
@@ -1915,7 +1839,15 @@ static int doSumlog(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Rect textField_rect;
+    SDL_Rect menuBarR       = {400,400,393,50};
+    SDL_Rect subTaskbarR    = {30,400,50,50};
+    SDL_Rect netStatbarR    = {20,20,25,25};
+    SDL_Rect mutebarR       = {70,20,25,25};
+    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textField_rect = {0,0,0,0};
+
+    SDL_Rect gaugeR         = {19,18,440,440};
+    SDL_Rect needleR        = {120,122,240,240};
 
     float t_angle = 0;
     float angle = 0;
@@ -2110,8 +2042,6 @@ static int doSumlog(sdl2_app *sdlApp)
 static int doGps(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;
-
     TTF_Font* fontHD =  TTF_OpenFont(sdlApp->fontPath, 40);
     TTF_Font* fontLA =  TTF_OpenFont(sdlApp->fontPath, 30);
     TTF_Font* fontLO =  TTF_OpenFont(sdlApp->fontPath, 30);
@@ -2127,10 +2057,10 @@ static int doGps(sdl2_app *sdlApp)
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
-        
-    SDL_Texture* subTaskbar = NULL;
-
+      
     sdlApp->curPage = GPSPAGE;
+  
+    SDL_Texture* subTaskbar = NULL;
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
@@ -2139,37 +2069,14 @@ static int doGps(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Rect textField_rect;
+    SDL_Rect menuBarR       = {400,400,393,50};
+    SDL_Rect subTaskbarR    = {30,400,50,50};
+    SDL_Rect netStatbarR    = {20,20,25,25};
+    SDL_Rect mutebarR       = {70,20,25,25};
+    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textField_rect = {0,0,0,0};
 
-    gaugeR.w = 440;
-    gaugeR.h = 440;
-    gaugeR.x = 19;
-    gaugeR.y = 18;
-
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
-
-    subTaskbarR.w = 50;
-    subTaskbarR.h = 50;
-    subTaskbarR.x = 30;
-    subTaskbarR.y = 400;
-
-    netStatbarR.w = 25;
-    netStatbarR.h = 25;
-    netStatbarR.x = 20;
-    netStatbarR.y = 20;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-
-    textBoxR.w = 290;
-    textBoxR.h = 42;
-    textBoxR.x = 470;
-    textBoxR.y = 106;
+    SDL_Rect gaugeR         = {19,18,440,440};
 
     int boxItems[] = {120,170,220,270};
 
@@ -2353,7 +2260,6 @@ static int doGps(sdl2_app *sdlApp)
 static int doDepth(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontMedium =  TTF_OpenFont(sdlApp->fontPath, 24);
@@ -2371,51 +2277,11 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
-
     SDL_Texture* gauge;
-    SDL_Texture* subTaskbar = NULL;
-    
-    SDL_Rect textField_rect;
-
-    gaugeR.w = 440;
-    gaugeR.h = 440;
-    gaugeR.x = 19;
-    gaugeR.y = 18;
-
-    needleR.w = 240;
-    needleR.h = 240;
-    needleR.x = 120;
-    needleR.y = 122;
-
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
-
-    subTaskbarR.w = 50;
-    subTaskbarR.h = 50;
-    subTaskbarR.x = 30;
-    subTaskbarR.y = 400;
-
-    netStatbarR.w = 25;
-    netStatbarR.w = 25;
-    netStatbarR.h = 25;
-    netStatbarR.x = 20;
-    netStatbarR.y = 20;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-
-    textBoxR.w = 290;
-    textBoxR.h = 42;
-    textBoxR.x = 470;
-    textBoxR.y = 106;
-
-    int boxItems[] = {120,170,220,270};
 
     sdlApp->curPage = DPTPAGE;
+
+    SDL_Texture* subTaskbar = NULL;
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
@@ -2423,6 +2289,18 @@ static int doDepth(sdl2_app *sdlApp)
         if ((subTaskbar = IMG_LoadTexture(sdlApp->renderer, icon)) == NULL)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
+
+    SDL_Rect menuBarR       = {400,400,393,50};
+    SDL_Rect subTaskbarR    = {30,400,50,50};
+    SDL_Rect netStatbarR    = {20,20,25,25};
+    SDL_Rect mutebarR       = {70,20,25,25};
+    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textField_rect = {0,0,0,0};
+
+    SDL_Rect gaugeR         = {19,18,440,440};
+    SDL_Rect needleR        = {120,122,240,240};
+
+    int boxItems[] = {120,170,220,270};
 
     float t_angle = 0;
     float angle = 0;
@@ -2540,7 +2418,7 @@ static int doDepth(sdl2_app *sdlApp)
         if (!sdlApp->plotMode) {
             get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         } else {
-            get_text_and_rect(sdlApp->renderer, 182, 390, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED: BLACK);
+            get_text_and_rect(sdlApp->renderer, 182, 390, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED: GREEN);
         }
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
@@ -2847,7 +2725,6 @@ static int doDepth(sdl2_app *sdlApp)
 static int doWind(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeR, needleR, menuBarR, subTaskbarR, netStatbarR, mutebarR, textBoxR;;
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
@@ -2864,46 +2741,9 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
-    SDL_Texture* subTaskbar = NULL;
-
-    gaugeR.w = 440;
-    gaugeR.h = 440;
-    gaugeR.x = 19;
-    gaugeR.y = 18;
-
-    needleR.w = 240;
-    needleR.h = 240;
-    needleR.x = 120;
-    needleR.y = 122;
-
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
-
-    subTaskbarR.w = 50;
-    subTaskbarR.h = 50;
-    subTaskbarR.x = 30;
-    subTaskbarR.y = 400;
-
-    netStatbarR.w = 25;
-    netStatbarR.h = 25;
-    netStatbarR.x = 20;
-    netStatbarR.y = 20;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-
-    textBoxR.w = 290;
-    textBoxR.h = 42;
-    textBoxR.x = 470;
-    textBoxR.y = 106;
-
-    int boxItems[] = {120,170,220,270,320};
-
     sdlApp->curPage = WNDPAGE;
+
+    SDL_Texture* subTaskbar = NULL;
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
@@ -2912,7 +2752,17 @@ static int doWind(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    SDL_Rect textField_rect;
+    SDL_Rect menuBarR       = {400,400,393,50};
+    SDL_Rect subTaskbarR    = {30,400,50,50};
+    SDL_Rect netStatbarR    = {20,20,25,25};
+    SDL_Rect mutebarR       = {70,20,25,25};
+    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textField_rect = {0,0,0,0};
+
+    SDL_Rect gaugeR         = {19,18,440,440};
+    SDL_Rect needleR        = {120,122,240,240};
+
+    int boxItems[] = {120,170,220,270,320};
 
     float t_angle_a = 0;
     float t_angle_t = 0;
@@ -3151,8 +3001,6 @@ static float get_current_volume(sdl2_app *sdlApp)
 static int doEnvironment(sdl2_app *sdlApp)
 {
     SDL_Event e;
-    SDL_Rect gaugeVoltR, gaugeCurrR, gaugeTempR, voltNeedleR, currNeedleR;
-    SDL_Rect tempNeedleR, menuBarR, netStatbarR, mutebarR, subTaskbarR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
@@ -3182,57 +3030,18 @@ static int doEnvironment(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
-    gaugeVoltR.w = 200;
-    gaugeVoltR.h = 200;
-    gaugeVoltR.x = 80;
-    gaugeVoltR.y = 33;
+    SDL_Rect menuBarR       = {400,400,393,50};
+    SDL_Rect subTaskbarR    = {30,400,50,50};
+    SDL_Rect netStatbarR    = {20,20,25,25};
+    SDL_Rect mutebarR       = {70,20,25,25};
+    SDL_Rect textField_rect = {0,0,0,0};
 
-    gaugeCurrR.w = 200;
-    gaugeCurrR.h = 200;
-    gaugeCurrR.x = 300;
-    gaugeCurrR.y = 33;
-
-    gaugeTempR.w = 200;
-    gaugeTempR.h = 200;
-    gaugeTempR.x = 520;
-    gaugeTempR.y = 33;
-
-    voltNeedleR.w = 100;
-    voltNeedleR.h = 62;
-    voltNeedleR.x = 131;
-    voltNeedleR.y = 110;
-
-    currNeedleR.w = 100;
-    currNeedleR.h = 62;
-    currNeedleR.x = 349;
-    currNeedleR.y = 110;
-
-    tempNeedleR.w = 100;
-    tempNeedleR.h = 62;
-    tempNeedleR.x = 572;
-    tempNeedleR.y = 110;
-
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
-
-    netStatbarR.w = 25;
-    netStatbarR.h = 25;
-    netStatbarR.x = 20;
-    netStatbarR.y = 20;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-
-    subTaskbarR.w = 50;
-    subTaskbarR.h = 50;
-    subTaskbarR.x = 30;
-    subTaskbarR.y = 400;
-
-    SDL_Rect textField_rect;
+    SDL_Rect gaugeVoltR     = {80,33,200,200};
+    SDL_Rect gaugeCurrR     = {300,33,200,200};
+    SDL_Rect gaugeTempR     = {520,33,200,200};
+    SDL_Rect voltNeedleR    = {131,110,100,62};
+    SDL_Rect currNeedleR    = {349,110,100,62};
+    SDL_Rect tempNeedleR    = {572,110,100,62};
 
     SDL_Rect slider = {
         (SWINDOW_WIDTH - SLIDER_WIDTH) / 2,
@@ -3742,8 +3551,6 @@ static int doCamera(sdl2_app *sdlApp)
     if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
     }
-
-    SDL_Rect mutebarR, pWaitR, exitbuttR, bgR;
   
     int vstream = -1;
     int astream = -1;
@@ -3774,23 +3581,10 @@ static int doCamera(sdl2_app *sdlApp)
     int win_w, win_h;
     SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);  
 
-    pWaitR.w = win_w;
-    pWaitR.h = win_h;
-    pWaitR.x = 0;
-    pWaitR.y = 0;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-    bgR.w = bgR.h = 30;
-    bgR.x = 68;
-    bgR.y = 18;
-
-    exitbuttR.w = 40;
-    exitbuttR.h = 40;
-    exitbuttR.x = 62;
-    exitbuttR.y = 60;
+    SDL_Rect pWaitR     = {0,0,win_w,win_h};
+    SDL_Rect bgR        = {68,18,30,30};
+    SDL_Rect mutebarR   = {70,20,25,25};
+    SDL_Rect exitbuttR  = {62,60,40,40};
 
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
@@ -4305,7 +4099,6 @@ static int threadAudio(void *ptr)
 
 static int doVideoCapture(sdl2_app *sdlApp)
 {
-    SDL_Rect mutebarR, exitbuttR, bgR;
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
     SDL_Thread *audioThread = NULL;
     int wasMuted;
@@ -4341,21 +4134,11 @@ static int doVideoCapture(sdl2_app *sdlApp)
         size_t length;
     };
 
-    int w, h;
-    SDL_GetWindowSize(sdlApp->window, &w, &h);
 
-    exitbuttR.w = 40;
-    exitbuttR.h = 40;
-    exitbuttR.x = 62;
-    exitbuttR.y = 60;
 
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-    bgR.w = bgR.h = 30;
-    bgR.x = 68;
-    bgR.y = 18;
+    SDL_Rect bgR        = {68,18,30,30};
+    SDL_Rect mutebarR   = {70,20,25,25};
+    SDL_Rect exitbuttR  = {62,60,40,40};
 
     if (!strlen(sdlApp->conf->vid_device))
         return sdlApp->curPage;
@@ -4450,6 +4233,9 @@ static int doVideoCapture(sdl2_app *sdlApp)
     doRun.mute = 0;
 
     int hideQuit = 0;
+
+    int w, h;
+    SDL_GetWindowSize(sdlApp->window, &w, &h);
  
     while (running)
     {
@@ -4800,9 +4586,7 @@ static int doVideo(sdl2_app *sdlApp)
 // Present Fresh Water data. Dendent on project  https://github.com/ehedman/flowSensor
 static int doWater(sdl2_app *sdlApp)
 {
-    SDL_Event e;
-    SDL_Rect gaugeR, menuBarR, netStatbarR, mutebarR, textBoxR;
-  
+    SDL_Event e;  
     FILE *tankFd;
     int tankIndx = 0;
     int rval = 1;
@@ -4829,32 +4613,14 @@ static int doWater(sdl2_app *sdlApp)
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
-    SDL_Rect textField_rect;
+    SDL_Rect menuBarR       = {400,400,393,50};
+    SDL_Rect netStatbarR    = {20,20,25,25};
+    SDL_Rect mutebarR       = {70,20,25,25};
+    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textField_rect = {0,0,0,0};
 
-    gaugeR.w = 440;
-    gaugeR.h = 440;
-    gaugeR.x = 19;
-    gaugeR.y = 18;
+    SDL_Rect gaugeR         = {19,18,440,440};
 
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
-
-    netStatbarR.w = 25;
-    netStatbarR.h = 25;
-    netStatbarR.x = 20;
-    netStatbarR.y = 20;
-
-    mutebarR.w = 25;
-    mutebarR.h = 25;
-    mutebarR.x = 70;
-    mutebarR.y = 20;
-
-    textBoxR.w = 290;
-    textBoxR.h = 42;
-    textBoxR.x = 470;
-    textBoxR.y = 106;
 
     int boxItems[] = {120,170,220,270,320};
 
@@ -5082,8 +4848,6 @@ static int threadCalibrator(void *ptr)
 static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 {
     SDL_Event e;
-    SDL_Rect menuBarR;
-
     TTF_Font* fontCAL =  TTF_OpenFont(sdlApp->fontPath, 28);
     TTF_Font* fontPRG =  TTF_OpenFont(sdlApp->fontPath, 11);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
@@ -5100,12 +4864,8 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
     doRun.run = 1;
     doRun.i2cFile = configParams->i2cFile;
 
-    SDL_Rect textField_rect;
-
-    menuBarR.w = 393;
-    menuBarR.h = 50;
-    menuBarR.x = 400;
-    menuBarR.y = 400;
+    SDL_Rect textField_rect = {0,0,0,0};
+    SDL_Rect menuBarR       = {400,400,393,50};
 
     int progress = 10;
     int seconds = 0;

@@ -1,5 +1,5 @@
 # sdlSpeedometer
-README Mars-2026
+README April-2026
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
@@ -14,10 +14,10 @@ The instruments can be accessed one-by-one by a mouse click or directly from the
 
 The communication mechanism between this application with its GUI and data sources uses two paralell paths:
  - Data collected from a [BerryGPS-IMUv2](http://ozzmaker.com/new-products-berrygps-berrygps-imu) - GPS and 10DOF sensor for The Raspberry Pi - Accelerometer, Gyroscope, Magnetometer and Barometric/Altitude Sensor.
- - Alternatively data from an NMEA-0183 network server data from an NMEA-0183 network server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
- - Alternatively data from an NMEA-2K (SeatalkNG) to an NMEA-0183 USB dongle.
+ - Data from an NMEA-0183 network server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
+ - Alternatively data from an NMEA-2K (SeatalkNG) to NMEA-0183 USB dongle.
 
-This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if it has its own battery backup.
+This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if the Pi has its own battery backup.
 
 Currently there are nine virtual instrument working (data source within brackets):
 
@@ -25,11 +25,11 @@ Currently there are nine virtual instrument working (data source within brackets
     GPS           : Lo, Lat and Heading (BerryGPS-IMUv2) and/or heading from NMEA-net
     Log           : SOW, SOG (NMEA-net)
     Wind          : Real, Relative and speed (NMEA-net)
-    Depth         : With low water warning and water temp (NMEA-net)
+    Depth         : With low water warning and water temp (NMEA-net) and a depth plotting screen.
     Environment   : Page with Voltage, Current, Temp, volume and Power plotting (proprietary NMEA net "$P" sentences)
     Water         : Page with fresh water tank status and TDS quality (Requires https://github.com/ehedman/flowSensor)
     Victron Venus : Victron Venus sub-system (Requires https://github.com/ehedman/victron-venus-container)
-    RTSP Camera   : Capture video from an RTSP camera
+    RTSP Camera   : Capture video and audio from an RTSP camera
     HDMI Capture  : Capture HDMI Video and Audio (used for plotters with HDMI out)
 
 There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
@@ -42,8 +42,8 @@ Kodi can be added as an external application to be used as a Jukebox style playe
 sdlSpeedometer has also a built-in RFB (VNC) server function so that an external VNC client can connect a slave instrument on a computer and/or a tablet with a VNC client.
 
 ### Tested runtime environment
-- Note this this is mainly an EMBEDDED solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
-- Raspberry Pi 3B+/5 and 4B and a 7 inch touch display.
+- Note this this is mainly an EMBEDDED Kiosk solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
+- Raspberry Pi 4B/5 and a 8 inch touch display.
 - NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 - Optionaly a NMEA2K (Raymarine seatalk ng) USB to NMEA-0183 converter can be added.
 - This application will also work flawlessly under Windows WSL (Windows Subsystem for Linux).
@@ -58,6 +58,9 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - As in March 2026 the package ttyd is missing for the 64-bit trixie. You can get it from here instead.
 - wget https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64 and install it as /usr/bin/ttyd
 - When insalling ttyd with apt it will also start ttyd as a systemd service listening on port 7681. You probably don't want that. Disable it with sudo systemctl disable ttyd. In this applicaktion it is only used to run the remote configurator.
+
+### Note on Audio
+- This is a alsa level application for warning sounds, camera and hdmi interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
@@ -110,7 +113,7 @@ This option makes no sence unless it is running as a systemd service, so add thi
 - make start ((re)start a new session)
 
 ### Enable audible warnings
-- Set preferences with sdlSPeedometer-config
+- Set audio preferences with sdlSPeedometer-config
 - Start sdlSpeedometer with DISPLAY=:0:0 ./sdlSpeedometer -p" and possible -i -g as well
 - Eventually set these preferences in /etc/default/sdlSpeedometer after "make install" has been executed on a Pi
 
