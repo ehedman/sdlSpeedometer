@@ -173,6 +173,8 @@ typedef struct {
     time_t  mtw_ts;     // Water temperature Timestamp
     float   hdm;        // Heading
     time_t  hdm_ts;     // HDM Timestamp (nmea)
+    float   rsa;        // Rudder angle
+    time_t  rsa_ts;     // Rudder angle Timestamp
     time_t  hdm_i2cts;  // HDM Timestamp (i2c)
     float   vwra;       // Relative wind angle (0-180)
     float   vwta;       // True wind angle

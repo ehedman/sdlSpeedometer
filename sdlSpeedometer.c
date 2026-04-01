@@ -992,6 +992,13 @@ static int nmeaNetCollector(void* conf)
                     }
                 }
 
+                // RSA - Rudder angle
+                if (NMPARSE(nmeastr_p1, "RSA")) {
+                    cnmea.rsa=atof(getf(1, nmeastr_p1));
+                    cnmea.rsa_ts = ts;
+                    continue;
+                }
+
                 // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
                 // "$P". These extended messages are not standardized. 
                 if (NMPARSE(nmeastr_p1, "ENV")) {
@@ -1570,7 +1577,6 @@ static int doCompass(sdl2_app *sdlApp)
         clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
     }
 
-    SDL_Rect outerRingR     = {19,18,440,440};
     SDL_Rect menuBarR       = {400,400,393,50};
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
@@ -1578,10 +1584,14 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect textBoxR       = {470,106,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
 
+    SDL_Rect outerRingR     = {19,18,440,440};
     SDL_Rect calbarR        = {20,60,25,25};
     SDL_Rect compassR       = {54,52,372,372};
     SDL_Rect clinoMeterR    = {171,178,136,136};
     SDL_Rect windDirR       = {120,122,240,240};
+    SDL_Rect rsaLbarR       = {454,370,146,15};
+    SDL_Rect rsaRbarR       = {600,370,146,15};
+    SDL_Rect rsaMbarR       = {590,370,18,18};
 
     float t_angle = 0;
     float angle = 0;
@@ -1606,6 +1616,7 @@ static int doCompass(sdl2_app *sdlApp)
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_src[40] = { "" };
+        char msg_rsa[40] = { " 0 " };
         char msg_tod[40];
         time_t ct;
 
@@ -1677,6 +1688,10 @@ static int doCompass(sdl2_app *sdlApp)
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+
+        // RSA - Rudder angle
+        if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
+            sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
 
         angle = rotate(roundf(cnmea.hdm), res); res=0;
 
@@ -1766,6 +1781,37 @@ static int doCompass(sdl2_app *sdlApp)
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        if (!(ct - cnmea.rsa_ts > S_TIMEOUT)) {
+            int x = rsaRbarR.x-15+(int)(cnmea.rsa*4);
+
+            SDL_Rect rsa = {rsaLbarR.x-30,rsaLbarR.y,0,0};
+            get_text_and_rect(sdlApp->renderer, rsaLbarR.x-30, rsaLbarR.y, 0, "RA:", fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsa, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsa);
+
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 0, 0, 180);
+            SDL_RenderFillRect(sdlApp->renderer,&rsaLbarR);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+            SDL_RenderDrawRect(sdlApp->renderer, &rsaLbarR);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 255, 0, 180);
+            SDL_RenderFillRect(sdlApp->renderer,&rsaRbarR);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+            SDL_RenderDrawRect(sdlApp->renderer, &rsaRbarR);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 70);
+            SDL_RenderFillRect(sdlApp->renderer, &rsaMbarR);
+
+            get_text_and_rect(sdlApp->renderer, x+2, rsaMbarR.y, 0, msg_rsa, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsaMbarR, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsaMbarR);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            SDL_RenderDrawRect(sdlApp->renderer, &rsaMbarR);
         }
 
         SDL_RenderPresent(sdlApp->renderer);
