@@ -11,6 +11,13 @@ PROFILE=/tmp/chromium-profile/$(id -u)
 rm -rf "$PROFILE"
 mkdir -p "$PROFILE/Default"
 
+# Pre-seed Preferences to disable translation
+cat > "$PROFILE/Default/Preferences" <<EOF
+{
+  "translate": { "enabled": false }
+}
+EOF
+
 # Launch Chromium in Cage kiosk
 /usr/bin/chromium \
   --in-process-gpu \
