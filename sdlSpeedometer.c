@@ -510,7 +510,7 @@ static int threadSerial(void *conf)
 
         if(nmeaChecksum(buffer, NULL, strlen(buffer))) continue;
 
-        ct = time(NULL);    // Get a timestamp for this turn 
+        ct = time(NULL);    // Get a timestamp for this turn
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (NMPARSE(buffer, "RMC")) {
@@ -2195,7 +2195,7 @@ static int doGps(sdl2_app *sdlApp)
         // VHW - Water speed and Heading
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
-        
+
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
@@ -2203,7 +2203,7 @@ static int doGps(sdl2_app *sdlApp)
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
-        
+
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeGps, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
@@ -2894,7 +2894,7 @@ static int doWind(sdl2_app *sdlApp)
         // VHW - Water speed and Heading
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
-   
+
         angle_a = cnmea.vwra; // 0-180
 
         if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
@@ -2902,7 +2902,7 @@ static int doWind(sdl2_app *sdlApp)
         angle_a += offset;  
 
         angle_a = rotate(angle_a, res); res=0;
-        
+
         // Run needle with smooth acceleration
         if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
         else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
@@ -3171,7 +3171,7 @@ static int doEnvironment(sdl2_app *sdlApp)
                 }
             }
 
-            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION) 
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_FINGERMOTION)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
@@ -3350,20 +3350,22 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
         // Do plotting
-        if (cnmea.startTime && !dragging)
+        if (cnmea.startTime)
         {
             SDL_Rect plot={100,240,PWINDOW_W-100,PWINDOW_H-120};
 
             double power = fabs(cnmea.volt * cnmea.curr);
             double volt = fabs(cnmea.volt);
 
-            powerHist[histHead]=power;
-            voltHist[histHead]=volt;
+            if (!dragging) {
+                powerHist[histHead]=power;
+                voltHist[histHead]=volt;
 
-            histHead=(histHead+1)%PHISTORY;
+                histHead=(histHead+1)%PHISTORY;
 
-            if(histCount<PHISTORY)
-                histCount++;
+                if(histCount<PHISTORY)
+                    histCount++;
+            }
 
             double maxPower=0;
 
@@ -3578,6 +3580,11 @@ static int doEnvironment(sdl2_app *sdlApp)
 
 static int doCamera(sdl2_app *sdlApp)
 {
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
+    TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontCog =  TTF_OpenFont(sdlApp->fontPath, 20);
+
     AVFormatContext *fmt = NULL;
     AVCodecContext *vctx = NULL;
     AVCodecContext *actx = NULL;
@@ -3587,6 +3594,34 @@ static int doCamera(sdl2_app *sdlApp)
     float volume_percent = 0.0;
     int dragging = 0;
 
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
+    SDL_Rect pWaitR     = {0,0,win_w,win_h};
+    SDL_Rect bgR        = {68,18,30,30};
+    SDL_Rect mutebarR   = {70,20,25,25};
+    SDL_Rect exitbuttR  = {62,60,40,40};
+
+    SDL_Rect navBoxR = {win_w-120, 10, 120, 100};
+    SDL_Rect navButtR = {win_w-100, 20, 30, 35};
+
+    char pict[PATH_MAX];
+
+    SDL_Texture* pWait = NULL;
+    sprintf(pict , "%s/pwait.png", IMAGE_PATH);
+    pWait = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "pwait.png");
+
+    SDL_Texture* nData = NULL;
+    sprintf(pict , "%s/nData.png", IMAGE_PATH);
+    nData = IMG_LoadTexture(sdlApp->renderer, pict);
+
+    SDL_RenderCopyEx(sdlApp->renderer, pWait, NULL, &pWaitR, 0, NULL, SDL_FLIP_NONE);
+    SDL_RenderPresent(sdlApp->renderer);
+
+    SDL_Texture* pQuit = NULL;
+    sprintf(pict , "%s/quitButton.png", IMAGE_PATH);
+    pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
+
     SDL_Rect slider = {
         (SWINDOW_WIDTH - SLIDER_WIDTH) / 2,
         (SWINDOW_HEIGHT - SLIDER_HEIGHT) / 2,
@@ -3594,10 +3629,6 @@ static int doCamera(sdl2_app *sdlApp)
         SLIDER_HEIGHT
     };
 
-    if (sdlApp->conf->snd_useMixer) {
-        volume_percent = get_current_volume(sdlApp);
-    }
-  
     int vstream = -1;
     int astream = -1;
     int audio_buf_size = 192000;
@@ -3624,33 +3655,9 @@ static int doCamera(sdl2_app *sdlApp)
 
     av_log_set_level(AV_LOG_QUIET);
 
-    int win_w, win_h;
-    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);  
-
-    SDL_Rect pWaitR     = {0,0,win_w,win_h};
-    SDL_Rect bgR        = {68,18,30,30};
-    SDL_Rect mutebarR   = {70,20,25,25};
-    SDL_Rect exitbuttR  = {62,60,40,40};
-
-    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
-    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-    TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
-
-    char pict[PATH_MAX];
-
-    SDL_Texture* pWait = NULL;
-    sprintf(pict , "%s/pwait.png", IMAGE_PATH);
-    pWait = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "pwait.png");  
-
-    SDL_RenderCopyEx(sdlApp->renderer, pWait, NULL, &pWaitR, 0, NULL, SDL_FLIP_NONE);
-    SDL_RenderPresent(sdlApp->renderer); 
-
-    SDL_Texture* pQuit = NULL;
-    sprintf(pict , "%s/quitButton.png", IMAGE_PATH);
-    pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
-
-    int w, h;
-    SDL_GetWindowSize(sdlApp->window, &w, &h);
+    if (sdlApp->conf->snd_useMixer) {
+        volume_percent = get_current_volume(sdlApp);
+    }
     
     int toggle = 1;
     running = 4;
@@ -3775,11 +3782,61 @@ static int doCamera(sdl2_app *sdlApp)
             }
         }
 
+        inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
+        {
+            SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
+            SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
+
+            SDL_Rect d={x,y,s->w,s->h};
+
+            SDL_RenderCopy(r,t,NULL,&d);
+
+            SDL_FreeSurface(s);
+            SDL_DestroyTexture(t);
+
+            SDL_SetRenderDrawColor(sdlApp->renderer,50,50,50,50);
+            d.w = win_w-x;
+            SDL_RenderFillRect(sdlApp->renderer,&d);
+        }
+
         int hideQuit = 0;
+        int showNavbox = 1;
 
         while (running && av_read_frame(fmt, &pkt) >= 0) {
 
+            char msg_hdm[40];
+            char msg_dbt[40] = { "" };
+            char msg_mtw[40] = { "" };
+            char msg_sog[40] = { "" };
+            char msg_stw[40] = { "" };
+            time_t ct;
+
+            ct = time(NULL);    // Get a timestamp for this turn
+
+            // Heading
+            if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
+                sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
+
+            // RMC - Recommended minimum specific GPS/Transit data
+            if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
+                sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+
+            // VHW - Water speed and Heading
+             if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+                sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+
+            // WND - Relative wind speed in m/s
+            if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+                sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+
+            // DBT - Depth Below Transponder
+            if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
+                sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+
             while (SDL_PollEvent(&e)) {
+
+                static int last_ct;
+
                 if (e.type == SDL_QUIT) {
                     running = 0;
                     break;
@@ -3800,34 +3857,46 @@ static int doCamera(sdl2_app *sdlApp)
 
                             volume_percent = rel;
                             set_alsa_volume(sdlApp, volume_percent);
+                            hideQuit=40;
                         }
                     }
                 }
 
-                if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION)
+                if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_FINGERMOTION)
                 {
-
-                    hideQuit=40;
 
                     SDL_Point p;
                     int x, y;
                     if (e.type == SDL_FINGERDOWN) {
-                        x = e.tfinger.x* w;
-                        y = e.tfinger.y* h;
+                        x = e.tfinger.x* win_w;
+                        y = e.tfinger.y* win_h;
                         p = (SDL_Point){ x, y };
                     } else {
                         p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
                     }
 
-                    if (SDL_PointInRect( &p, &exitbuttR)) {
-                        running = 0;
-                        break;
+                    if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+                        if (SDL_PointInRect(&p, &exitbuttR)) {
+                            running = 0;
+                            break;
+                        }
                     }
-                    
-                    if (e.type == SDL_FINGERDOWN) {
+
+                    if ((e.type == SDL_FINGERDOWN  || e.type == SDL_MOUSEBUTTONDOWN) && ct-1 > last_ct) {
+                        last_ct = ct;
+
+                        if (SDL_PointInRect( &p, &navBoxR)) {
+                            showNavbox = !showNavbox;
+                            hideQuit = 0;
+                            break;
+                        }
+
                         if (SDL_PointInRect(&p, &mutebarR)) {
                             muted = !muted;
+                            hideQuit = 0;
+                            break;
                         }
+                        hideQuit=40;
                     }
 
                     p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
@@ -3892,14 +3961,20 @@ static int doCamera(sdl2_app *sdlApp)
                         }
                     }
 
+                    if (!showNavbox && hideQuit > 0) {
+                            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 90);
+                            SDL_RenderFillRect(sdlApp->renderer, &navButtR);
+                            SDL_RenderCopyEx(sdlApp->renderer, nData, NULL, &navButtR, 0, NULL, SDL_FLIP_NONE);
+                    }
+
                     if (sdlApp->conf->snd_useMixer && sdlApp->conf->snd_showMixer && hideQuit > 0 && !muted)
                     {
 
-                        slider.x = w - SLIDER_WIDTH - RIGHT_MARGIN;
+                        slider.x = win_w - SLIDER_WIDTH - RIGHT_MARGIN;
                         slider.w = SLIDER_WIDTH;
                         slider.h = SLIDER_HEIGHT;
 
-                        slider.y = h - SLIDER_HEIGHT - (int)(h * 0.25);
+                        slider.y = win_h - SLIDER_HEIGHT - (int)(win_h * 0.25);
 
                         /* Slider background */
                         SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
@@ -3934,6 +4009,32 @@ static int doCamera(sdl2_app *sdlApp)
                         SDL_FreeSurface(surface);
                         SDL_DestroyTexture(texture);
 
+                    }
+
+                    if ( hideQuit <= 0 && showNavbox) {
+                        SDL_Color c = {100,255,100,255};
+                        if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
+                            draw_textc(sdlApp->renderer,fontCog,msg_hdm,win_w-120, 10, c);
+                        }
+
+                        if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
+                            draw_textc(sdlApp->renderer,fontCog,msg_stw,win_w-120, 30, c);
+                        }
+
+                        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+                            draw_textc(sdlApp->renderer,fontCog,msg_sog,win_w-120, 50, c);
+                        }
+
+                        if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
+                            draw_textc(sdlApp->renderer,fontCog,msg_mtw,win_w-120, 90, c);
+                        }
+
+                        if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
+                            if (cnmea.dbt <= warn.depthw) {
+                                c.r = 255; c.g = 100;
+                            }
+                            draw_textc(sdlApp->renderer,fontCog,msg_dbt,win_w-120, 70, c);
+                        }
                     }
 
                     SDL_RenderPresent(sdlApp->renderer);
@@ -3984,19 +4085,12 @@ static int doCamera(sdl2_app *sdlApp)
         SDL_CloseAudioDevice(deviceId);
     }
 
-    if (tex != NULL) {
-        SDL_DestroyTexture(tex);
-    }
-
-    if (pWait != NULL) {
-        SDL_DestroyTexture(pWait);
-    }
-
-    if (pQuit != NULL) {
-        SDL_DestroyTexture(pQuit);
-    }
-
     TTF_CloseFont(fontSmall);
+    TTF_CloseFont(fontCog);
+    SDL_DestroyTexture(tex);
+    SDL_DestroyTexture(nData);
+    SDL_DestroyTexture(pQuit);
+    SDL_DestroyTexture(pWait);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
 
@@ -4146,8 +4240,21 @@ static int threadAudio(void *ptr)
 static int doVideoCapture(sdl2_app *sdlApp)
 {
     TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontCog =  TTF_OpenFont(sdlApp->fontPath, 20);
+    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
+    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
+
     SDL_Thread *audioThread = NULL;
     int wasMuted;
+
+    // Volume adjustments
+    float volume_percent = 0.0;
+    int dragging = 0;
+
+    struct buffer {
+        void *start;
+        size_t length;
+    };
 
     static audRunner doRun;
 
@@ -4160,9 +4267,9 @@ static int doVideoCapture(sdl2_app *sdlApp)
         doRun.astat = 0;
     } else SDL_DetachThread(audioThread);
 
-    // Volume adjustments
-    float volume_percent = 0.0;
-    int dragging = 0;
+    SDL_Rect bgR        = {68,18,30,30};
+    SDL_Rect mutebarR   = {70,20,25,25};
+    SDL_Rect exitbuttR  = {62,60,40,40};
 
     SDL_Rect slider = {
         (SWINDOW_WIDTH - SLIDER_WIDTH) / 2,
@@ -4171,20 +4278,36 @@ static int doVideoCapture(sdl2_app *sdlApp)
         SLIDER_HEIGHT
     };
 
+    int w, h;
+    SDL_GetWindowSize(sdlApp->window, &w, &h);
+
+    SDL_Rect navBoxR = {w-120, 10, 120, 100};
+    SDL_Rect navButtR = {w-100, 20, 30, 35};
+
+    // Use "v4l2-ctl --list-formats-ex" to figure out supported resolutions
+    // 640x480 is good enough for a 8" display. Higher resolutions increase stuttering.
+    int win_w=640;
+    int win_h=480;
+
+    SDL_Texture *tex = SDL_CreateTexture(
+        sdlApp->renderer,
+        SDL_PIXELFORMAT_YUY2,
+        SDL_TEXTUREACCESS_STREAMING,
+        win_w,
+        win_h);
+
+    char pict[PATH_MAX];
+    SDL_Texture* pQuit = NULL;
+    sprintf(pict , "%s/quitButton.png", IMAGE_PATH);
+    pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
+
+    SDL_Texture* nData = NULL;
+    sprintf(pict , "%s/nData.png", IMAGE_PATH);
+    nData = IMG_LoadTexture(sdlApp->renderer, pict);
+
     if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
     }
-
-    struct buffer {
-        void *start;
-        size_t length;
-    };
-
-
-
-    SDL_Rect bgR        = {68,18,30,30};
-    SDL_Rect mutebarR   = {70,20,25,25};
-    SDL_Rect exitbuttR  = {62,60,40,40};
 
     if (!strlen(sdlApp->conf->vid_device))
         return sdlApp->curPage;
@@ -4194,16 +4317,6 @@ static int doVideoCapture(sdl2_app *sdlApp)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Open video device %s failed: %s", sdlApp->conf->vid_device, SDL_GetError());
         return sdlApp->curPage;
     }
-
-    char pict[PATH_MAX];
-    SDL_Texture* pQuit = NULL;
-    sprintf(pict , "%s/quitButton.png", IMAGE_PATH);
-    pQuit = IMG_LoadTexture(sdlApp->renderer, pict);
-
-    // Use "v4l2-ctl --list-formats-ex" to figure out supported resolutions
-    // 640x480 is good enough for a 8" display. Higher resolutions increase stuttering.
-    int win_w=640;
-    int win_h=480;
 
     struct v4l2_format fmt = {0};
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -4259,18 +4372,8 @@ static int doVideoCapture(sdl2_app *sdlApp)
     wasMuted = sdlApp->conf->muted;
     sdlApp->conf->muted = 1;    // Prevent warnings
 
-    SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
-    SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     ioctl(vfd, VIDIOC_STREAMON, &type);
-
-    SDL_Texture *tex = SDL_CreateTexture(
-        sdlApp->renderer,
-        SDL_PIXELFORMAT_YUY2,
-        SDL_TEXTUREACCESS_STREAMING,
-        win_w,
-        win_h);
 
     SDL_Event e;
     int running = 1;
@@ -4279,14 +4382,60 @@ static int doVideoCapture(sdl2_app *sdlApp)
     doRun.mute = 0;
 
     int hideQuit = 0;
+    int showNavbox = 1;
 
-    int w, h;
-    SDL_GetWindowSize(sdlApp->window, &w, &h);
+    inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
+    {
+        SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
+        SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
+
+        SDL_Rect d={x,y,s->w,s->h};
+
+        SDL_RenderCopy(r,t,NULL,&d);
+
+        SDL_FreeSurface(s);
+        SDL_DestroyTexture(t);
+
+        SDL_SetRenderDrawColor(sdlApp->renderer,50,50,50,50);
+        d.w = w-x;
+        SDL_RenderFillRect(sdlApp->renderer,&d);
+    }
  
     while (running)
     {
+        char msg_hdm[40];
+        char msg_dbt[40] = { "" };
+        char msg_mtw[40] = { "" };
+        char msg_sog[40] = { "" };
+        char msg_stw[40] = { "" };
+        time_t ct;
+
+        ct = time(NULL);    // Get a timestamp for this turn
+
+        // Heading
+        if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
+            sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
+
+        // RMC - Recommended minimum specific GPS/Transit data
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
+            sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+
+        // VHW - Water speed and Heading
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+            sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+
+        // WND - Relative wind speed in m/s
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+
+        // DBT - Depth Below Transponder
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
+            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+
         while (SDL_PollEvent(&e)) 
         {
+            static int last_ct;
+
             if (e.type == SDL_QUIT) {
                 running = 0;
                 break;
@@ -4307,14 +4456,13 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
                         volume_percent = rel;
                         set_alsa_volume(sdlApp, volume_percent);
+                        hideQuit=180;
                     }
                 }
             }
 
-            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION)
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_FINGERMOTION)
             {
-                hideQuit=130;
-
                 SDL_Point p;
                 int x, y;
                 if (e.type == SDL_FINGERDOWN) {
@@ -4325,15 +4473,28 @@ static int doVideoCapture(sdl2_app *sdlApp)
                     p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
                 }
 
-                if (SDL_PointInRect(&p, &exitbuttR)) {
-                    running = 0;
-                    break;
+                if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+                    if (SDL_PointInRect(&p, &exitbuttR)) {
+                        running = 0;
+                        break;
+                    }
                 }
-                
-                if (e.type == SDL_FINGERDOWN) {
+
+                if ((e.type == SDL_FINGERDOWN  || e.type == SDL_MOUSEBUTTONDOWN) && ct-1 > last_ct) {
+                    last_ct = ct;
+
+                    if (SDL_PointInRect( &p, &navBoxR)) {
+                        showNavbox = !showNavbox;
+                        hideQuit = 0;
+                        break;
+                    }
+
                     if (SDL_PointInRect(&p, &mutebarR)) {
                         doRun.mute = !doRun.mute;
+                        hideQuit = 0;
+                        break;
                     }
+                    hideQuit=180;
                 }
 
                 p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
@@ -4366,7 +4527,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
         // Draw Exit button
         if (pQuit != NULL) {
-            if (hideQuit-- >=0)
+            if (hideQuit-- >0)
                 SDL_RenderCopyEx(sdlApp->renderer, pQuit, NULL, &exitbuttR, 0, NULL, SDL_FLIP_NONE);
         }
 
@@ -4383,6 +4544,12 @@ static int doVideoCapture(sdl2_app *sdlApp)
             if (doRun.mute == 1) {
                 SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
             }
+        }
+
+        if (!showNavbox && hideQuit > 0) {
+                SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 90);
+                SDL_RenderFillRect(sdlApp->renderer, &navButtR);
+                SDL_RenderCopyEx(sdlApp->renderer, nData, NULL, &navButtR, 0, NULL, SDL_FLIP_NONE);
         }
 
         if (sdlApp->conf->snd_useMixer && sdlApp->conf->snd_showMixer && hideQuit > 0 && !doRun.mute) {
@@ -4427,6 +4594,32 @@ static int doVideoCapture(sdl2_app *sdlApp)
             SDL_DestroyTexture(texture);
         }
 
+        if ( hideQuit <= 0 && showNavbox) {
+            SDL_Color c = {100,255,100,255};
+            if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontCog,msg_hdm,w-120, 10, c);
+            }
+
+            if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontCog,msg_stw,w-120, 30, c);
+            }
+
+            if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontCog,msg_sog,w-120, 50, c);
+            }
+
+            if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontCog,msg_mtw,w-120, 90, c);
+            }
+
+            if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
+                if (cnmea.dbt <= warn.depthw) {
+                    c.r = 255; c.g = 100;
+                }
+                draw_textc(sdlApp->renderer,fontCog,msg_dbt,w-120, 70, c);
+            }
+        }
+
         SDL_RenderPresent(sdlApp->renderer);
 
         doVnc(sdlApp);
@@ -4441,13 +4634,12 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
     close(vfd);
 
-    if (pQuit != NULL) {
-        SDL_DestroyTexture(pQuit);
-    }
-
     TTF_CloseFont(fontSmall);
+    TTF_CloseFont(fontCog);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
+    SDL_DestroyTexture(pQuit);
+    SDL_DestroyTexture(nData);
     SDL_DestroyTexture(tex);
 
     sdlApp->conf->muted = wasMuted;
@@ -4728,7 +4920,7 @@ static int doWater(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
-        ct = time(NULL);    // Get a timestamp for this turn 
+        ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
          if (rval == 1) {
@@ -4951,8 +5143,8 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         sprintf(buf,"%slat1=%f&lon1=%f&resultFormat=csv&startMonth=%s&startYear=%s", url, doRun.latitude, doRun.longitude, month, year); 
         if ((fd = fopen(dcfile,"w+")) != NULL) {
             curl_easy_setopt(curl, CURLOPT_URL, buf);
-            curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1); 
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 6);
+            curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 6L);
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, fd);
             res = curl_easy_perform(curl);
