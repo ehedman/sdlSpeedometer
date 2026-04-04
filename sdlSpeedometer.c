@@ -940,7 +940,10 @@ static int nmeaNetCollector(void* conf)
                 // DBT - Depth Below Transponder
                 if (ts - cnmea.dbt_ts > S_TIMEOUT/2) { // If not from DPT
                     if (NMPARSE(nmeastr_p1, "DBT")) {
-                        cnmea.dbt=atof(getf(3, nmeastr_p1));
+                        float dbt = atof(getf(3, nmeastr_p1));
+                        if (dbt >= 80.0)
+                            dbt = round(dbt);
+                        cnmea.dbt=dbt;
                         cnmea.dbt_ts = ts;
                         continue;
                     }
@@ -1617,7 +1620,7 @@ static int doCompass(sdl2_app *sdlApp)
         char msg_mtw[40] = { "" };
         char msg_src[40] = { "" };
         char msg_rsa[40] = { " 0 " };
-        char msg_tod[40];
+        char msg_tod[40] = { "" };
         time_t ct;
 
         int doBreak = 0;
@@ -1903,15 +1906,16 @@ static int doSumlog(sdl2_app *sdlApp)
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
-        char msg_stw[40];
-        char msg_sog[40];
+        char msg_stw[40] = { "" };
+        char msg_sog[40] = { "" };
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_hdm[40] = { "" };
+        char msg_tod[40] = { "" };
+        time_t ct;
+
         float speed, wspeed;
         int stw;
-        char msg_tod[40];
-        time_t ct;
 
         // Constants for instrument
         const float minangle = 13;  // Scale start
@@ -2129,15 +2133,15 @@ static int doGps(sdl2_app *sdlApp)
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
-        char msg_hdm[40];
-        char msg_lat[40];
-        char msg_lot[40];
-        char msg_src[40];
+        char msg_hdm[40] = { "" };
+        char msg_lat[40] = { "" };
+        char msg_lot[40] = { "" };
+        char msg_src[40] = { "" };
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_sog[40] = { "" };
         char msg_stw[40] = { "" };
-        char msg_tod[40];
+        char msg_tod[40] = { "" };
         time_t ct;
 
         int doBreak = 0;
@@ -2357,14 +2361,14 @@ static int doDepth(sdl2_app *sdlApp)
         sdlApp->textFieldArrIndx = 0;
         float depth;
         float scale; 
-        char msg_dbt[40];
+        char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_dtw[40] = { "" };
         char msg_hdm[40] = { "" };
         char msg_stw[40] = { "" };
         char msg_rmc[40] = { "" };
         char msg_vwt[40] = { "" };
-        char msg_tod[40];
+        char msg_tod[40] = { "" };
         time_t ct;
 
         // Constants for instrument
@@ -2823,14 +2827,14 @@ static int doWind(sdl2_app *sdlApp)
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
-        char msg_vwrs[40];
-        char msg_vwts[40];
-        char msg_vwra[40];
+        char msg_vwrs[40] = { "" };
+        char msg_vwts[40] = { "" };
+        char msg_vwra[40] = { "" };
         char msg_dbt[40] = { "" };
         char msg_stw[40] = { "" };
         char msg_hdm[40] = { "" };
         char msg_rmc[40] = { "" };
-        char msg_tod[40];
+        char msg_tod[40] = { "" };
         time_t ct;
         int doBreak = 0;
         
@@ -3602,7 +3606,7 @@ static int doCamera(sdl2_app *sdlApp)
     SDL_Rect mutebarR   = {70,20,25,25};
     SDL_Rect exitbuttR  = {62,60,40,40};
 
-    SDL_Rect navBoxR = {win_w-120, 10, 120, 100};
+    SDL_Rect navBoxR = {win_w-120, 20, 120, 100};
     SDL_Rect navButtR = {win_w-100, 20, 30, 35};
 
     char pict[PATH_MAX];
@@ -3784,6 +3788,9 @@ static int doCamera(sdl2_app *sdlApp)
 
         inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
         {
+            if (txt == NULL || !strlen(txt))
+                return;
+
             SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
             SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
 
@@ -3804,7 +3811,7 @@ static int doCamera(sdl2_app *sdlApp)
 
         while (running && av_read_frame(fmt, &pkt) >= 0) {
 
-            char msg_hdm[40];
+            char msg_hdm[40] = { "" };
             char msg_dbt[40] = { "" };
             char msg_mtw[40] = { "" };
             char msg_sog[40] = { "" };
@@ -4012,28 +4019,29 @@ static int doCamera(sdl2_app *sdlApp)
                     }
 
                     if ( hideQuit <= 0 && showNavbox) {
+                        int y = 0;
                         SDL_Color c = {100,255,100,255};
                         if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_hdm,win_w-120, 10, c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_hdm,win_w-120, (y+=20), c);
                         }
 
                         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_stw,win_w-120, 30, c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_stw,win_w-120, (y+=20), c);
                         }
 
                         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_sog,win_w-120, 50, c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_sog,win_w-120, (y+=20), c);
                         }
 
                         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_mtw,win_w-120, 90, c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_mtw,win_w-120, (y+=20), c);
                         }
 
                         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
                             if (cnmea.dbt <= warn.depthw) {
                                 c.r = 255; c.g = 100;
                             }
-                            draw_textc(sdlApp->renderer,fontCog,msg_dbt,win_w-120, 70, c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_dbt,win_w-120, (y+=20), c);
                         }
                     }
 
@@ -4281,7 +4289,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
     int w, h;
     SDL_GetWindowSize(sdlApp->window, &w, &h);
 
-    SDL_Rect navBoxR = {w-120, 10, 120, 100};
+    SDL_Rect navBoxR = {w-120, 20, 120, 100};
     SDL_Rect navButtR = {w-100, 20, 30, 35};
 
     // Use "v4l2-ctl --list-formats-ex" to figure out supported resolutions
@@ -4386,6 +4394,10 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
     inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
     {
+
+        if (txt == NULL || !strlen(txt))
+            return;
+
         SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
         SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
 
@@ -4403,7 +4415,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
  
     while (running)
     {
-        char msg_hdm[40];
+        char msg_hdm[40] = { "" };
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_sog[40] = { "" };
@@ -4596,27 +4608,28 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
         if ( hideQuit <= 0 && showNavbox) {
             SDL_Color c = {100,255,100,255};
+            int y = 0;
             if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_hdm,w-120, 10, c);
+                draw_textc(sdlApp->renderer,fontCog,msg_hdm,w-120, (y+=20), c);
             }
 
             if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_stw,w-120, 30, c);
+                draw_textc(sdlApp->renderer,fontCog,msg_stw,w-120, (y+=20), c);
             }
 
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_sog,w-120, 50, c);
+                draw_textc(sdlApp->renderer,fontCog,msg_sog,w-120, (y+=20), c);
             }
 
             if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_mtw,w-120, 90, c);
+                draw_textc(sdlApp->renderer,fontCog,msg_mtw,w-120, (y+=20), c);
             }
 
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
                 if (cnmea.dbt <= warn.depthw) {
                     c.r = 255; c.g = 100;
                 }
-                draw_textc(sdlApp->renderer,fontCog,msg_dbt,w-120, 70, c);
+                draw_textc(sdlApp->renderer,fontCog,msg_dbt,w-120, (y+=20), c);
             }
         }
 
