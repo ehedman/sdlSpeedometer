@@ -19,27 +19,27 @@ The communication mechanism between this application with its GUI and data sourc
 
 This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if the Pi has its own battery backup.
 
-Currently there are nine virtual instrument working (data source within brackets):
+Currently there are eight virtual pages with instruments working:
 
-    Compass       : With heading and roll (BerryGPS-IMUv2) and/or heading from NMEA-net
-    GPS           : Lo, Lat and Heading (BerryGPS-IMUv2) and/or heading from NMEA-net
-    Log           : SOW, SOG (NMEA-net)
-    Wind          : Real, Relative and speed (NMEA-net)
-    Depth         : With low water warning and water temp (NMEA-net) and a depth plotting screen.
+    Compass       : With heading, roll and rudder angle from NMEA-net and/or from BerryGPS-IMUv2
+    GPS           : Lo, Lat and Heading from NMEA-net and/or from BerryGPS-IMUv2
+    Log           : SOW, SOG from NMEA-net
+    Wind          : Real, Relative and speed from NMEA-net
+    Depth         : With low water warning and water temp from NMEA-net and a depth plotting screen.
     Environment   : Page with Voltage, Current, Temp, volume and Power plotting (proprietary NMEA net "$P" sentences)
     Water         : Page with fresh water tank status and TDS quality (Requires https://github.com/ehedman/flowSensor)
     Victron Venus : Victron Venus sub-system (Requires https://github.com/ehedman/victron-venus-container)
     RTSP Camera   : Capture video and audio from an RTSP camera
-    HDMI Capture  : Capture HDMI Video and Audio (used for plotters with HDMI out)
+    HDMI Capture  : Capture HDMI Video and Audio (used for plotters with HDMI out). Requires a USB HDMI capture device.
 
-There is also a page to perform compass calibration includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
+There is also a page to perform compass calibration of the BerryGPS-IMUv2 includning on-line fetch of declination values from [NOAA](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 
 ### External Applications
-sdlSpeedometer in itself is a very responsive application runing in an embedded system context with SDL2. However, sdlSpeedometer can be parametized to launch almost any external application by means of a configuration tool invoked from the GUI or from a shell. Run ./sdlSpeedometer-config to add XyGrip and/or Opencpn.
+sdlSpeedometer in itself is a very responsive application runing in an embedded system context with SDL2. However, sdlSpeedometer can be parametized to launch almost any external application by means of a configuration tool invoked from a shell or remotely from a web page. Run ./sdlSpeedometer-config to add XyGrip and/or Opencpn.
 
 Kodi can be added as an external application to be used as a Jukebox style player togheter with its [Kore](https://play.google.com/store/apps/details?id=org.xbmc.kore&hl=sv&gl=US) remote control phone app.
 
-sdlSpeedometer has also a built-in RFB (VNC) server function so that an external VNC client can connect a slave instrument on a computer and/or a tablet with a VNC client.
+sdlSpeedometer has also a built-in RFB (VNC) server function so that an external VNC client can connect as a slave instrument on a computer and/or a tablet with a VNC client.
 
 ### Tested runtime environment
 - Note this this is mainly an EMBEDDED Kiosk solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
@@ -49,7 +49,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - This application will also work flawlessly under Windows WSL (Windows Subsystem for Linux).
 
 ### System Software prerequisites
-- An updated Raspberry Pi OS Lite to start with
+- An updated Raspberry Pi OS Lite 32 or 64 bit to start with
 - sudo apt install whiptail ttyd seatd yad gcc git make
 - sudo apt install weston xwayland
 - sudo apt install x11-utils (some tools also needed for weston/xwayland)
@@ -60,7 +60,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - When insalling ttyd with apt it will also start ttyd as a systemd service listening on port 7681. You probably don't want that. Disable it with sudo systemctl disable ttyd. In this applicaktion it is only used to run the remote configurator.
 
 ### Note on Audio
-- This is a alsa level application for warning sounds, camera and hdmi interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
+- This is a alsa level application for warning sounds, camera and hdmi audio interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
@@ -84,28 +84,31 @@ The SDL2 packages needed are:
 - Use ./sdlSpeedometer-config to add these applications and also add sdlSpeedometer-stat (included) to show system status.
 
 ### Software used
-- Raspberry Pi OS Lite bookworm and trixie
+- Raspberry Pi OS Lite bookworm and trixie 32 and 64 bit.
 
 ### Build and install on a Pi
 - make install (build and install executables)
 - make install_system (build and start the system services)
 
 ### Rebuild and test new configuration
+- Executed from a ssh session from a host to the pi.
 - sudo systemctl stop sdlSpeedometer.service
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
-- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston service must be running.
+- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston with xwayland service must be running.
 - make install
 - systemclt restart sdlSpeedometer.service (will be enabled at boot time) or make start
+- Make sure that the user name property is enabled in /etc/sudoers.d
 
 ### Remote configuration
 - A running sdlSpeedometer keeps a web based configuration terminal if it is started with the -C <port> option.
-This option makes no sence unless it is running as a systemd service, so add this option to /etc/default/sdlSpeedometer.
+This option makes no sence unless sdlSpeedometer is running as a systemd service, so add this option to /etc/default/sdlSpeedometer.
 - Example: http://<rpi-ip>:7600 assuming the -C option is defined as <port> number 7600.
 
 ### Build and test on the host (Mint, Ubuntu, Debian)
 - make
+- ./sdlSpeedometer -c (create a default configuration and exit)
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
-- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat)
+- ./sdlSpeedometer -i -g -s 800x480
 
 ### Utility commands
 - make stop (stop the service)
@@ -114,12 +117,18 @@ This option makes no sence unless it is running as a systemd service, so add thi
 
 ### Enable audible warnings
 - Set audio preferences with sdlSPeedometer-config
-- Start sdlSpeedometer with DISPLAY=:0:0 ./sdlSpeedometer -p" and possible -i -g as well
+- Start sdlSpeedometer with ./sdlSpeedometer -p and possible -i -g as well
 - Eventually set these preferences in /etc/default/sdlSpeedometer after "make install" has been executed on a Pi
+- A volume control bar will be available for DAC audio devices. Volume for HDMI is handled at the signal endpoint i.e. the display monitor
 
 ### Notes on display variables
 Since this application is capable to run either as an X application (DISPLAY=:0:0) thanks to xwayland or as a Wayland application (WAYLAND_DISPLAY=wayland-1) you can use either of these variables. However, when subtasks are launched they get the "DISPLAY=:0:0" set to ensure compatibility for all GUI based applications.
 See the spawnSubtask script.
+
+### Notes on HDMI sources
+- Types of HDMI capture USB cards tested are based on MS2109, MS213* and Guermok USB2 Video
+- Tested HDMI sources so far are a Raymarine Axiom 2 Pro 9 S and for fun a Chromecast dongle.
+- sdlSpeedometer adds a live navigation image overlay on top of the (hdmi) picture.
 
 ### HOWTOs
 - [How to Enable i2c on the Raspberry Pi](https://www.raspberrypi-spy.co.uk/2014/11/enabling-the-i2c-interface-on-the-raspberry-pi/)
