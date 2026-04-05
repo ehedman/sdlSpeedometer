@@ -3173,6 +3173,17 @@ static int doEnvironment(sdl2_app *sdlApp)
                 break;
             }
 
+            if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN) {
+                    float px = e.tfinger.x* w;
+                    float py = e.tfinger.y* h;
+                    SDL_Point p = (SDL_Point){ px, py };
+                    if (SDL_PointInRect(&p, &slider)) {
+                        e.type = SDL_MOUSEMOTION;
+                        e.motion.x = px; e.motion.y = py;
+                        dragging = 1;
+                    } else dragging = 0;
+            }
+
             if (sdlApp->conf->snd_useMixer && !sdlApp->conf->muted) {
                 if (e.type == SDL_MOUSEMOTION && dragging) {
 
@@ -3204,7 +3215,7 @@ static int doEnvironment(sdl2_app *sdlApp)
                     break;
                 }
 
-                SDL_Point p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
+                SDL_Point p = (SDL_Point){e.button.x, e.button.y};
 
                 if (SDL_PointInRect(&p, &slider)) {
                     dragging = 1;
@@ -3868,6 +3879,16 @@ static int doCamera(sdl2_app *sdlApp)
                     break;
                 }
 
+                if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN && dragging) {
+                        float px = e.tfinger.x* win_w;
+                        float py = e.tfinger.y* win_h;
+                        SDL_Point p = (SDL_Point){ px, py };
+                        if (SDL_PointInRect(&p, &slider)) {
+                            e.type = SDL_MOUSEMOTION;
+                            e.motion.x = px; e.motion.y = py;
+                        }
+                }
+
                 if (sdlApp->conf->snd_useMixer && !muted) {
                     if (e.type == SDL_MOUSEMOTION && dragging) {
 
@@ -3925,11 +3946,9 @@ static int doCamera(sdl2_app *sdlApp)
                         hideQuit=40;
                     }
 
-                    p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
-
                     if (SDL_PointInRect(&p, &slider)) {
                         dragging = 1;
-                    }
+                    }  else if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN) dragging = 0;
                 }
 
                 if (e.type == SDL_MOUSEBUTTONUP)
@@ -4474,9 +4493,18 @@ static int doVideoCapture(sdl2_app *sdlApp)
                 break;
             }
 
+            if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN && dragging) {
+                    float px = e.tfinger.x* w;
+                    float py = e.tfinger.y* h;
+                    SDL_Point p = (SDL_Point){ px, py };
+                    if (SDL_PointInRect(&p, &slider)) {
+                        e.type = SDL_MOUSEMOTION;
+                        e.motion.x = px; e.motion.y = py;
+                    }
+            }
+
             if (sdlApp->conf->snd_useMixer && !doRun.mute) {
                 if (e.type == SDL_MOUSEMOTION && dragging) {
-
                     SDL_Point p = (SDL_Point){e.motion.x/sdlApp->conf->scale, e.motion.y/sdlApp->conf->scale};
 
                     if (SDL_PointInRect(&p, &slider)) {
@@ -4530,11 +4558,9 @@ static int doVideoCapture(sdl2_app *sdlApp)
                     hideQuit=180;
                 }
 
-                p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
-
                 if (SDL_PointInRect(&p, &slider)) {
                     dragging = 1;
-                }
+                } else if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN) dragging = 0;
             }
 
             if (e.type == SDL_MOUSEBUTTONUP)
