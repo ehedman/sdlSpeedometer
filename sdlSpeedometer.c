@@ -1002,6 +1002,16 @@ static int nmeaNetCollector(void* conf)
                     continue;
                 }
 
+                // ROLL - Wessel roll:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*4A
+                if (NMPARSE(nmeastr_p1, "XDR")) {
+                    char *type = getf(4, nmeastr_p1);
+                    if (strcmp(type, "HEEL") && strcmp(type, "ROLL"))
+                        continue;
+                    cnmea.roll=atof(getf(2, nmeastr_p1));
+                    cnmea.xdr_ts = ts;
+                    continue;
+                }
+
                 // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
                 // "$P". These extended messages are not standardized. 
                 if (NMPARSE(nmeastr_p1, "ENV")) {
@@ -1561,7 +1571,8 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
-    SDL_Texture* clinoMeter = NULL;
+    SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
+
     SDL_Texture* calBar = NULL;
 
     sdlApp->curPage = COGPAGE;
@@ -1576,8 +1587,7 @@ static int doCompass(sdl2_app *sdlApp)
     }
 
     if (sdlApp->conf->i2cFile != 0) {
-        calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png");
-        clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
+        calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png"); 
     }
 
     SDL_Rect menuBarR       = {400,400,393,50};
@@ -1673,9 +1683,16 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-        // Magnetic Roll
+        // Magnetic or Net Roll
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
             sprintf(msg_rll, "%.0f", fabs(roll=cnmea.roll));
+        } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
+            cnmea.roll_i2cts = cnmea.xdr_ts;
+            sprintf(msg_rll, "%.0f", fabs(roll=cnmea.roll));
+        }
+
+        // Calculate clinoMeter movement
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
             if (roll > t_roll) t_roll += 0.8 * (fabsf(roll -t_roll) / 10);
             else if (roll < t_roll) t_roll -= 0.8 * (fabsf(roll -t_roll) / 10);
         }
@@ -1836,11 +1853,11 @@ static int doCompass(sdl2_app *sdlApp)
 
     if (subTaskbar != NULL)
         SDL_DestroyTexture(subTaskbar);
-    if (clinoMeter != NULL)
-        SDL_DestroyTexture(clinoMeter);
+
     if (calBar != NULL)
         SDL_DestroyTexture(calBar);
 
+    SDL_DestroyTexture(clinoMeter);
     SDL_DestroyTexture(compassRose);
     SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(windDir);
@@ -3820,25 +3837,27 @@ static int doCamera(sdl2_app *sdlApp)
 
             ct = time(NULL);    // Get a timestamp for this turn
 
-            // Heading
-            if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
-                sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
+            if ( hideQuit <= 0 && showNavbox) {
+                // Heading
+                if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
+                    sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
-            // RMC - Recommended minimum specific GPS/Transit data
-            if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-                sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+                // RMC - Recommended minimum specific GPS/Transit data
+                if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
+                    sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
-            // VHW - Water speed and Heading
-             if (!(ct - cnmea.stw_ts > S_TIMEOUT))
-                sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+                // VHW - Water speed and Heading
+                 if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+                    sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-            // WND - Relative wind speed in m/s
-            if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-                sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+                // WND - Relative wind speed in m/s
+                if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+                    sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
-            // DBT - Depth Below Transponder
-            if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-                sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+                // DBT - Depth Below Transponder
+                if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
+                    sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+            }
 
             while (SDL_PollEvent(&e)) {
 
@@ -4424,25 +4443,27 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
         ct = time(NULL);    // Get a timestamp for this turn
 
-        // Heading
-        if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
-            sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
+        if ( hideQuit <= 0 && showNavbox) {
+            // Heading
+            if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
+                sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
 
-        // RMC - Recommended minimum specific GPS/Transit data
-        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-            sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+            // RMC - Recommended minimum specific GPS/Transit data
+            if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
+                sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
 
-        // VHW - Water speed and Heading
-         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
-            sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+            // VHW - Water speed and Heading
+             if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+                sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-        // WND - Relative wind speed in m/s
-        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+            // WND - Relative wind speed in m/s
+            if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+                sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
-        // DBT - Depth Below Transponder
-        if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+            // DBT - Depth Below Transponder
+            if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
+                sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+        }
 
         while (SDL_PollEvent(&e)) 
         {

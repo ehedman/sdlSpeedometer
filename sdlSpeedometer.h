@@ -176,6 +176,7 @@ typedef struct {
     float   rsa;        // Rudder angle
     time_t  rsa_ts;     // Rudder angle Timestamp
     time_t  hdm_i2cts;  // HDM Timestamp (i2c)
+    time_t  xdr_ts;     // Wessel roll Timestamp
     float   vwra;       // Relative wind angle (0-180)
     float   vwta;       // True wind angle
     time_t  vwr_ts;     // Wind data Timestamp
