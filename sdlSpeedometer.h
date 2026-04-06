@@ -45,6 +45,8 @@
 #define dmagZmin -1338
 #define ddeclval 0.13
 
+#define NMBUFF 2048
+
 typedef struct {
     int magXmax;
     int magYmax;
@@ -192,13 +194,13 @@ typedef struct {
     time_t  net_ts;     // Data valid from network
     // Sensors $P type messages
     float   volt;       // Sensor Volt
-    int     volt_bank;  // Batery sensor bank #
+    char    volt_bank[20];  // Batery sensor bank #
     time_t  volt_ts;    // Volt Timestamp
     float   curr;       // Sensor Current
-    int     curr_bank;  // Current sensor bank #
+    char    curr_bank[20];  // Current sensor bank #
     time_t  curr_ts;    // Current Timestamp
     float   temp;       // Sensor Temp
-    int     temp_loc;   // Sensor location i.e, indoor ...
+    char    temp_loc[20];   // Sensor location i.e, indoor ...
     time_t  temp_ts;    // Temp Timestamp
     float   kWhp;       // Kilowatt hour - charged
     float   kWhn;       // Kilowatt hour - consumed

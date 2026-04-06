@@ -353,7 +353,7 @@ static int portConfigure(int fd, configuration *configParams)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Error in setting serial attributes!");
         return -1;
     } else {
-        SDL_Log("GPS@%s: BaudRate = %d, StopBits = 1,  Parity = none", configParams->tty, configParams->baud);
+        SDL_Log("NMEA@%s: BaudRate = %d, StopBits = 1,  Parity = none", configParams->tty, configParams->baud);
     }
   
     return 0;
@@ -462,17 +462,258 @@ static float dms2dd(float coordinates, const char *val)
    return c;
 }
 
-// Collect serial GPS sentences
+static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
+{
+    float hdm;
+    time_t ts = time(NULL);    // Get a timestamp for this turn
+    static int hasGPENV=0;
+
+    if (nmeaChecksum(nmeastr_p1, nmeastr_p2, cnt)) {
+        SDL_Log("Checksum error in %s", nmeastr_p1);
+        return;
+    }
+
+    // RMC - Recommended minimum specific GPS/Transit data
+    if (NMPARSE(nmeastr_p1, "RMC")) {
+        cnmea.rmc_gps_ts = ts;
+        if ((cnmea.rmc=atof(getf(7, nmeastr_p1))) >= TRGPS) {   // SOG
+            cnmea.rmc_ts = ts;
+            if ((hdm=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
+                cnmea.hdm=hdm;
+                cnmea.hdm_ts = ts;
+            }
+        }
+        strcpy(cnmea.gll, getf(3, nmeastr_p1));
+        strcpy(cnmea.glo, getf(5, nmeastr_p1));
+        strcpy(cnmea.glns, getf(4, nmeastr_p1));
+        strcpy(cnmea.glne, getf(6, nmeastr_p1));
+        if (cnmea.rmc_tm_set == 0) {
+            strcpy(cnmea.time, getf(1, nmeastr_p1));
+            strcpy(cnmea.date, getf(9, nmeastr_p1));
+            cnmea.rmc_tm_set = 1;
+        }
+
+        if(strlen(cnmea.gll)) {
+            if (src == 1)
+                cnmea.net_ts = cnmea.gll_ts = ts;
+            else
+                cnmea.gll_ts = ts;
+        }
+        return;
+    }
+
+    // GLL - Geographic Position, Latitude / Longitude
+    if (ts - cnmea.gll_ts > S_TIMEOUT/2) { // If not from RMC
+        if (NMPARSE(nmeastr_p1, "GLL")) {
+            strcpy(cnmea.gll, getf(1, nmeastr_p1));
+            strcpy(cnmea.glo, getf(3, nmeastr_p1));
+            strcpy(cnmea.glns, getf(2, nmeastr_p1));
+            strcpy(cnmea.glne, getf(4, nmeastr_p1));
+
+            if(strlen(cnmea.gll)) {
+                if (src == 1)
+                    cnmea.net_ts = cnmea.gll_ts = ts;
+                else
+                    cnmea.gll_ts = ts;
+            }
+            return;
+        }
+    }
+
+    // VTG - Track made good and ground speed
+    if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
+        if (NMPARSE(nmeastr_p1, "VTG")) {
+            if ((cnmea.rmc=atof(getf(5, nmeastr_p1))) >= TRGPS) {   // SOG
+                if (src == 1)
+                    cnmea.net_ts = cnmea.rmc_ts = ts;
+                else
+                    cnmea.rmc_ts = ts;
+
+                if ((hdm=atof(getf(1, nmeastr_p1))) != 0) { // Track made good
+                    cnmea.hdm=hdm;
+                    cnmea.hdm_ts = ts;
+                }
+            }
+            return;
+        }
+    }
+
+    if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
+        // HDG - Heading - Deviation and Variation
+        if (NMPARSE(nmeastr_p1, "HDG")) {
+            cnmea.hdm=atof(getf(1, nmeastr_p1));
+            cnmea.hdm += atof(getf(4, nmeastr_p1));
+            cnmea.hdm_ts = ts;
+            return;
+        }
+        // HDT - Heading - True (obsoleted)
+        if (NMPARSE(nmeastr_p1, "HDT")) {
+            cnmea.hdm=atof(getf(1, nmeastr_p1));
+            cnmea.hdm_ts = ts;
+            return;
+        }
+
+        // HDM Heading - Heading Magnetic (obsoleted)
+        if (NMPARSE(nmeastr_p1, "HDM")) {
+            cnmea.hdm=atof(getf(1, nmeastr_p1));
+            cnmea.hdm_ts = ts;
+            return;
+        }
+    }
+
+    // VHW - Water speed
+    if(NMPARSE(nmeastr_p1, "VHW")) {
+        if ((cnmea.stw=atof(getf(5, nmeastr_p1))) != 0)
+            cnmea.stw_ts = ts;
+        return;
+    }
+
+    // DPT - Depth (Depth of transponder added)
+    if (NMPARSE(nmeastr_p1, "DPT")) {
+        cnmea.dbt=atof(getf(1, nmeastr_p1))+atof(getf(2, nmeastr_p1));
+        cnmea.dbt_ts = ts;
+        return;
+    }
+
+    // DBT - Depth Below Transponder
+    if (ts - cnmea.dbt_ts > S_TIMEOUT/2) { // If not from DPT
+        if (NMPARSE(nmeastr_p1, "DBT")) {
+            float dbt = atof(getf(3, nmeastr_p1));
+            if (dbt >= 80.0)
+                dbt = round(dbt);
+            cnmea.dbt=dbt;
+            cnmea.dbt_ts = ts;
+            return;
+        }
+    }
+
+    // MTW - Water temperature in C
+    if (NMPARSE(nmeastr_p1, "MTW")) {
+        cnmea.mtw=atof(getf(1, nmeastr_p1));
+        cnmea.mtw_ts = ts;
+        return;
+    }
+
+    // MWV - Wind Speed and Angle (report VWR style)
+    if (NMPARSE(nmeastr_p1, "MWV")) {
+        if (strncmp(getf(2, nmeastr_p1),"R",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
+            cnmea.vwra=atof(getf(1, nmeastr_p1));
+            cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
+            if (cnmea.vwra > 180) {
+                cnmea.vwrd = 1;
+                cnmea.vwra = 360 - cnmea.vwra;
+            } else cnmea.vwrd = 0;
+            cnmea.vwr_ts = ts;
+        }
+        if (strncmp(getf(2, nmeastr_p1),"T",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
+            cnmea.vwta=atof(getf(1, nmeastr_p1));
+            cnmea.vwts=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
+            cnmea.vwt_ts = ts;
+        } else if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
+                cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
+                cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
+                cnmea.vwt_ts = ts;
+        }
+       return;
+    }
+
+    // VWR - Relative Wind Speed and Angle (obsolete)
+    if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
+        if (NMPARSE(nmeastr_p1, "VWR")) {
+            cnmea.vwra=atof(getf(1, nmeastr_p1));
+            cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s
+            cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
+            cnmea.vwr_ts = ts;
+            if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
+                cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
+                cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
+                cnmea.vwt_ts = ts;
+            }
+            return;
+        }
+    }
+
+    // RSA - Rudder angle
+    if (NMPARSE(nmeastr_p1, "RSA")) {
+        cnmea.rsa=atof(getf(1, nmeastr_p1));
+        cnmea.rsa_ts = ts;
+        return;
+    }
+
+    // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
+    // "$P". These extended messages are not standardized.
+    if (NMPARSE(nmeastr_p1, "ENV")) {
+        hasGPENV = 1;
+        cnmea.volt=         atof(getf(1, nmeastr_p1));
+        strcpy(cnmea.volt_bank, getf(2, nmeastr_p1));
+        if(cnmea.volt >=8)  cnmea.volt_ts = ts;
+
+        cnmea.curr=         atof(getf(3, nmeastr_p1));
+        strcpy(cnmea.curr_bank, getf(4, nmeastr_p1));
+        cnmea.curr_ts = ts;
+
+        cnmea.temp=         atof(getf(5, nmeastr_p1));
+        strcpy(cnmea.temp_loc, getf(6, nmeastr_p1));
+        if(cnmea.temp != 100) cnmea.temp_ts = ts;
+
+        cnmea.kWhp=         atof(getf(7, nmeastr_p1));
+        cnmea.kWhn=         atof(getf(8, nmeastr_p1));
+        cnmea.startTime=    atol(getf(9, nmeastr_p1));
+
+        return;
+    }
+
+    // BATT - Battery status:  $IIXDR,U,13.2,V,BATT1,I,-2.4,A,BATT1,C,21.0,C,BATT1*54
+    if (NMPARSE(nmeastr_p1, "XDR")) {
+        if (hasGPENV) return;
+
+        if (*getf(1, nmeastr_p1) == 'U') {
+            char *ptr;
+            if ((ptr=memchr(nmeastr_p1,'*', NMBUFF)) !=NULL)
+                *ptr = '\0';
+
+            cnmea.volt = atof(getf(2, nmeastr_p1));
+            if(cnmea.volt >=8) cnmea.volt_ts = ts;
+            strcpy(cnmea.volt_bank, getf(4, nmeastr_p1));
+            if (*getf(5, nmeastr_p1) == 'I') {
+                cnmea.curr = atof(getf(6, nmeastr_p1));
+                cnmea.curr_ts = ts;
+                strcpy(cnmea.curr_bank, getf(8, nmeastr_p1));
+            }
+            if (*getf(9, nmeastr_p1) == 'C') {
+                cnmea.temp = atof(getf(10, nmeastr_p1));
+                strcpy(cnmea.temp_loc, getf(12, nmeastr_p1));
+                if(cnmea.temp != 100) cnmea.temp_ts = ts;
+            }
+            cnmea.kWhp=cnmea.kWhn=0;
+            cnmea.startTime=1;
+
+            return;
+        }
+    }
+
+    // ROLL - Wessel roll:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*4A
+    if (NMPARSE(nmeastr_p1, "XDR")) {
+        char *type = getf(4, nmeastr_p1);
+        if (strcmp(type, "HEEL") && strcmp(type, "ROLL"))
+            return;
+        cnmea.roll=atof(getf(2, nmeastr_p1));
+        cnmea.xdr_ts = ts;
+        return;
+    }
+}
+
+// Collect serial NMEA sentences
 static int threadSerial(void *conf)
 {
-    char buffer[512];
+    char buffer[NMBUFF];
     configuration *configParams = conf;
     int fd;
 
-    SDL_Log("Starting up Serial GPS collector");
+    SDL_Log("Starting up NMEA serial collector");
 
     if ((fd = open(configParams->tty, O_RDONLY | O_NOCTTY)) <0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not open GPS device %s", configParams->tty);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not open NMEA serial device %s", configParams->tty);
         return 0;
     }
 
@@ -487,9 +728,7 @@ static int threadSerial(void *conf)
 
     while(configParams->runGps)
     {
-        time_t ct;
         int cnt;
-        float hdm;
   
         // The vessels network has precedence
         if (!(time(NULL) - cnmea.net_ts > S_TIMEOUT)) {
@@ -505,89 +744,18 @@ static int threadSerial(void *conf)
             continue;
         }
 
+        if (cnt <= 0) continue;
+
         buffer[strlen(buffer)-1] = '\0';
         if (!strlen(buffer)) continue;
 
-        if(nmeaChecksum(buffer, NULL, strlen(buffer))) continue;
+        doNmea(buffer, NULL, strlen(buffer), 0);
 
-        ct = time(NULL);    // Get a timestamp for this turn
-
-        // RMC - Recommended minimum specific GPS/Transit data
-        if (NMPARSE(buffer, "RMC")) {
-            cnmea.rmc_gps_ts = ct;
-            if ((cnmea.rmc=atof(getf(7, buffer))) >= TRGPS) {   // SOG
-                cnmea.rmc_ts = ct;
-                if ((hdm=atof(getf(8, buffer))) != 0)  {   // Track made good
-                    cnmea.hdm=hdm;
-                    cnmea.hdm_ts = ct;
-                }
-            }
-            strcpy(cnmea.gll, getf(3, buffer));
-            strcpy(cnmea.glo, getf(5, buffer));
-            strcpy(cnmea.glns, getf(4, buffer));
-            strcpy(cnmea.glne, getf(6, buffer));
-            if (cnmea.rmc_tm_set == 0) {
-                strcpy(cnmea.time, getf(1, buffer));
-                strcpy(cnmea.date, getf(9, buffer));
-                cnmea.rmc_tm_set = 1;
-            }
-            if(strlen(cnmea.gll))
-                cnmea.gll_ts = ct;
-            continue;
-        }
-
-        // GLL - Geographic Position, Latitude / Longitude
-        if (ct - cnmea.gll_ts > S_TIMEOUT/2) { // If not from RMC
-            if (NMPARSE(buffer, "GLL")) {
-                strcpy(cnmea.gll, getf(1, buffer));
-                strcpy(cnmea.glo, getf(3, buffer));
-                strcpy(cnmea.glns, getf(2, buffer));
-                strcpy(cnmea.glne, getf(4, buffer));
-                cnmea.gll_ts = ct;
-                continue;
-            }
-        }
-
-        // VTG - Track made good and ground speed
-        if (ct - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-            if (NMPARSE(buffer, "VTG")) {
-                if ((cnmea.rmc=atof(getf(5, buffer))) >= TRGPS) {   // SOG
-                    cnmea.net_ts = cnmea.rmc_ts = ct;
-                    if ((hdm=atof(getf(1, buffer))) != 0) { // Track made good
-                        cnmea.hdm=hdm;
-                        cnmea.hdm_ts = ct;
-                    }
-                }
-                continue;
-            }
-        }
-
-        if (ct - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-            // HDG - Heading - Deviation and Variation 
-            if (NMPARSE(buffer, "HDG")) {
-                cnmea.hdm=atof(getf(1, buffer));
-                cnmea.hdm_ts = ct;
-                continue;
-            }
-            // HDT - Heading - True (obsoleted)
-            if (NMPARSE(buffer, "HDT")) {
-                cnmea.hdm=atof(getf(1, buffer));
-                cnmea.hdm_ts = ct;
-                continue;
-            }
-
-            // HDM Heading - Heading Magnetic (obsoleted)
-            if (NMPARSE(buffer, "HDM")) {
-                cnmea.hdm=atof(getf(1, buffer));
-                cnmea.hdm_ts = ct;
-                continue;
-            }
-        }
     }
 
     close(fd);
 
-    SDL_Log("threadSerial stopped");
+    SDL_Log("nmeaSerialCollector stopped");
 
     configParams->numThreads--;
 
@@ -820,16 +988,11 @@ static int nmeaNetCollector(void* conf)
         // Now start collect data
         while (configParams->runNet)
         {
-            static char nmeastr_p1[2048];
-            static char nmeastr_p2[2048];
-            
-            time_t ts;
+            static char nmeastr_p1[NMBUFF];
+            static char nmeastr_p2[NMBUFF];
             int cnt = 0;
-            float hdm;
 
             if (++retry > 10) break;
-               
-            ts = time(NULL);        // Get a timestamp for this turn
 
             // Check if we got an NMEA response from the server
             if (SDLNet_CheckSockets(socketSet, 3000) > 0)
@@ -849,190 +1012,7 @@ static int nmeaNetCollector(void* conf)
                 retry = 0;
                 configParams->netStat = 1;
 
-                if (nmeaChecksum(nmeastr_p1, nmeastr_p2, cnt)) continue;
-
-                // RMC - Recommended minimum specific GPS/Transit data
-                if (NMPARSE(nmeastr_p1, "RMC")) {
-                    cnmea.rmc_gps_ts = ts;
-                    if ((cnmea.rmc=atof(getf(7, nmeastr_p1))) >= TRGPS) {   // SOG
-                        cnmea.rmc_ts = ts;
-                        if ((hdm=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
-                            cnmea.hdm=hdm;
-                            cnmea.hdm_ts = ts;
-                        }
-                    }
-                    strcpy(cnmea.gll, getf(3, nmeastr_p1));
-                    strcpy(cnmea.glo, getf(5, nmeastr_p1));
-                    strcpy(cnmea.glns, getf(4, nmeastr_p1));
-                    strcpy(cnmea.glne, getf(6, nmeastr_p1));
-                    if (cnmea.rmc_tm_set == 0) {
-                        strcpy(cnmea.time, getf(1, nmeastr_p1));
-                        strcpy(cnmea.date, getf(9, nmeastr_p1));
-                        cnmea.rmc_tm_set = 1;
-                    }
-                    cnmea.net_ts = cnmea.gll_ts = ts;
-                    continue;
-                }
-
-                // GLL - Geographic Position, Latitude / Longitude
-                if (ts - cnmea.gll_ts > S_TIMEOUT/2) { // If not from RMC
-                    if (NMPARSE(nmeastr_p1, "GLL")) {
-                        strcpy(cnmea.gll, getf(1, nmeastr_p1));
-                        strcpy(cnmea.glo, getf(3, nmeastr_p1));
-                        strcpy(cnmea.glns, getf(2, nmeastr_p1));
-                        strcpy(cnmea.glne, getf(4, nmeastr_p1));
-                        cnmea.net_ts = cnmea.gll_ts = ts;
-                        continue;
-                    }
-                }
-
-                // VTG - Track made good and ground speed
-                if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-                    if (NMPARSE(nmeastr_p1, "VTG")) {
-                        if ((cnmea.rmc=atof(getf(5, nmeastr_p1))) >= TRGPS) {   // SOG
-                            cnmea.net_ts = cnmea.rmc_ts = ts;
-                            if ((hdm=atof(getf(1, nmeastr_p1))) != 0) { // Track made good
-                                cnmea.hdm=hdm;
-                                cnmea.hdm_ts = ts;
-                            }
-                        }
-                        continue;
-                    }
-                }
-
-                if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-                    // HDG - Heading - Deviation and Variation 
-                    if (NMPARSE(nmeastr_p1, "HDG")) {
-                        cnmea.hdm=atof(getf(1, nmeastr_p1));
-                        cnmea.hdm += atof(getf(4, nmeastr_p1));
-                        cnmea.hdm_ts = ts;
-                        continue;
-                    }
-                    // HDT - Heading - True (obsoleted)
-                    if (NMPARSE(nmeastr_p1, "HDT")) {
-                        cnmea.hdm=atof(getf(1, nmeastr_p1));
-                        cnmea.hdm_ts = ts;
-                        continue;
-                    }
-
-                    // HDM Heading - Heading Magnetic (obsoleted)
-                    if (NMPARSE(nmeastr_p1, "HDM")) {
-                        cnmea.hdm=atof(getf(1, nmeastr_p1));
-                        cnmea.hdm_ts = ts;
-                        continue;
-                    }
-                }
- 
-                // VHW - Water speed
-                if(NMPARSE(nmeastr_p1, "VHW")) {
-                    if ((cnmea.stw=atof(getf(5, nmeastr_p1))) != 0)
-                        cnmea.stw_ts = ts;
-                    continue;
-                }
-
-                // DPT - Depth (Depth of transponder added)
-                if (NMPARSE(nmeastr_p1, "DPT")) {
-                    cnmea.dbt=atof(getf(1, nmeastr_p1))+atof(getf(2, nmeastr_p1));
-                    cnmea.dbt_ts = ts;
-                    continue;
-                }
-
-                // DBT - Depth Below Transponder
-                if (ts - cnmea.dbt_ts > S_TIMEOUT/2) { // If not from DPT
-                    if (NMPARSE(nmeastr_p1, "DBT")) {
-                        float dbt = atof(getf(3, nmeastr_p1));
-                        if (dbt >= 80.0)
-                            dbt = round(dbt);
-                        cnmea.dbt=dbt;
-                        cnmea.dbt_ts = ts;
-                        continue;
-                    }
-                }
-
-                // MTW - Water temperature in C
-                if (NMPARSE(nmeastr_p1, "MTW")) {
-                    cnmea.mtw=atof(getf(1, nmeastr_p1));
-                    cnmea.mtw_ts = ts;
-                    continue;
-                }
-
-                // MWV - Wind Speed and Angle (report VWR style)
-                if (NMPARSE(nmeastr_p1, "MWV")) {
-                    if (strncmp(getf(2, nmeastr_p1),"R",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
-                        cnmea.vwra=atof(getf(1, nmeastr_p1));
-                        cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
-                        if (cnmea.vwra > 180) {
-                            cnmea.vwrd = 1;
-                            cnmea.vwra = 360 - cnmea.vwra;
-                        } else cnmea.vwrd = 0;
-                        cnmea.vwr_ts = ts;
-                    }
-                    if (strncmp(getf(2, nmeastr_p1),"T",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
-                        cnmea.vwta=atof(getf(1, nmeastr_p1));
-                        cnmea.vwts=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
-                        cnmea.vwt_ts = ts;
-                    } else if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-                            cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
-                            cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
-                            cnmea.vwt_ts = ts;
-                    }
-                    continue;
-                }
-
-                // VWR - Relative Wind Speed and Angle (obsolete)
-                if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
-                    if (NMPARSE(nmeastr_p1, "VWR")) {
-                        cnmea.vwra=atof(getf(1, nmeastr_p1));
-                        cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s
-                        cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
-                        cnmea.vwr_ts = ts;
-                        if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-                            cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
-                            cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
-                            cnmea.vwt_ts = ts;
-                        }
-                        continue;
-                    }
-                }
-
-                // RSA - Rudder angle
-                if (NMPARSE(nmeastr_p1, "RSA")) {
-                    cnmea.rsa=atof(getf(1, nmeastr_p1));
-                    cnmea.rsa_ts = ts;
-                    continue;
-                }
-
-                // ROLL - Wessel roll:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*4A
-                if (NMPARSE(nmeastr_p1, "XDR")) {
-                    char *type = getf(4, nmeastr_p1);
-                    if (strcmp(type, "HEEL") && strcmp(type, "ROLL"))
-                        continue;
-                    cnmea.roll=atof(getf(2, nmeastr_p1));
-                    cnmea.xdr_ts = ts;
-                    continue;
-                }
-
-                // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
-                // "$P". These extended messages are not standardized. 
-                if (NMPARSE(nmeastr_p1, "ENV")) {
-                    cnmea.volt=         atof(getf(1, nmeastr_p1));
-                    cnmea.volt_bank=    atoi(getf(2, nmeastr_p1));
-                    if(cnmea.volt >=8)  cnmea.volt_ts = ts;
-
-                    cnmea.curr=         atof(getf(3, nmeastr_p1));
-                    cnmea.curr_bank=    atoi(getf(4, nmeastr_p1));
-                    cnmea.curr_ts = ts;
-
-                    cnmea.temp=         atof(getf(5, nmeastr_p1));
-                    cnmea.temp_loc=     atoi(getf(6, nmeastr_p1));
-                    if(cnmea.temp != 100) cnmea.temp_ts = ts;
-
-                    cnmea.kWhp=         atof(getf(7, nmeastr_p1));
-                    cnmea.kWhn=         atof(getf(8, nmeastr_p1));
-                    cnmea.startTime=    atol(getf(9, nmeastr_p1));
-
-                    continue;
-                }
+                doNmea(nmeastr_p1, nmeastr_p2, cnt, 1);
 
             } else {
                 configParams->netStat = 0;
@@ -3234,25 +3214,24 @@ static int doEnvironment(sdl2_app *sdlApp)
         if (!(ct - cnmea.volt_ts > S_TIMEOUT)) {
             sprintf(msg_volt, "%.1f", cnmea.volt);
             volt_value = cnmea.volt > v_max? cnmea.volt/2: cnmea.volt;
-            sprintf(msg_volt_bank, "Bank %d", cnmea.volt_bank);
+            sprintf(msg_volt_bank, "%s", cnmea.volt_bank);
             doPlot++;
         }
 
         if (!(ct - cnmea.curr_ts > S_TIMEOUT)) {
             sprintf(msg_curr, "%.1f", cnmea.curr);
             curr_value = cnmea.curr;
-            sprintf(msg_curr_bank, "Bank %d", cnmea.curr_bank);
+            sprintf(msg_curr_bank, "%s", cnmea.curr_bank);
             doPlot++;
         }
 
         if (!(ct - cnmea.temp_ts > S_TIMEOUT)) {
             sprintf(msg_temp, "%.1f", cnmea.temp);
             temp_value = cnmea.temp;
-            if (cnmea.temp_loc == 1)
-                sprintf(msg_temp_loca, "Indoor");
+            sprintf(msg_temp_loca, "%s", cnmea.temp_loc);
         }
 
-        if (cnmea.startTime) {
+        if (cnmea.startTime > 1) {
             strftime(msg_stm, sizeof(msg_stm),"%x:%H:%M", localtime(&cnmea.startTime));
             if (cnmea.kWhn < 1.0)
                 sprintf(msg_kWhn, "%.3f kWh spent since %s", cnmea.kWhn, msg_stm);
@@ -3328,7 +3307,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        if (cnmea.startTime)
+        if (cnmea.startTime > 1)
         {
             get_text_and_rect(sdlApp->renderer, 104, 416, 0, msg_kWhn, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
