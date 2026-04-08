@@ -45,6 +45,8 @@
 #define dmagZmin -1338
 #define ddeclval 0.13
 
+#define RFB_TOUCH 1
+
 #define NMBUFF 2048
 
 typedef struct {
@@ -97,6 +99,7 @@ typedef struct {
     char snd_card_name[256];
     char cam_url[200];
     char vid_device[60];
+    SDL_mutex* nm_mutex;
 } configuration;
 
 enum sdlPages {
@@ -122,6 +125,9 @@ typedef struct {
     int curPage;
     int plotMode;
     SDL_Texture* textFieldArr[60];
+    SDL_Surface* formattedSurf;
+    char *rfbPauseBuffer;
+    SDL_mutex* vnc_mutex;
     int textFieldArrIndx;
     configuration *conf;
 } sdl2_app;

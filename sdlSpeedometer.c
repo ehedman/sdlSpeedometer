@@ -91,6 +91,7 @@
 #endif
 
 #define DEFAULT_BACKGROUND IMAGE_PATH "Default-bg.bmp"
+#define DEFAULT_RFB_BACKGROUND IMAGE_PATH "Default-rfb-bg.bmp"
 
 #define BLACK   1
 #define WHITE   2
@@ -466,7 +467,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 {
     float hdm;
     time_t ts = time(NULL);    // Get a timestamp for this turn
-    static int hasGPENV=0;
+    static int hasGPENV;
 
     if (nmeaChecksum(nmeastr_p1, nmeastr_p2, cnt)) {
         SDL_Log("Checksum error in %s", nmeastr_p1);
@@ -665,7 +666,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // BATT - Battery status:  $IIXDR,U,13.2,V,BATT1,I,-2.4,A,BATT1,C,21.0,C,BATT1*54
     if (NMPARSE(nmeastr_p1, "XDR")) {
-        if (hasGPENV) return;
+        if (hasGPENV==1) return;
 
         if (*getf(1, nmeastr_p1) == 'U') {
             char *ptr;
@@ -749,8 +750,9 @@ static int threadSerial(void *conf)
         buffer[strlen(buffer)-1] = '\0';
         if (!strlen(buffer)) continue;
 
+        SDL_LockMutex(configParams->nm_mutex);
         doNmea(buffer, NULL, strlen(buffer), 0);
-
+        SDL_UnlockMutex(configParams->nm_mutex);
     }
 
     close(fd);
@@ -1012,7 +1014,9 @@ static int nmeaNetCollector(void* conf)
                 retry = 0;
                 configParams->netStat = 1;
 
+                SDL_LockMutex(configParams->nm_mutex);
                 doNmea(nmeastr_p1, nmeastr_p2, cnt, 1);
+                SDL_UnlockMutex(configParams->nm_mutex);
 
             } else {
                 configParams->netStat = 0;
@@ -1059,7 +1063,8 @@ static void vncClientTouch(int buttonMask, int x, int y, rfbClientPtr cl)
     if (buttonMask & 1) {
 
         if (sdlApp->conf->subTaskPID != 0) {
-            /* If a subtask is running, the VNC client will appear frozen.
+            /* If a subtask is running, the VNC client screen will
+             * appear frozen or exposing the VNC pause screen,.
              * Most likely the user will tap the screen, 
              * so let's kill the process group to re-activate SDL mode.
              */
@@ -1076,7 +1081,7 @@ static void vncClientTouch(int buttonMask, int x, int y, rfbClientPtr cl)
         touchEvent.tfinger.timestamp = time(NULL);
         touchEvent.tfinger.touchId = 0;
         touchEvent.tfinger.fingerId = 6;
-        touchEvent.user.code = 1;
+        touchEvent.user.code = RFB_TOUCH;
 
         SDL_PushEvent(&touchEvent); // Add this event to the event queue. 
     }    
@@ -1121,7 +1126,10 @@ static int threadVnc(void *conf)
     while (rfbIsActive(sdlApp->conf->vncServer))
     {
         usec = sdlApp->conf->vncServer->deferUpdateTime*1000;
+        SDL_LockMutex(sdlApp->vnc_mutex);
         rfbProcessEvents(sdlApp->conf->vncServer, usec);
+        SDL_UnlockMutex(sdlApp->vnc_mutex);
+        SDL_Delay(1);
     }
 
     SDL_Log("RFB serivice stopped");
@@ -1226,7 +1234,7 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     }
 
     SDL_Rect CalibR = {20,60,30,30};
-    if (event->user.code != 1 /* not for RFB */) {
+    if (event->user.code != RFB_TOUCH /* not for RFB */) {
         if (sdlApp->curPage == COGPAGE && sdlApp->conf->i2cFile != 0 && SDL_PointInRect(&p, &CalibR)) {
             return CALPAGE;
         }
@@ -1277,13 +1285,41 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     }
 
     SDL_Rect TskPageR = {30,400,50,50};
-    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL && event->user.code != 1 ) {
-        /* not for RFB or no subtask declarations */
+    if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
+
+        if (sdlApp->conf->vncClients && sdlApp->rfbPauseBuffer != NULL && SDL_PointInRect(&p, &TskPageR)) {
+
+            // Show VNC Pause Screen
+            char *realBuffer = sdlApp->conf->vncServer->frameBuffer;
+
+            if (SDL_LockMutex(sdlApp->vnc_mutex) == 0) {
+
+                sdlApp->conf->vncServer->frameBuffer = sdlApp->rfbPauseBuffer;
+
+                rfbMarkRectAsModified(
+                    sdlApp->conf->vncServer,
+                    0, 0,
+                    sdlApp->conf->window_w,
+                    sdlApp->conf->window_h
+                );
+                SDL_UnlockMutex(sdlApp->vnc_mutex);
+                SDL_Delay(300);
+
+                SDL_LockMutex(sdlApp->vnc_mutex);
+                sdlApp->conf->vncServer->frameBuffer = realBuffer;
+                SDL_UnlockMutex(sdlApp->vnc_mutex);
+
+            } else {
+                // VNC user left with frozen last screen
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_LockMutex failed for VNC splash screen: %s", SDL_GetError());
+            }
+        }
+
         if (SDL_PointInRect(&p, &TskPageR)) {
             return TSKPAGE;
         }
     }
-    
+
     return 0;
 }
 
@@ -1292,6 +1328,7 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
     // Add text on top of a simple menu bar
 
     SDL_Rect M1_rect;
+    char *dpt = "DPT";
     
     int x = 414;    // Start x here and go left to right
 
@@ -1303,7 +1340,10 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
     x+=57;
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, "DPT", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
+    if (sdlApp->curPage == DPTPAGE) {
+        if (sdlApp->plotMode) dpt="DPT"; else dpt="PLT";
+    }
+    get_text_and_rect(sdlApp->renderer, x, 416, 0, dpt, font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
 
     x+=57;
@@ -1637,6 +1677,8 @@ static int doCompass(sdl2_app *sdlApp)
         }
         if (doBreak == 1) break;
 
+
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
         ct = time(NULL);    // Get a timestamp for this turn 
 
         if (!(ct - cnmea.rmc_gps_ts > S_TIMEOUT)) {
@@ -1692,6 +1734,8 @@ static int doCompass(sdl2_app *sdlApp)
         // RSA - Rudder angle
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
             sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         angle = rotate(roundf(cnmea.hdm), res); res=0;
 
@@ -1945,6 +1989,8 @@ static int doSumlog(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
+
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
 
@@ -1981,6 +2027,8 @@ static int doSumlog(sdl2_app *sdlApp)
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
                          
         speed = wspeed * (maxangle/maxspeed);
         angle = roundf(speed+minangle);
@@ -2167,6 +2215,8 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
+
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
 
@@ -2204,6 +2254,8 @@ static int doGps(sdl2_app *sdlApp)
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
@@ -2399,6 +2451,8 @@ static int doDepth(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
+
         ct = time(NULL);    // Get a timestamp for this turn 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
@@ -2435,6 +2489,8 @@ static int doDepth(sdl2_app *sdlApp)
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         gauge = gaugeDepth;
         if (cnmea.dbt <=5 || (cnmea.dbt <= 10 && cnmea.dbt <= warn.depthw)) {
@@ -2859,6 +2915,8 @@ static int doWind(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
+
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
@@ -2895,6 +2953,8 @@ static int doWind(sdl2_app *sdlApp)
         // VHW - Water speed and Heading
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         angle_a = cnmea.vwra; // 0-180
 
@@ -3208,6 +3268,8 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         if (doBreak == 1) break;
 
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
+
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
@@ -3243,6 +3305,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             else
                 sprintf(msg_kWhp, "%.1f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
         }
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         SDL_RenderClear(sdlApp->renderer);
 
@@ -3828,6 +3892,8 @@ static int doCamera(sdl2_app *sdlApp)
             ct = time(NULL);    // Get a timestamp for this turn
 
             if ( hideQuit <= 0 && showNavbox) {
+                SDL_LockMutex(sdlApp->conf->nm_mutex);
+
                 // Heading
                 if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
                     sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
@@ -3847,6 +3913,8 @@ static int doCamera(sdl2_app *sdlApp)
                 // DBT - Depth Below Transponder
                 if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
                     sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+
+                SDL_UnlockMutex(sdlApp->conf->nm_mutex);
             }
 
             while (SDL_PollEvent(&e)) {
@@ -4442,6 +4510,8 @@ static int doVideoCapture(sdl2_app *sdlApp)
         ct = time(NULL);    // Get a timestamp for this turn
 
         if ( hideQuit <= 0 && showNavbox) {
+            SDL_LockMutex(sdlApp->conf->nm_mutex);
+
             // Heading
             if (!(ct - cnmea.hdm_ts > S_TIMEOUT))
                 sprintf(msg_hdm, "COG: %.0f", cnmea.hdm);
@@ -4461,6 +4531,8 @@ static int doVideoCapture(sdl2_app *sdlApp)
             // DBT - Depth Below Transponder
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
                 sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+
+            SDL_UnlockMutex(sdlApp->conf->nm_mutex);
         }
 
         while (SDL_PollEvent(&e)) 
@@ -5325,6 +5397,9 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
 static void closeSDL2(sdl2_app *sdlApp)
 {
+    if (sdlApp->rfbPauseBuffer != NULL)
+        free(sdlApp->rfbPauseBuffer);
+
     TTF_Quit();
     SDL_DestroyRenderer(sdlApp->renderer);
     SDL_DestroyWindow(sdlApp->window);
@@ -5350,7 +5425,11 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
             return SDL_QUIT;
         }
-  
+
+        if ((sdlApp->conf->nm_mutex = SDL_CreateMutex()) == NULL) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex nm_mutex failed: %s", SDL_GetError());
+            return SDL_QUIT;
+        }
 
         if (sqlite3_open_v2(SQLDBPATH, &configParams->conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams->conn));
@@ -5438,9 +5517,32 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
 
     TTF_Init();
 
-    Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND);
-    Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
-    SDL_FreeSurface(Loading_Surf);
+    if (doInit)
+        sdlApp->rfbPauseBuffer = NULL;
+
+    if (sdlApp->conf->runVnc) {
+        if ((Loading_Surf = SDL_LoadBMP(DEFAULT_RFB_BACKGROUND)) != NULL) {
+            if ((sdlApp->formattedSurf = SDL_ConvertSurfaceFormat(Loading_Surf, SDL_PIXELFORMAT_BGR888, 0)) != NULL) {
+                if (sdlApp->rfbPauseBuffer == NULL) {
+                    if ((sdlApp->vnc_mutex = SDL_CreateMutex()) == NULL) {
+                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex vnc_mutex failed: %s", SDL_GetError());
+                    }   else if ((sdlApp->rfbPauseBuffer = calloc(configParams->window_w * configParams->window_h, 4)) != NULL) {
+                        memcpy(sdlApp->rfbPauseBuffer, sdlApp->formattedSurf->pixels, sdlApp->formattedSurf->pitch * sdlApp->formattedSurf->h);
+                    }
+                }
+                SDL_FreeSurface(sdlApp->formattedSurf);
+            }
+            SDL_FreeSurface(Loading_Surf);
+        }
+    }
+
+    if ((Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND)) != NULL) {
+        Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
+        SDL_FreeSurface(Loading_Surf);
+    } else {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_LoadBMP(DEFAULT_BACKGROUND) failed: %s", SDL_GetError());
+        return SDL_QUIT;
+    }
 
     SDL_SetWindowAlwaysOnTop(sdlApp->window, SDL_TRUE);
 

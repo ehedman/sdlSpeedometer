@@ -101,25 +101,25 @@ To run a terminal appication (nox-X), prefix the commant with 'openvt'. $RMGS
 
 do_set_serial_device() {
     whiptail --msgbox "\
-Enter a serial device name for the GPS.\\n
-For a Raspberry Pi model 3 and 4 with the BerryGPS it should be /dev/ttyS0 and for \
-other Raspberrys' /dev/tyAMA0.\\n
+Enter a serial device name for the NMEA-0183 port.\\n
+For a Raspberry Pi model 3 and 4 with the BerryGPS on the GPIO connector it should be /dev/ttyS0 and for \
+other Raspberrys' /dev/tyAMA0. For USB NMEA converters something like /dev/ttyUSBn.\\n
 If KPLEX is present in the system it is reccomended that KPLEX owns the serial device and that device name is set to 'none'.
 " 20 70 1
 
   CURRENT_SERIALDEV=$(sqlite3 $SPEEDOMETER_DB 'SELECT tty FROM config;')
-  NEW_SERIALDEV=$(whiptail --inputbox "Please enter a serial device or 'none' to disable serial GPS handling" 20 60 "$CURRENT_SERIALDEV" 3>&1 1>&2 2>&3)
+  NEW_SERIALDEV=$(whiptail --inputbox "Please enter a serial device or 'none' to disable serial NMEA handling" 20 60 "$CURRENT_SERIALDEV" 3>&1 1>&2 2>&3)
 
   if [ -n "$NEW_SERIALDEV" ]; then
     echo "UPDATE config SET tty = '$NEW_SERIALDEV' WHERE Id=1;" >> "$SQLFILE"
-    systemctl stop serial-getty@"$(basename "${NEW_SERIALDEV}")".service &>/dev/null || true
-    systemctl disable serial-getty@"$(basename "${NEW_SERIALDEV}")".service &>/dev/null || true
+    sudo systemctl stop serial-getty@"$(basename "${NEW_SERIALDEV}")".service &>/dev/null || true
+    sudo systemctl disable serial-getty@"$(basename "${NEW_SERIALDEV}")".service &>/dev/null || true
   fi
 }
 
 do_set_serial_speed() {
     whiptail --msgbox "\
-Enter serial baudrate for the GPS device. \\n
+Enter serial baudrate for the NMEA device. \\n
 For a BerryGPS default is 9600.
 " 20 70 1
 
@@ -545,8 +545,8 @@ do_config_menu() {
   FUN=$(whiptail --title "sdlSpeedometer Configuration Tool (sdlSpeedometer-config)" --menu "Config Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
     "1 Hostname" "Set the visible name for this Pi on a network" \
     "2 Wi-fi" "Change SSID and passphrase" \
-    "3 Serial device" "Enter device name for the GPS" \
-    "4 Serial speed" "Enter baud rate for the GPS" \
+    "3 Serial device" "Enter device name for the NMEA-0183 port" \
+    "4 Serial speed" "Enter baud rate for the NMEA-0183 port" \
     "5 NMEA Network" "Enter NMEA-0183 server name" \
     "6 NMEA Net port" "Enter NMEA-0183 server port" \
     "7 VNC Server port" "Enter VNC server port" \
