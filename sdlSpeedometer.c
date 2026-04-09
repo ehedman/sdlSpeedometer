@@ -5830,28 +5830,7 @@ int main(int argc, char *argv[])
 
     SDL_LogSetOutputFunction((void*)logCallBack, argv[0]);   
 
-    if (getenv("DISPLAY") != NULL) {    // Wait for X/Xweston to become ready
-        int i;
-        for (i = 0; i < 5; i++) {
-            Display *display;
-            if ((display = XOpenDisplay(NULL)) == NULL) {
-                sleep(2);
-                continue;
-            }
-            XWindowAttributes wa;
-            XGetWindowAttributes(display, DefaultRootWindow(display), &wa);
-            sprintf(configParams.ssize, "%dx%d", wa.width, wa.height);
-            XCloseDisplay(display);
-            break;
-        }
-        if (i >= 5) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: No response from X/Xweston. Terminating now!\n", argv[0]);
-            return 1;
-        }
-    }  else {
-        strcpy(configParams.ssize, DEFAULT_SCREEN_SIZE);
-    }
-
+    strcpy(configParams.ssize, DEFAULT_SCREEN_SIZE);
     configParams.scale = DEFAULT_SCREEN_SCALE;
 
     configParams.runGps = configParams.runi2c = configParams.runNet = 1;
