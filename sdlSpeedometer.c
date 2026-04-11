@@ -1205,6 +1205,7 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     
     int x, y;
     int win_w, win_h;
+
     SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
 
     // Upside down screen
@@ -1227,7 +1228,7 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     SDL_Rect MutedR = {65,15,35,35};
     if (sdlApp->conf->runWrn && SDL_PointInRect(&p, &MutedR))
     {
-        if (event->type == SDL_FINGERDOWN) {
+        if (event->type == SDL_MOUSEBUTTONDOWN) {
             sdlApp->conf->muted = !sdlApp->conf->muted;
         }
         return 0;
@@ -1323,6 +1324,60 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
     return 0;
 }
 
+void checkFocus(sdl2_app *sdlApp)
+{
+    static FILE *fd;
+    char line[256];
+    char port_hex[10];
+    int connected = 0;
+
+    /*
+     * Delay rendering loop if we have no VNC client fokus in order to lower the CPU load.
+     * This is only relevant if we are running in a VNC client context and that the -v opion is in use.
+     * The -v [port#] should reflect the VNC port that the external VNC server was started with.
+     * This has nothing to do with the -V option of this program that enables an internal VNC serer
+     * within this application.
+     */
+
+    if (!sdlApp->conf->doFokusCheck) return;
+
+    if (fd == NULL) {
+        if ((fd = fopen("/proc/net/tcp", "r")) == NULL) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't open /proc/net/tcp %s!", SDL_GetError());
+            sdlApp->conf->doFokusCheck = 0; // Give up this check and burn some more CPU load
+            return;
+        }
+    }
+
+    snprintf(port_hex, sizeof(port_hex), ":%04X",  sdlApp->conf->doFokusCheck);
+
+    // Skip the first line (the header)
+    fgets(line, sizeof(line), fd);
+
+    while (fgets(line, sizeof(line), fd)) {
+        char local_addr[128], remote_addr[128];
+        int state;
+        // The format in /proc/net/tcp:
+        // sl local_address rem_address st tx_queue rx_queue tr tm->when retr
+        // We are looking for local address/port and state 01 (ESTABLISHED)
+        if (sscanf(line, "%*d: %[^ ] %[^ ] %X", local_addr, remote_addr, &state) == 3) {
+            // Check if the local port matches and if the state is 01 (Established)
+            if (strstr(local_addr, port_hex) != NULL && state == 1) {
+                connected = 1;
+                break;
+            }
+        }
+    }
+
+    rewind(fd);
+
+    if (!connected) {
+        SDL_Delay(4000);
+        if (sdlApp->conf->runWrn)
+            sdlApp->conf->muted = 1;    // Prevent warnings sounds when no one watching
+    }
+}
+
 inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
@@ -1371,6 +1426,8 @@ inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
     x+=57;
     get_text_and_rect(sdlApp->renderer, x, 416, 0, "CAM", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
     SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+
+    checkFocus(sdlApp);
 }
 
 static void setUTCtime(void)
@@ -1677,7 +1734,6 @@ static int doCompass(sdl2_app *sdlApp)
         }
         if (doBreak == 1) break;
 
-
         SDL_LockMutex(sdlApp->conf->nm_mutex);
         ct = time(NULL);    // Get a timestamp for this turn 
 
@@ -1736,6 +1792,10 @@ static int doCompass(sdl2_app *sdlApp)
             sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
+
+ cnmea.rsa_ts = cnmea.vwr_ts;
+ cnmea.rsa = cnmea.vwrs;
+ sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
 
         angle = rotate(roundf(cnmea.hdm), res); res=0;
 
@@ -5471,14 +5531,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
          configParams->runGps = 0;   
     }
 
-    if (configParams->runVnc == 1) {
-        threadVNC = SDL_CreateThread(threadVnc, "threadVNC", sdlApp);
-        if (NULL == threadVNC) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadVNC failed: %s", SDL_GetError());
-             configParams->runVnc = 0; 
-        } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
-    }
-
     if (configParams->runWrn) {
         if (!configParams->snd_useMixer) {
             configParams->runWrn = 0;
@@ -5491,6 +5543,15 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             } else SDL_DetachThread(threadWrn);
         }
     }
+
+    if (configParams->runVnc == 1 && doInit == 1) {
+        threadVNC = SDL_CreateThread(threadVnc, "threadVNC", sdlApp);
+        if (NULL == threadVNC) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadVNC failed: %s", SDL_GetError());
+             configParams->runVnc = 0;
+        } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
+    }
+
 
     if (doInit) {
         flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
@@ -5509,39 +5570,41 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         if (configParams->useWm == 1) {
             SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
         }
-    }
 
-    sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
-    SDL_RenderSetScale(sdlApp->renderer, configParams->scale, configParams->scale);
+        sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
-    TTF_Init();
+        SDL_RenderSetScale(sdlApp->renderer, configParams->scale, configParams->scale);
 
-    if (doInit)
+        TTF_Init();
+
         sdlApp->rfbPauseBuffer = NULL;
-
-    if (sdlApp->conf->runVnc) {
-        if ((Loading_Surf = SDL_LoadBMP(DEFAULT_RFB_BACKGROUND)) != NULL) {
-            if ((sdlApp->formattedSurf = SDL_ConvertSurfaceFormat(Loading_Surf, SDL_PIXELFORMAT_BGR888, 0)) != NULL) {
-                if (sdlApp->rfbPauseBuffer == NULL) {
-                    if ((sdlApp->vnc_mutex = SDL_CreateMutex()) == NULL) {
-                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex vnc_mutex failed: %s", SDL_GetError());
-                    }   else if ((sdlApp->rfbPauseBuffer = calloc(configParams->window_w * configParams->window_h, 4)) != NULL) {
-                        memcpy(sdlApp->rfbPauseBuffer, sdlApp->formattedSurf->pixels, sdlApp->formattedSurf->pitch * sdlApp->formattedSurf->h);
-                    }
-                }
-                SDL_FreeSurface(sdlApp->formattedSurf);
-            }
-            SDL_FreeSurface(Loading_Surf);
-        }
     }
 
-    if ((Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND)) != NULL) {
-        Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
-        SDL_FreeSurface(Loading_Surf);
-    } else {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_LoadBMP(DEFAULT_BACKGROUND) failed: %s", SDL_GetError());
-        return SDL_QUIT;
+    if (doInit) {
+        if (sdlApp->conf->runVnc) {
+            if ((Loading_Surf = SDL_LoadBMP(DEFAULT_RFB_BACKGROUND)) != NULL) {
+                if ((sdlApp->formattedSurf = SDL_ConvertSurfaceFormat(Loading_Surf, SDL_PIXELFORMAT_BGR888, 0)) != NULL) {
+                    if (sdlApp->rfbPauseBuffer == NULL) {
+                        if ((sdlApp->vnc_mutex = SDL_CreateMutex()) == NULL) {
+                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex vnc_mutex failed: %s", SDL_GetError());
+                        }   else if ((sdlApp->rfbPauseBuffer = calloc(configParams->window_w * configParams->window_h, 4)) != NULL) {
+                            memcpy(sdlApp->rfbPauseBuffer, sdlApp->formattedSurf->pixels, sdlApp->formattedSurf->pitch * sdlApp->formattedSurf->h);
+                        }
+                    }
+                    SDL_FreeSurface(sdlApp->formattedSurf);
+                }
+                SDL_FreeSurface(Loading_Surf);
+            }
+        }
+
+        if ((Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND)) != NULL) {
+            Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
+            SDL_FreeSurface(Loading_Surf);
+        } else {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_LoadBMP(DEFAULT_BACKGROUND) failed: %s", SDL_GetError());
+            return SDL_QUIT;
+        }
     }
 
     SDL_SetWindowAlwaysOnTop(sdlApp->window, SDL_TRUE);
@@ -5645,8 +5708,8 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d remains.", configParams->numThreads);
     }
 
-    SDL_DestroyRenderer(sdlApp->renderer);
-    
+    SDL_HideWindow(sdlApp->window);
+
     configParams->subTaskPID = fork ();
 
     if (configParams->subTaskPID == 0) {
@@ -5654,7 +5717,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         setpgid(0, 0);
         prctl(PR_SET_PDEATHSIG, SIGINT);
         execv ("/bin/bash", args);
-        _exit(1);  // fallback if exec fails
+        _exit(1);
     }
 
     // You've picked my bones clean, speak now ...
@@ -5663,7 +5726,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
     configParams->subTaskPID = 0;
 
-    // Regain SDL2 control
+    // Restore runner's original run status
     configParams->runGps = runners[0];
     configParams->runi2c = runners[1];
     configParams->runNet = runners[2];
@@ -5671,10 +5734,10 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
     status = openSDL2(configParams, sdlApp, 0);
 
-    if (status == 0)    
-        status = sdlApp->curPage;
+    SDL_ShowWindow(sdlApp->window);    // Forcing the window forward
+    SDL_RaiseWindow(sdlApp->window);   // Puts focus
 
-    return status;
+    return sdlApp->curPage;;
 }
 
 static void init_av(configuration *configParams)
@@ -5841,7 +5904,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    while ((c = getopt (argc, argv, "cC:hlvginwVpPs:z:")) != -1)
+    while ((c = getopt (argc, argv, "cC:hlrv:ginwVpPs:z:")) != -1)
     {
         switch (c)
             {
@@ -5862,6 +5925,8 @@ int main(int argc, char *argv[])
                 break;
             case 'V':   configParams.runVnc = 1;    // Enable VNC server
                 break;
+            case 'v':   configParams.doFokusCheck = atoi(optarg);   // Run under VNC port #
+                break;
             case 'p':   configParams.runWrn = 1;    // Play warning sounds
                 break;
             case 'P':   configParams.cursor = 1;    // Show pointer cursor
@@ -5870,15 +5935,15 @@ int main(int argc, char *argv[])
                 break;
             case 'z':   configParams.scale = atof(optarg);    // Scale the screen
                 break;
-            case 'v':
+            case 'r':
                 fprintf(stderr, "revision: %s\n", SWREV);
                 exit(EXIT_SUCCESS);
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -w -z -s -v (version)\n", basename(argv[0]));
+                fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -v -w -z -s -r (revision)\n", basename(argv[0]));
                 fprintf(stderr, "       Where: -l use syslog : -c Create database only: -P show cursor : -g Disable GPS : -i Disable i2c : -p Play warnings\n");
-                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -C (port>1024) Remote config : -z Scale factor : -s Window size w/h\n");
+                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -v Run under VNC port : -C (port>1024) Remote config : -z Scale factor : -s Window size w/h\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -5929,7 +5994,11 @@ int main(int argc, char *argv[])
     sprintf(buf, "%d", configParams.window_h); SDL_setenv("WINDOW_W", buf, 0);
     sprintf(buf, "%d", configParams.window_w); SDL_setenv("WINDOW_H", buf, 0);
 
-    if (SDL_getenv("DISPLAY") != NULL) {
+    if (SDL_getenv("WAYLAND_DISPLAY") != NULL) {
+        SDL_setenv("SDL_VIDEODRIVER", "wayland", 0);
+        SDL_Log("Using Wayland Videodriver");
+        configParams.useWm = 0;
+    } else if (SDL_getenv("DISPLAY") != NULL) {
 
         SDL_setenv("SDL_VIDEODRIVER", "x11", 0);
         SDL_Log("Using X11/Xweston Videodriver");
@@ -6039,16 +6108,11 @@ int main(int argc, char *argv[])
             }
         }
 
-    } else { 
-        if (SDL_getenv("WAYLAND_DISPLAY") != NULL) {
-                SDL_setenv("SDL_VIDEODRIVER", "wayland", 0);
-                SDL_Log("Using Wayland Videodriver");
-                configParams.useWm = 0;
-            } else {
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Neither x11 or wayland are available as SDL_VIDEODRIVER");
-                exit(1);
-            }
+    } else {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Neither x11 or wayland are available as SDL_VIDEODRIVER");
+            exit(1);
     }
+
 
     if (configParams.runTyd > 1024) {
 

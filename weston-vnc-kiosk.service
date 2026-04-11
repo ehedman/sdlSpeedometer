@@ -1,0 +1,18 @@
+[Unit]
+Description=Weston VNC kiosk service
+After=systemd-user-sessions.service sdlSpeedometer.service weston-kiosk.service
+
+[Service]
+User=NOTYET
+PAMName=login
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=VNC_PORT=5905
+Environment=DISPLAY=:2
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/weston -B vnc-backend.so --port=${VNC_PORT} --vnc-tls-cert=/home/${USER}/certs/weston/tls.crt --vnc-tls-key=/home/${USER}/certs/weston/tls.key --socket=wayland-2
+ExecStartPost=/bin/bash -c "WAYLAND_DISPLAY=wayland-2 sleep 2; /usr/local/bin/sdlSpeedometer -l -i -g -p -v ${VNC_PORT} &"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

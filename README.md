@@ -62,6 +62,14 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 ### Note on Audio
 - This is a alsa level application for warning sounds, camera and hdmi audio interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
 
+### Notes on VNC
+- sdlSpeedometer has a built in VNC server if invoked with "-V" where default port is 5903. This legacy feature might going deprecated in favor of a weston VNC solution.
+Ideally a weston solution will use a shared pixelbuffer shared as hdmi&vnc as one service (configured as "weston -B drm-backend.so,vnc-backend.so") but that does not work as expected today. The output is distorted and the behavior is not the same on 64-bit system vs 32 bit systems.
+The advanage with a weston vnc solution is that a spawned subtaks (as opencpn) will appear in the VNC viewer as opposed to the legacy solution that will expose a Paus-screen on the VNC side whilest the subtask will be shown on the fysical screen only.
+- The interim solution is to have two separate services for this. These services are weston-kiosk.service  weston-vnc-kiosk.service.
+- For the VNC server certificate has to be generated (check the weston-vnc-kiosk.service file for compliance):
+- sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /home/your-login-name/certs/weston/tls.key -out /home/your-login-name/certs/weston/tls.crt -subj "/C=SE/ST=None/L=None/O=None/CN=raspberrypi"
+
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
 - sudo apt install devilspie2 xfwm4 xdotool
@@ -88,7 +96,7 @@ The SDL2 packages needed are:
 
 ### Build and install on a Pi
 - make install (build and install executables)
-- make install_system (build and start the system services)
+- make install_system (build and (re)start the system services)
 
 ### Rebuild and test new configuration
 - Executed from a ssh session from a host to the pi.
@@ -97,18 +105,19 @@ The SDL2 packages needed are:
 - DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston with xwayland service must be running.
 - make install
 - systemclt restart sdlSpeedometer.service (will be enabled at boot time) or make start
-- Make sure that the user name property is enabled in /etc/sudoers.d
+- Make sure that your user name property is enabled in /etc/sudoers.d
 
 ### Remote configuration
 - A running sdlSpeedometer keeps a web based configuration terminal if it is started with the -C <port> option.
 This option makes no sence unless sdlSpeedometer is running as a systemd service, so add this option to /etc/default/sdlSpeedometer.
 - Example: http://<rpi-ip>:7600 assuming the -C option is defined as <port> number 7600.
+- The remote configurator will restart the service locally if any changes was made. Again mke sure that your user name property is enabled in /etc/sudoers.d.
 
 ### Build and test on the host (Mint, Ubuntu, Debian)
 - make
 - ./sdlSpeedometer -c (create a default configuration and exit)
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
-- ./sdlSpeedometer -i -g -s 800x480
+- ./sdlSpeedometer -i -g
 
 ### Utility commands
 - make stop (stop the service)

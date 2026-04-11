@@ -63,7 +63,7 @@ ifeq ($(shell grep "define DIGIFLOW" sdlSpeedometer.h | cut -c2-7 | tr -d '\n'),
 endif
 
 install_system:
-	-sudo systemctl stop weston-kiosk.service sdlSpeedometer.service 
+	-sudo systemctl stop sdlSpeedometer.service weston-kiosk.service weston-vnc-kiosk.service
 	-sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
 	echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
 	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
@@ -71,9 +71,11 @@ install_system:
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.service -D /lib/systemd/system/
 	 sed s/NOTYET/$$LOGNAME/ weston-kiosk.service > /tmp/weston-kiosk.service
 	-sudo install -m 0644 -g root -o root /tmp/weston-kiosk.service -D /lib/systemd/system/
+	 sed s/NOTYET/$$LOGNAME/ weston-vnc-kiosk.service > /tmp/weston-vnc-kiosk.service
+	-sudo install -m 0644 -g root -o root /tmp/weston-vnc-kiosk.service -D /lib/systemd/system/
 	-sudo systemctl daemon-reload
-	-sudo systemctl enable weston-kiosk.service sdlSpeedometer.service
-	-sudo systemctl start weston-kiosk.service sdlSpeedometer.service
+	-sudo systemctl enable weston-kiosk.service  weston-vnc-kiosk.service sdlSpeedometer.service
+	-sudo systemctl restart weston-kiosk.service weston-vnc-kiosk.service sdlSpeedometer.service
 
 clean:
 	rm -f $(BIN) *~

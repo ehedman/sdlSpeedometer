@@ -81,6 +81,7 @@ typedef struct {
     int window_h;
     int vncClients;
     int vncPort;
+    int doFokusCheck;
     char tty[40];
     int baud;
     int i2cFile;

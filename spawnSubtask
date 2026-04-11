@@ -32,8 +32,10 @@ if [ "$(basename "${app}")" == "openvt" ]; then
     exit 0
 else
     if [ -n "${WAYLAND_DISPLAY}" ]; then
-        export DISPLAY=:0.0
-        unset WAYLAND_DISPLAY
+       if [ -z "${DISPLAY}" ]; then
+            export DISPLAY=:0.0
+            unset WAYLAND_DISPLAY
+       fi
     fi
 fi
 
