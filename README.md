@@ -64,11 +64,13 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### Notes on VNC
 - sdlSpeedometer has a built in VNC server if invoked with "-V" where default port is 5903. This legacy feature might going deprecated in favor of a weston VNC solution.
-Ideally a weston solution will use a shared pixelbuffer shared as hdmi&vnc as one service (configured as "weston -B drm-backend.so,vnc-backend.so") but that does not work as expected today. The output is distorted and the behavior is not the same on 64-bit system vs 32 bit systems.
+Ideally a weston solution will use a shared pixelbuffer shared as hdmi&vnc as one service (configured as "weston -B drm-backend.so,vnc-backend.so") but that does not work as expected today on 64-bit Trixie. The VNC connection does not work at all. On 32-bit Trixie it works perfectly.
 The advanage with a weston vnc solution is that a spawned subtaks (as opencpn) will appear in the VNC viewer as opposed to the legacy solution that will expose a Paus-screen on the VNC side whilest the subtask will be shown on the fysical screen only.
-- The interim solution is to have two separate services for this. These services are weston-kiosk.service  weston-vnc-kiosk.service.
+- The interim solution for 64-bit is to have two separate services for this. These services are weston-kiosk.service  weston-vnc-kiosk.service.
 - For the VNC server certificate has to be generated (check the weston-vnc-kiosk.service file for compliance):
 - sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /home/your-login-name/certs/weston/tls.key -out /home/your-login-name/certs/weston/tls.crt -subj "/C=SE/ST=None/L=None/O=None/CN=raspberrypi"
+- For 32-bit trixie this option has to be added to weston.ini:
+    [output] name=vnc mirror-of=HDMI-A-1
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
