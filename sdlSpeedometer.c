@@ -1793,10 +1793,6 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
- cnmea.rsa_ts = cnmea.vwr_ts;
- cnmea.rsa = cnmea.vwrs;
- sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
-
         angle = rotate(roundf(cnmea.hdm), res); res=0;
 
         // Run needle and roll with smooth acceleration
