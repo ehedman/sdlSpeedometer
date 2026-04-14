@@ -63,7 +63,7 @@ typedef struct {
 } calibration;
 
 typedef struct {
-    volatile int runGps;
+    volatile int runSer;
     volatile int runi2c;
     volatile int runNet;
     volatile int runVnc;
@@ -171,7 +171,7 @@ typedef struct {
     char    date[20];   // Date
     int     rmc_tm_set; // time isset ?
     time_t  rmc_ts;     // RMC Timestamp
-    time_t  rmc_gps_ts; // Got RMC from GPS
+    time_t  rmc_nme_ts; // Got RMC
     float   roll;       // Vessel roll (non NMEA)
     time_t  roll_i2cts; // Roll timestamp
     float   stw;        // Speed of vessel relative to the water (Knots)

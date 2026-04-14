@@ -66,7 +66,7 @@
 
 #define DEFAULT_FONT        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
 
-#define TTY_GPS             "/dev/ttyAMA0"    // RPI 4/5
+#define TTY_SERIAL          "/dev/ttyAMA0"    // RPI 4/5
 
 #ifdef REV
 #define SWREV REV
@@ -161,7 +161,7 @@ static int configureDb(configuration *configParams)
                         rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, audiodev TEXT, camurl TEXT)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,'%s','%s')", SWREV,TTY_GPS, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,'%s','%s')", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -296,7 +296,7 @@ static char *getf(int pos, const char *str)
     return (out);
 }
 
-// Configure the BerryGPS-IMUv2 GPS Serial port
+// Configure the Serial port
 static int portConfigure(int fd, configuration *configParams)
 {
 
@@ -476,7 +476,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // RMC - Recommended minimum specific GPS/Transit data
     if (NMPARSE(nmeastr_p1, "RMC")) {
-        cnmea.rmc_gps_ts = ts;
+        cnmea.rmc_nme_ts = ts;
         if ((cnmea.rmc=atof(getf(7, nmeastr_p1))) >= TRGPS) {   // SOG
             cnmea.rmc_ts = ts;
             if ((hdm=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
@@ -727,7 +727,7 @@ static int threadSerial(void *conf)
 
     configParams->numThreads++;
 
-    while(configParams->runGps)
+    while(configParams->runSer)
     {
         int cnt;
   
@@ -740,7 +740,7 @@ static int threadSerial(void *conf)
         memset(buffer, 0, sizeof(buffer));
 
         if ((cnt=read(fd, buffer, sizeof(buffer))) <0) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not read GPS device %s %s %d", configParams->tty, strerror(errno), errno);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not read serial device %s %s %d", configParams->tty, strerror(errno), errno);
             SDL_Delay(40);
             continue;
         }
@@ -1737,7 +1737,7 @@ static int doCompass(sdl2_app *sdlApp)
         SDL_LockMutex(sdlApp->conf->nm_mutex);
         ct = time(NULL);    // Get a timestamp for this turn 
 
-        if (!(ct - cnmea.rmc_gps_ts > S_TIMEOUT)) {
+        if (!(ct - cnmea.rmc_nme_ts > S_TIMEOUT)) {
             // Set system UTC time
             if (cnmea.rmc_tm_set == 1)
                 setUTCtime();
@@ -1754,7 +1754,7 @@ static int doCompass(sdl2_app *sdlApp)
             if (!( ct - cnmea.net_ts > S_TIMEOUT))
                 sprintf(msg_src, "net");
             else
-                sprintf(msg_src, "gps");
+                sprintf(msg_src, "ser");
         }
 
         // VHW - Water speed
@@ -2292,7 +2292,7 @@ static int doGps(sdl2_app *sdlApp)
             } else if (!( ct - cnmea.net_ts > S_TIMEOUT))
                 sprintf(msg_src, "net");
             else
-                sprintf(msg_src, "gps");
+                sprintf(msg_src, "ser");
          }
 
         // RMC - Recommended minimum specific GPS/Transit data
@@ -5470,7 +5470,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     SDL_Surface* Loading_Surf;
     SDL_Thread *threadNmea = NULL;
     SDL_Thread *threadI2C = NULL;
-    SDL_Thread *threadGPS = NULL;
+    SDL_Thread *threadSER = NULL;
     SDL_Thread *threadVNC = NULL;
     SDL_Thread *threadWrn = NULL;
     configParams->conn = NULL; 
@@ -5516,15 +5516,15 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         } else SDL_DetachThread(threadI2C);
     }
 
-    if (configParams->runGps) {
+    if (configParams->runSer) {
         if (strncmp(configParams->tty, "none", 4)) {
-            threadGPS = SDL_CreateThread(threadSerial, "threadGPS", configParams);
+            threadSER = SDL_CreateThread(threadSerial, "threadSER", configParams);
 
-            if (NULL == threadGPS) {
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadGPS failed: %s", SDL_GetError());
-            } else SDL_DetachThread(threadGPS);
+            if (NULL == threadSER) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadSER failed: %s", SDL_GetError());
+            } else SDL_DetachThread(threadSER);
         } else
-         configParams->runGps = 0;   
+         configParams->runSer = 0;
     }
 
     if (configParams->runWrn) {
@@ -5557,7 +5557,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
                 configParams->window_w, configParams->window_h,
                 flags)) == NULL) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateWindow failed: %s", SDL_GetError());
-                configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
+                configParams->runSer = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
                 return SDL_QUIT;
         }
 
@@ -5687,11 +5687,11 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         args[++i] = strtok(NULL, " ");
 
     // Take down threads and all of SDL2
-    runners[0] = configParams->runGps;
+    runners[0] = configParams->runSer;
     runners[1] = configParams->runi2c;
     runners[2] = configParams->runNet;
     runners[3] = configParams->runWrn;
-    configParams->runGps = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
+    configParams->runSer = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
 
     while(configParams->numThreads && t_wmax--) {
         SDL_Delay(350*configParams->numThreads);
@@ -5723,7 +5723,7 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     configParams->subTaskPID = 0;
 
     // Restore runner's original run status
-    configParams->runGps = runners[0];
+    configParams->runSer = runners[0];
     configParams->runi2c = runners[1];
     configParams->runNet = runners[2];
     configParams->runWrn = runners[3];
@@ -5892,7 +5892,7 @@ int main(int argc, char *argv[])
     strcpy(configParams.ssize, DEFAULT_SCREEN_SIZE);
     configParams.scale = DEFAULT_SCREEN_SCALE;
 
-    configParams.runGps = configParams.runi2c = configParams.runNet = 1;
+    configParams.runSer = configParams.runi2c = configParams.runNet = 1;
         
     sdlApp.nextPage = COGPAGE; // Start-page
 
@@ -5911,7 +5911,7 @@ int main(int argc, char *argv[])
                 break;
             case 'C':   configParams.runTyd = atoi(optarg);    // Remote configuration shell
                 break;
-            case 'g':   configParams.runGps = 0;    // Diable GPS data collection
+            case 'g':   configParams.runSer = 0;    // Diable Serial data collection
                 break;
             case 'i':   configParams.runi2c = 0;    // Disable i2c data collection
                 break;
@@ -5938,7 +5938,7 @@ int main(int argc, char *argv[])
             case 'h':
             default:
                 fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -v -w -z -s -r (revision)\n", basename(argv[0]));
-                fprintf(stderr, "       Where: -l use syslog : -c Create database only: -P show cursor : -g Disable GPS : -i Disable i2c : -p Play warnings\n");
+                fprintf(stderr, "       Where: -l use syslog : -c Create database only: -P show cursor : -g Disable Serial : -i Disable i2c : -p Play warnings\n");
                 fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -v Run under VNC port : -C (port>1024) Remote config : -z Scale factor : -s Window size w/h\n");
                 exit(EXIT_FAILURE);
                 break;
@@ -6193,7 +6193,7 @@ int main(int argc, char *argv[])
             SDL_FreeSurface(configParams.vncPixelBuffer);
     }
 
-    configParams.runGps = configParams.runi2c = configParams.runNet = configParams.runWrn = 0;
+    configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = 0;
 
     // .. and let them close cleanly
     while(configParams.numThreads && t_wmax--) {
