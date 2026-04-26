@@ -42,9 +42,9 @@ Kodi can be added as an external application to be used as a Jukebox style playe
 sdlSpeedometer has also a built-in RFB (VNC) server function so that an external VNC client can connect as a slave instrument on a computer and/or a tablet with a VNC client.
 
 ### Tested runtime environment
-- Note this this is mainly an EMBEDDED Kiosk solution based on the Lite versions of the Pi OS and is not suitable for installation in a desktop environment but running the stand alone binary for testing purposes is doable.
+- Note this this is mainly an EMBEDDED Kiosk solution based on the Lite versions of the Pi OS and is less suitable for installation in a desktop environment but running the stand alone binary for testing/review purposes is doable.
 - Raspberry Pi 4B/5 and a 8 inch touch display.
-- NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
+- Optionaly a NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 - Optionaly a NMEA2K (Raymarine seatalk ng) USB to NMEA-0183 converter can be added.
 - This application will also work flawlessly under Windows WSL (Windows Subsystem for Linux).
 
@@ -64,13 +64,10 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### Notes on VNC
 - sdlSpeedometer has a built in VNC server if invoked with "-V" where default port is 5903. This legacy feature might going deprecated in favor of a weston VNC solution.
-Ideally a weston solution will use a shared pixelbuffer shared as hdmi&vnc as one service (configured as "weston -B drm-backend.so,vnc-backend.so") but that does not work as expected today on 64-bit Trixie. The VNC connection does not work at all. On 32-bit Trixie it works perfectly.
+Ideally a weston solution will use a shared pixelbuffer shared as hdmi&vnc as one service (configured as "weston -B drm-backend.so,vnc-backend.so") but that does not work as expected today on 64-bit Trixie. The VNC connection does not work at all or will end in a weston SIGABRT. This bug is reported. On 32-bit Trixie it works perfectly.
 The advanage with a weston vnc solution is that a spawned subtaks (as opencpn) will appear in the VNC viewer as opposed to the legacy solution that will expose a Paus-screen on the VNC side whilest the subtask will be shown on the fysical screen only.
-- The interim solution for 64-bit is to have two separate services for this. These services are weston-kiosk.service  weston-vnc-kiosk.service.
-- For the VNC server certificate has to be generated (check the weston-vnc-kiosk.service file for compliance):
+- For the weston VNC server, certificates has to be generated (check the weston-kiosk.service file for compliance):
 - sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /home/your-login-name/certs/weston/tls.key -out /home/your-login-name/certs/weston/tls.crt -subj "/C=SE/ST=None/L=None/O=None/CN=raspberrypi"
-- For 32-bit trixie this option has to be added to weston.ini:
-    [output] name=vnc mirror-of=HDMI-A-1
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
@@ -98,7 +95,7 @@ The SDL2 packages needed are:
 
 ### Build and install on a Pi
 - make install (build and install executables)
-- make install_system (build and (re)start the system services)
+- make install_system (build and (re)start the system services) NOTE: Don't do this on a desktop system.
 
 ### Rebuild and test new configuration
 - Executed from a ssh session from a host to the pi.
@@ -121,7 +118,7 @@ This option makes no sence unless sdlSpeedometer is running as a systemd service
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
 - ./sdlSpeedometer -i -g
 
-### Utility commands
+### Utility commands for embedded solutions
 - make stop (stop the service)
 - make status (check the service)
 - make start ((re)start a new session)

@@ -365,7 +365,7 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 {
     uint8_t checksum;
     int i, cs;
-    int debug = 0;
+    int debug = 1;
 
     cs = checksum = 0;
 
@@ -737,9 +737,9 @@ static int threadSerial(void *conf)
             continue;
         }            
 
-        memset(buffer, 0, sizeof(buffer));
+        memset(buffer, 0, NMBUFF);
 
-        if ((cnt=read(fd, buffer, sizeof(buffer))) <0) {
+        if ((cnt=read(fd, buffer, NMBUFF-1)) <0) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not read serial device %s %s %d", configParams->tty, strerror(errno), errno);
             SDL_Delay(40);
             continue;
@@ -1001,11 +1001,11 @@ static int nmeaNetCollector(void* conf)
             {
                 memset(nmeastr_p1, 0, sizeof(nmeastr_p1));
 
-                if ((cnt=strnlen(nmeastr_p2, sizeof(nmeastr_p2)))) { // There is p2 sentence(s) to take care of.
-                    memcpy(nmeastr_p1, nmeastr_p2, sizeof(nmeastr_p1));
+                if ((cnt=strnlen(nmeastr_p2, NMBUFF))) { // There is p2 sentence(s) to take care of.
+                    memcpy(nmeastr_p1, nmeastr_p2, NMBUFF);
                     memset(nmeastr_p2, 0, sizeof(nmeastr_p2));
                 } else {
-                    if ((cnt = SDLNet_TCP_Recv(clientSocket, nmeastr_p1, sizeof(nmeastr_p1))) <= 0) {
+                    if ((cnt = SDLNet_TCP_Recv(clientSocket, nmeastr_p1, NMBUFF-1)) <= 0) {
                         SDL_Delay(30);
                         continue;
                     }
@@ -1132,7 +1132,7 @@ static int threadVnc(void *conf)
         SDL_Delay(1);
     }
 
-    SDL_Log("RFB serivice stopped");
+    SDL_Log("RFB service stopped");
 
     return 0;
 }
@@ -1630,6 +1630,29 @@ inline static void doVnc(sdl2_app *sdlApp)
     }
 }
 
+/*
+ * Check re-emerging power on console event
+ */
+static int checkConsole(SDL_Event e, sdl2_app *sdlApp)
+{
+    if (e.type == SDL_WINDOWEVENT) {
+        if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
+            Uint32 current_time = SDL_GetTicks();
+            // Only reset if more than 1000 ms have passed since the last time
+            if (current_time - sdlApp->last_reset_time > 1000) {
+                SDL_HideWindow(sdlApp->window);
+                SDL_ShowWindow(sdlApp->window);
+                sdlApp->last_reset_time = current_time;
+                SDL_PumpEvents();
+                SDL_FlushEvent(SDL_WINDOWEVENT);
+                SDL_Log("SDL_WINDOWEVENT_EXPOSED handled");
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 // Present the compass with heading ant roll
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -1719,6 +1742,9 @@ static int doCompass(sdl2_app *sdlApp)
                 break;
             }
 
+            if (checkConsole(e, sdlApp))
+                break;
+
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
@@ -1732,6 +1758,7 @@ static int doCompass(sdl2_app *sdlApp)
                 }
             }
         }
+
         if (doBreak == 1) break;
 
         SDL_LockMutex(sdlApp->conf->nm_mutex);
@@ -2028,6 +2055,9 @@ static int doSumlog(sdl2_app *sdlApp)
                 break;
             }
 
+            if (checkConsole(e, sdlApp))
+                break;
+
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
@@ -2253,6 +2283,9 @@ static int doGps(sdl2_app *sdlApp)
                 doBreak = 1;
                 break;
             }
+
+            if (checkConsole(e, sdlApp))
+                break;
 
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
@@ -2489,6 +2522,9 @@ static int doDepth(sdl2_app *sdlApp)
                 doBreak = 1;
                 break;
             }
+
+            if (checkConsole(e, sdlApp))
+                break;
 
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
@@ -2954,6 +2990,9 @@ static int doWind(sdl2_app *sdlApp)
                 break;
             }
 
+            if (checkConsole(e, sdlApp))
+                break;
+
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
@@ -3268,6 +3307,9 @@ static int doEnvironment(sdl2_app *sdlApp)
                 doBreak = 1;
                 break;
             }
+
+            if (checkConsole(e, sdlApp))
+                break;
 
             if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN) {
                     float px = e.tfinger.x* w;
@@ -3982,6 +4024,9 @@ static int doCamera(sdl2_app *sdlApp)
                     break;
                 }
 
+                if (checkConsole(e, sdlApp))
+                    break;
+
                 if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN && dragging) {
                         float px = e.tfinger.x* win_w;
                         float py = e.tfinger.y* win_h;
@@ -4160,7 +4205,7 @@ static int doCamera(sdl2_app *sdlApp)
                     }
 
                     if ( hideQuit <= 0 && showNavbox) {
-                        int y = 0;
+                        int y = 40;
                         SDL_Color c = {100,255,100,255};
                         if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
                             draw_textc(sdlApp->renderer,fontCog,msg_hdm,win_w-120, (y+=20), c);
@@ -4600,6 +4645,9 @@ static int doVideoCapture(sdl2_app *sdlApp)
                 break;
             }
 
+            if (checkConsole(e, sdlApp))
+                break;
+
             if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN && dragging) {
                     float px = e.tfinger.x* w;
                     float py = e.tfinger.y* h;
@@ -4762,7 +4810,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
         if ( hideQuit <= 0 && showNavbox) {
             SDL_Color c = {100,255,100,255};
-            int y = 0;
+            int y = 40;
             if (!(ct - cnmea.hdm_ts > S_TIMEOUT)) {
                 draw_textc(sdlApp->renderer,fontCog,msg_hdm,w-120, (y+=20), c);
             }
@@ -4909,6 +4957,9 @@ static int doVideo(sdl2_app *sdlApp)
                 running = 0;
                 break;
             }
+
+            if (checkConsole(e, sdlApp))
+                break;
 
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
@@ -5073,6 +5124,9 @@ static int doWater(sdl2_app *sdlApp)
                 doBreak = 1;
                 break;
             }
+
+            if (checkConsole(e, sdlApp))
+                break;
 
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
@@ -5352,6 +5406,9 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
                 break;
             }
 
+            if (checkConsole(e, sdlApp))
+                break;
+
             if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
@@ -5508,7 +5565,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             configParams->runNet = 0;
     }
 
-    if (configParams->runi2c) {
+    if (configParams->runi2c && doInit) {
         threadI2C = SDL_CreateThread(i2cCollector, "i2cCollector", configParams);
 
         if (0 == threadI2C) {
@@ -5523,8 +5580,10 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             if (NULL == threadSER) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadSER failed: %s", SDL_GetError());
             } else SDL_DetachThread(threadSER);
-        } else
-         configParams->runSer = 0;
+        } else {
+            configParams->runSer = 0;
+            SDL_Log("Serial device \"none\" ignored (See -g option)");
+        }
     }
 
     if (configParams->runWrn) {
@@ -5668,8 +5727,8 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
 // Give up all resources in favor of a subtask execution.
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
-    int runners[4];
-    int t_wmax = 4;
+    int runners[3];
+    int t_wmax = 3;
     int status, i=0;
     char *args[20];
     char cmd[1024];
@@ -5686,22 +5745,21 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     while(args[i] != NULL)
         args[++i] = strtok(NULL, " ");
 
-    // Take down threads and all of SDL2
+    // Take down threads
     runners[0] = configParams->runSer;
-    runners[1] = configParams->runi2c;
-    runners[2] = configParams->runNet;
-    runners[3] = configParams->runWrn;
-    configParams->runSer = configParams->runi2c = configParams->runNet = configParams->runWrn = 0;
+    runners[1] = configParams->runNet;
+    runners[2] = configParams->runWrn;
+    configParams->runSer = configParams->runNet = configParams->runWrn = 0;
 
     while(configParams->numThreads && t_wmax--) {
         SDL_Delay(350*configParams->numThreads);
-        if (configParams->numThreads) {
-            SDL_Log("Taking down threads #%d remains", configParams->numThreads);
+        if ((configParams->numThreads - configParams->runi2c) !=0) {
+            SDL_Log("Taking down threads #%d remains", configParams->numThreads - configParams->runi2c);
         }
     }
 
-    if (configParams->numThreads) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d remains.", configParams->numThreads);
+    if (configParams->numThreads - configParams->runi2c) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d linger.", configParams->numThreads - configParams->runi2c);
     }
 
     SDL_HideWindow(sdlApp->window);
@@ -5724,9 +5782,8 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
     // Restore runner's original run status
     configParams->runSer = runners[0];
-    configParams->runi2c = runners[1];
-    configParams->runNet = runners[2];
-    configParams->runWrn = runners[3];
+    configParams->runNet = runners[1];
+    configParams->runWrn = runners[2];
 
     status = openSDL2(configParams, sdlApp, 0);
 
@@ -6197,14 +6254,14 @@ int main(int argc, char *argv[])
 
     // .. and let them close cleanly
     while(configParams.numThreads && t_wmax--) {
-        SDL_Delay(1000);
+        SDL_Delay(1200);
         if (configParams.numThreads) {
-            SDL_Log("Taking down threads #%d remains", configParams.numThreads);
+            SDL_Log("Taking down threads #%d linger", configParams.numThreads);
         }
     }
 
     if (configParams.numThreads) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d remains.", configParams.numThreads);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d linger.", configParams.numThreads);
     }
     
     closeSDL2(&sdlApp);

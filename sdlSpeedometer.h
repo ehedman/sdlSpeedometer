@@ -8,7 +8,7 @@
 #endif
 #include <alsa/asoundlib.h>
 
-//Dendent on project  https://github.com/ehedman/flowSensor
+// Dendent on project  https://github.com/ehedman/flowSensor
 //#define DIGIFLOW
 
 
@@ -130,6 +130,7 @@ typedef struct {
     char *rfbPauseBuffer;
     SDL_mutex* vnc_mutex;
     int textFieldArrIndx;
+    Uint32 last_reset_time;
     configuration *conf;
 } sdl2_app;
 

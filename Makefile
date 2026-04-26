@@ -46,13 +46,6 @@ install:
 	sudo mkdir -p $(DEST)/share/sounds
 	sudo install -m 0644 -g root -o root ./sounds/* -D $(DEST)/share/sounds
 
-	@if [ -e $(HOME)/.config/weston.ini ]; then \
-		/usr/bin/echo -e "$(RED)$(HOME)/.config/weston.ini exists, not overwriting$(RESET)"; \
-	else \
-		install -m 0644 -g $(GRP) -o $$LOGNAME weston.ini -D $(HOME)/.config; \
-		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/weston.ini installed successfully$(RESET)"; \
-	fi
-
 ifeq ($(shell test -e $(SMDB) && echo -n yes),yes)
 	sudo mkdir -p $(DEST)/etc/speedometer
 	sudo chown $$LOGNAME:$(GRP) $(DEST)/etc/speedometer
@@ -63,7 +56,7 @@ ifeq ($(shell grep "define DIGIFLOW" sdlSpeedometer.h | cut -c2-7 | tr -d '\n'),
 endif
 
 install_system:
-	-sudo systemctl stop sdlSpeedometer.service weston-kiosk.service weston-vnc-kiosk.service
+	-sudo systemctl stop sdlSpeedometer.service weston-kiosk.service
 	-sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
 	echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
 	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
@@ -71,11 +64,17 @@ install_system:
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.service -D /lib/systemd/system/
 	 sed s/NOTYET/$$LOGNAME/ weston-kiosk.service > /tmp/weston-kiosk.service
 	-sudo install -m 0644 -g root -o root /tmp/weston-kiosk.service -D /lib/systemd/system/
-	 sed s/NOTYET/$$LOGNAME/ weston-vnc-kiosk.service > /tmp/weston-vnc-kiosk.service
-	-sudo install -m 0644 -g root -o root /tmp/weston-vnc-kiosk.service -D /lib/systemd/system/
 	-sudo systemctl daemon-reload
-	-sudo systemctl enable weston-kiosk.service  weston-vnc-kiosk.service sdlSpeedometer.service
-	-sudo systemctl restart weston-kiosk.service weston-vnc-kiosk.service sdlSpeedometer.service
+
+	@if [ -e $(HOME)/.config/weston.ini ]; then \
+		/usr/bin/echo -e "$(RED)$(HOME)/.config/weston.ini exists, not overwriting$(RESET)"; \
+	else \
+		install -m 0644 -g $(GRP) -o $$LOGNAME weston.ini -D $(HOME)/.config; \
+		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/weston.ini installed successfully$(RESET)"; \
+	fi
+
+	-sudo systemctl enable weston-kiosk.service  sdlSpeedometer.service
+	-sudo systemctl restart weston-kiosk.service sdlSpeedometer.service
 
 clean:
 	rm -f $(BIN) *~
