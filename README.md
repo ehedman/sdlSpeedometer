@@ -53,6 +53,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - sudo apt install whiptail ttyd seatd yad gcc git make
 - sudo apt install weston xwayland
 - sudo apt install x11-utils (some tools also needed for weston/xwayland)
+- sudo apt install pulseaudio-utils (we need /usr/bin/pactl only, not the service)
 
 ### Note on ttyd
 - As in March 2026 the package ttyd is missing for the 64-bit trixie. You can get it from here instead.

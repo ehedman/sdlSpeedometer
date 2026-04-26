@@ -73,6 +73,8 @@ install_system:
 		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/weston.ini installed successfully$(RESET)"; \
 	fi
 
+	-systemctl --user mask pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket wireplumber.service
+	-systemctl --user stop pipewire.service pipewire-pulse.service wireplumber.service
 	-sudo systemctl enable weston-kiosk.service  sdlSpeedometer.service
 	-sudo systemctl restart weston-kiosk.service sdlSpeedometer.service
 
