@@ -1,0 +1,4 @@
+#!/bin/bash
+# Define screen resolution
+wlr-randr --output HDMI-A-1 --mode 800x480
+

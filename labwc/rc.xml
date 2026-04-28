@@ -1,0 +1,28 @@
+<labwc_config>
+	<idleAction>none</idleAction>
+	<windowRules>
+		<windowRule identifier="*" title="*">
+			<action name="Maximize" />
+			<windowRule identifier="sdlSpeedometer" serverDecoration="no" skipTaskbar="yes" /></windowRule>
+		<windowRule identifier="sdlSpeedometer">
+			<action name="Maximize" />
+			<action name="Focus" />
+			<action name="Raise" />
+			<layer name="top" />
+		</windowRule>
+	</windowRules>
+	<focus>
+		<followMouse>no</followMouse>
+		<focusNew>yes</focusNew>
+		<focusLastOnClose>yes</focusLastOnClose>
+	</focus>
+	<outputs>
+		<output name="HDMI-A-1" mode="800x480" />
+	</outputs>
+	<mouse>
+		<context name="Root">
+			<mousebind button="Left" action="None" />
+			<mousebind button="Right" action="None" />
+		</context>
+	</mouse>
+</labwc_config>

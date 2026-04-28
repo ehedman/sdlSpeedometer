@@ -1,0 +1,7 @@
+enable_auth=false
+username=NOTYET
+password=notYet
+
+#enable_auth=true
+#certificate_file=/home/you/certs/labwc/tls.crt
+#private_key_file=/home/you/certs/labwc/tls.key

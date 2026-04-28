@@ -1,0 +1,14 @@
+[Unit]
+Description=Labwc kiosk service
+After=systemd-user-sessions.service network-online.target
+
+[Service]
+User=NOTYET
+PAMName=login
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=/usr/bin/labwc
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
