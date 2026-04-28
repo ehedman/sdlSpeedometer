@@ -8,7 +8,7 @@ This application is based on the Rasperry Pi and the [Simple DirectMedia Layer -
 
 Used systems re Raspberry Pi 4B/5 with OS bookworm/trixie.
 
-As of February 2026 the Xorg environment is deprecated in favor of a weston kiosk environment i.e. a wayland solution with xwayland=true.
+As of February 2026 the Xorg environment is deprecated in favor of a labwc kiosk environment i.e. a wayland solution with xwayland=true.
 
 The instruments can be accessed one-by-one by a mouse click or directly from the touch screen menu.
 
@@ -51,8 +51,8 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite 32 or 64 bit to start with
 - sudo apt install whiptail ttyd seatd yad gcc git make
-- sudo apt install weston xwayland
-- sudo apt install x11-utils (some tools also needed for weston/xwayland)
+- sudo apt install wlr-randr wayvnc labwc xwayland libinput-tools wayland-utils
+- sudo apt install x11-utils (some tools also needed for labwc/xwayland)
 - sudo apt install pulseaudio-utils (we need /usr/bin/pactl only, not the service)
 
 ### Note on ttyd
@@ -64,11 +64,9 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - This is a alsa level application for warning sounds, camera and hdmi audio interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
 
 ### Notes on VNC
-- sdlSpeedometer has a built in VNC server if invoked with "-V" where default port is 5903. This legacy feature might going deprecated in favor of a weston VNC solution.
-Ideally a weston solution will use a shared pixelbuffer shared as hdmi&vnc as one service (configured as "weston -B drm-backend.so,vnc-backend.so") but that does not work as expected today on 64-bit Trixie. The VNC connection does not work at all or will end in a weston SIGABRT. This bug is reported. On 32-bit Trixie it works perfectly.
-The advanage with a weston vnc solution is that a spawned subtaks (as opencpn) will appear in the VNC viewer as opposed to the legacy solution that will expose a Paus-screen on the VNC side whilest the subtask will be shown on the fysical screen only.
-- For the weston VNC server, certificates has to be generated (check the weston-kiosk.service file for compliance):
-- openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /home/$USER/certs/weston/tls.key -out /home/$USER/certs/weston/tls.crt -subj "/C=SE/ST=None/L=None/O=None/CN=raspberrypi"
+- sdlSpeedometer will enable the wayvnc VNC server if invoked with "-V" where default port is 5903 and no password.
+- For the wayvnc VNC server, certificates can optionally be generated (check the wayvnc file ~/.config/wayvnc/config for compliance):
+- openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /home/$USER/certs/labwc/tls.key -out /home/$USER/certs/labwc/tls.crt -subj "/C=SE/ST=None/L=None/O=None/CN=raspberrypi"
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
@@ -102,7 +100,7 @@ The SDL2 packages needed are:
 - Executed from a ssh session from a host to the pi.
 - sudo systemctl stop sdlSpeedometer.service
 - ./sdlSPeedometer-config (Check the configuration - default values ​​should do)
-- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). Weston with xwayland service must be running.
+- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). labwc with xwayland service must be running.
 - make install
 - systemclt restart sdlSpeedometer.service (will be enabled at boot time) or make start
 - Make sure that your user name property is enabled in /etc/sudoers.d

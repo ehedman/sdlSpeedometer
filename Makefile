@@ -56,27 +56,34 @@ ifeq ($(shell grep "define DIGIFLOW" sdlSpeedometer.h | cut -c2-7 | tr -d '\n'),
 endif
 
 install_system:
-	-sudo systemctl stop sdlSpeedometer.service weston-kiosk.service
+	-sudo systemctl stop sdlSpeedometer.service labwc-kiosk.service
 	-sudo install -m 0644 -g root -o root sdlSpeedometer.env -D /etc/default/sdlSpeedometer
 	echo "d	/run/user/$$(id -u)	0700	$$(id -un)	$$(id -gn)	-	- " > /tmp/headless.conf
 	-sudo install -m 0644 -g root -o root /tmp/headless.conf -D /etc/tmpfiles.d/headless.conf
 	 sed s/NOTYET/$$LOGNAME/ sdlSpeedometer.service > /tmp/sdlSpeedometer.service
 	-sudo install -m 0644 -g root -o root /tmp/sdlSpeedometer.service -D /lib/systemd/system/
-	 sed s/NOTYET/$$LOGNAME/ weston-kiosk.service > /tmp/weston-kiosk.service
-	-sudo install -m 0644 -g root -o root /tmp/weston-kiosk.service -D /lib/systemd/system/
+	 sed s/NOTYET/$$LOGNAME/ labwc-kiosk.service > /tmp/labwc-kiosk.service
+	-sudo install -m 0644 -g root -o root /tmp/labwc-kiosk.service -D /lib/systemd/system/
 	-sudo systemctl daemon-reload
 
-	@if [ -e $(HOME)/.config/weston.ini ]; then \
-		/usr/bin/echo -e "$(RED)$(HOME)/.config/weston.ini exists, not overwriting$(RESET)"; \
+	@if [ -e $(HOME)/.config/labwc/rc.xml ]; then \
+		/usr/bin/echo -e "$(RED)$(HOME)/.config/labwc/rc.xml exists, not overwriting$(RESET)"; \
 	else \
-		install -m 0644 -g $(GRP) -o $$LOGNAME weston.ini -D $(HOME)/.config; \
-		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/weston.ini installed successfully$(RESET)"; \
+		install -m 0644 -g $(GRP) -o $$LOGNAME labwc/rc.xml -D $(HOME)/.config/labwc/rc.xml; \
+		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/labwc/rc.xml installed successfully$(RESET)"; \
+		install -m 0644 -g $(GRP) -o $$LOGNAME labwc/autostart -D $(HOME)/.config/labwc/autostart; \
+		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/labwc/autostart installed successfully$(RESET)"; \
+		install -m 0644 -g $(GRP) -o $$LOGNAME labwc/environment -D $(HOME)/.config/labwc/environment; \
+		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/labwc/environment installed successfully$(RESET)"; \
+		sed s/NOTYET/$$LOGNAME/ labwc/config > /tmp/config.tmp; \
+		install -m 0644 -g $(GRP) -o $$LOGNAME /tmp/config.tmp -D $(HOME)/.config/wayvnc/config; \
+		/usr/bin/echo -e "$(GREEN)$(HOME)/.config/wayvnc/config installed successfully$(RESET)"; \
 	fi
 
 	-systemctl --user mask pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket wireplumber.service
 	-systemctl --user stop pipewire.service pipewire-pulse.service wireplumber.service
-	-sudo systemctl enable weston-kiosk.service  sdlSpeedometer.service
-	-sudo systemctl restart weston-kiosk.service sdlSpeedometer.service
+	-sudo systemctl enable labwc-kiosk.service  sdlSpeedometer.service
+	-sudo systemctl restart labwc-kiosk.service sdlSpeedometer.service
 
 clean:
 	rm -f $(BIN) *~

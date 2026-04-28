@@ -1050,93 +1050,6 @@ static int nmeaNetCollector(void* conf)
     return 0;
 }
 
-
-// RFB Null log
-static void nullLog(void) {}
-
-// RFB Touch events
-static void vncClientTouch(int buttonMask, int x, int y, rfbClientPtr cl)
-{
-    SDL_Event touchEvent;
-    sdl2_app *sdlApp = cl->screen->screenData;
-
-    if (buttonMask & 1) {
-
-        if (sdlApp->conf->subTaskPID != 0) {
-            /* If a subtask is running, the VNC client screen will
-             * appear frozen or exposing the VNC pause screen,.
-             * Most likely the user will tap the screen, 
-             * so let's kill the process group to re-activate SDL mode.
-             */
-            kill(-(sdlApp->conf->subTaskPID), SIGTERM);
-            return;
-        }
-
-        touchEvent.type = SDL_FINGERDOWN;
-        touchEvent.tfinger.x = (float)x/(float)sdlApp->conf->window_w;
-        touchEvent.tfinger.y = (float)y/(float)sdlApp->conf->window_h;
-        touchEvent.tfinger.dx = 0;
-        touchEvent.tfinger.dy = 0;
-        touchEvent.tfinger.pressure = 1;
-        touchEvent.tfinger.timestamp = time(NULL);
-        touchEvent.tfinger.touchId = 0;
-        touchEvent.tfinger.fingerId = 6;
-        touchEvent.user.code = RFB_TOUCH;
-
-        SDL_PushEvent(&touchEvent); // Add this event to the event queue. 
-    }    
-}
-
-// RFB client gone
-static void vncClientGone(rfbClientPtr cl)
-{
-    sdl2_app *sdlApp = cl->screen->screenData;
-    SDL_Log("rfbProcessClient: disconnect: Client #%d", sdlApp->conf->vncClients);
-    sdlApp->conf->vncClients--; 
-}
-
-// New RFB Client
-static enum rfbNewClientAction vncNewclient(rfbClientPtr cl)
-{
-    sdl2_app *sdlApp = cl->screen->screenData;
-    cl->clientData = NULL;
-    cl->clientGoneHook = vncClientGone;
-    sdlApp->conf->vncClients++;
-    SDL_Log("rfbProcessClient: connect: Client #%d", sdlApp->conf->vncClients);
-    return RFB_CLIENT_ACCEPT;
-}
-
-// RFB (VNC) Server thread
-static int threadVnc(void *conf) 
-{
-    sdl2_app *sdlApp = conf;
-    long usec;
-    sdlApp->conf->vncServer->desktopName = "Live Video sdlSpeedometer";
-    sdlApp->conf->vncServer->alwaysShared=(1==1);
- //   sdlApp->conf->vncServer->cursor = NULL;
-    sdlApp->conf->vncServer->newClientHook = vncNewclient;
-    sdlApp->conf->vncServer->screenData = sdlApp;
-    sdlApp->conf->vncServer->ptrAddEvent = vncClientTouch;
-    sdlApp->conf->vncServer->port = sdlApp->conf->vncPort;
-    sdlApp->conf->vncServer->deferUpdateTime = 20;
-
-    rfbInitServer(sdlApp->conf->vncServer);           
-
-    // Loop, processing clients
-    while (rfbIsActive(sdlApp->conf->vncServer))
-    {
-        usec = sdlApp->conf->vncServer->deferUpdateTime*1000;
-        SDL_LockMutex(sdlApp->vnc_mutex);
-        rfbProcessEvents(sdlApp->conf->vncServer, usec);
-        SDL_UnlockMutex(sdlApp->vnc_mutex);
-        SDL_Delay(1);
-    }
-
-    SDL_Log("RFB service stopped");
-
-    return 0;
-}
-
 /*
 - x, y: upper left corner.
 - texture, rect: outputs.
@@ -1287,35 +1200,6 @@ inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 
     SDL_Rect TskPageR = {30,400,50,50};
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
-
-        if (sdlApp->conf->vncClients && sdlApp->rfbPauseBuffer != NULL && SDL_PointInRect(&p, &TskPageR)) {
-
-            // Show VNC Pause Screen
-            char *realBuffer = sdlApp->conf->vncServer->frameBuffer;
-
-            if (SDL_LockMutex(sdlApp->vnc_mutex) == 0) {
-
-                sdlApp->conf->vncServer->frameBuffer = sdlApp->rfbPauseBuffer;
-
-                rfbMarkRectAsModified(
-                    sdlApp->conf->vncServer,
-                    0, 0,
-                    sdlApp->conf->window_w,
-                    sdlApp->conf->window_h
-                );
-                SDL_UnlockMutex(sdlApp->vnc_mutex);
-                SDL_Delay(300);
-
-                SDL_LockMutex(sdlApp->vnc_mutex);
-                sdlApp->conf->vncServer->frameBuffer = realBuffer;
-                SDL_UnlockMutex(sdlApp->vnc_mutex);
-
-            } else {
-                // VNC user left with frozen last screen
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_LockMutex failed for VNC splash screen: %s", SDL_GetError());
-            }
-        }
-
         if (SDL_PointInRect(&p, &TskPageR)) {
             return TSKPAGE;
         }
@@ -1335,7 +1219,7 @@ void checkFocus(sdl2_app *sdlApp)
      * Delay rendering loop if we have no VNC client fokus in order to lower the CPU load.
      * This is only relevant if we are running in a VNC client context and that the -v opion is in use.
      * The -v [port#] should reflect the VNC port that the external VNC server was started with.
-     * This has nothing to do with the -V option of this program that enables an internal VNC serer
+     * This has nothing to do with the -V option of this program that enables an external VNC serer
      * within this application.
      */
 
@@ -1609,38 +1493,22 @@ static int threadWarn(void *conf)
     return 0;
 }
 
-inline static void doVnc(sdl2_app *sdlApp)
-{
-    if (sdlApp->conf->runVnc && sdlApp->conf->vncClients && sdlApp->conf->vncPixelBuffer)
-    {
-        SDL_RenderReadPixels(
-            sdlApp->renderer,
-            NULL,
-            SDL_PIXELFORMAT_BGR888,
-            sdlApp->conf->vncPixelBuffer->pixels,
-            sdlApp->conf->vncPixelBuffer->pitch
-        );
-
-        rfbMarkRectAsModified(
-            sdlApp->conf->vncServer,
-            0, 0,
-            sdlApp->conf->window_w,
-            sdlApp->conf->window_h
-        );
-    }
-}
-
 /*
  * Check re-emerging power on console event
  */
 static int checkConsole(SDL_Event e, sdl2_app *sdlApp)
 {
+    char cmd[80] = {'\0'};
+
     if (e.type == SDL_WINDOWEVENT) {
         if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
+            sprintf(cmd, "wlr-randr --output HDMI-A-1 --mode %dx%d", sdlApp->conf->window_w, sdlApp->conf->window_h);
             Uint32 current_time = SDL_GetTicks();
             // Only reset if more than 1000 ms have passed since the last time
-            if (current_time - sdlApp->last_reset_time > 1000) {
+            if (current_time - sdlApp->last_reset_time > 2000) {
+                system(cmd);
                 SDL_HideWindow(sdlApp->window);
+                SDL_SetWindowPosition(sdlApp->window, 0, 0);
                 SDL_ShowWindow(sdlApp->window);
                 sdlApp->last_reset_time = current_time;
                 SDL_PumpEvents();
@@ -1943,8 +1811,6 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        doVnc(sdlApp);
-
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*200;
         dynUpd = dynUpd > 200? 200:dynUpd;
@@ -2184,8 +2050,6 @@ static int doSumlog(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
 
-        doVnc(sdlApp);
-
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*200;
         dynUpd = dynUpd > 200? 200:dynUpd;
@@ -2412,8 +2276,6 @@ static int doGps(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
-
-        doVnc(sdlApp);
 
         sdlApp->textFieldArrIndx--;
         do {
@@ -2873,8 +2735,6 @@ static int doDepth(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        doVnc(sdlApp);
-
         if (!sdlApp->plotMode) {
             // Reduce CPU load if only short scale movements
             dynUpd = (1/fabsf(angle -t_angle))*200;
@@ -3146,8 +3006,6 @@ static int doWind(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
- 
-        doVnc(sdlApp);
         
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle_a -t_angle_a))*200;
@@ -3310,17 +3168,6 @@ static int doEnvironment(sdl2_app *sdlApp)
 
             if (checkConsole(e, sdlApp))
                 break;
-
-            if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN) {
-                    float px = e.tfinger.x* w;
-                    float py = e.tfinger.y* h;
-                    SDL_Point p = (SDL_Point){ px, py };
-                    if (SDL_PointInRect(&p, &slider)) {
-                        e.type = SDL_MOUSEMOTION;
-                        e.motion.x = px; e.motion.y = py;
-                        dragging = 1;
-                    } else dragging = 0;
-            }
 
             if (sdlApp->conf->snd_useMixer && !sdlApp->conf->muted) {
                 if (e.type == SDL_MOUSEMOTION && dragging) {
@@ -3716,8 +3563,6 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
  
-        doVnc(sdlApp);
-
         if (!dragging) {
             SDL_Delay(90);
         }
@@ -4027,16 +3872,6 @@ static int doCamera(sdl2_app *sdlApp)
                 if (checkConsole(e, sdlApp))
                     break;
 
-                if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN && dragging) {
-                        float px = e.tfinger.x* win_w;
-                        float py = e.tfinger.y* win_h;
-                        SDL_Point p = (SDL_Point){ px, py };
-                        if (SDL_PointInRect(&p, &slider)) {
-                            e.type = SDL_MOUSEMOTION;
-                            e.motion.x = px; e.motion.y = py;
-                        }
-                }
-
                 if (sdlApp->conf->snd_useMixer && !muted) {
                     if (e.type == SDL_MOUSEMOTION && dragging) {
 
@@ -4096,7 +3931,7 @@ static int doCamera(sdl2_app *sdlApp)
 
                     if (SDL_PointInRect(&p, &slider)) {
                         dragging = 1;
-                    }  else if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN) dragging = 0;
+                    }
                 }
 
                 if (e.type == SDL_MOUSEBUTTONUP)
@@ -4232,8 +4067,6 @@ static int doCamera(sdl2_app *sdlApp)
                     }
 
                     SDL_RenderPresent(sdlApp->renderer);
-
-                    doVnc(sdlApp);
                 }
             }
 
@@ -4648,16 +4481,6 @@ static int doVideoCapture(sdl2_app *sdlApp)
             if (checkConsole(e, sdlApp))
                 break;
 
-            if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN && dragging) {
-                    float px = e.tfinger.x* w;
-                    float py = e.tfinger.y* h;
-                    SDL_Point p = (SDL_Point){ px, py };
-                    if (SDL_PointInRect(&p, &slider)) {
-                        e.type = SDL_MOUSEMOTION;
-                        e.motion.x = px; e.motion.y = py;
-                    }
-            }
-
             if (sdlApp->conf->snd_useMixer && !doRun.mute) {
                 if (e.type == SDL_MOUSEMOTION && dragging) {
                     SDL_Point p = (SDL_Point){e.motion.x/sdlApp->conf->scale, e.motion.y/sdlApp->conf->scale};
@@ -4715,7 +4538,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
                 if (SDL_PointInRect(&p, &slider)) {
                     dragging = 1;
-                } else if (sdlApp->conf->vncClients && e.type == SDL_FINGERDOWN) dragging = 0;
+                }
             }
 
             if (e.type == SDL_MOUSEBUTTONUP)
@@ -4836,8 +4659,6 @@ static int doVideoCapture(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
-
-        doVnc(sdlApp);
     }
 
     doRun.run = 0;  // Take down audio thread
@@ -5015,8 +4836,6 @@ static int doVideo(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
-
-        doVnc(sdlApp);
     }
 
     SDL_DestroyTexture(r1.text);
@@ -5220,9 +5039,6 @@ static int doWater(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
-
-        doVnc(sdlApp);
-
         SDL_Delay(1000);
 
         sdlApp->textFieldArrIndx--;
@@ -5528,9 +5344,9 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     SDL_Thread *threadNmea = NULL;
     SDL_Thread *threadI2C = NULL;
     SDL_Thread *threadSER = NULL;
-    SDL_Thread *threadVNC = NULL;
     SDL_Thread *threadWrn = NULL;
     configParams->conn = NULL; 
+    struct stat stats;
     Uint32 flags;
 
     if (doInit) {
@@ -5599,17 +5415,73 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         }
     }
 
-    if (configParams->runVnc == 1 && doInit == 1) {
-        threadVNC = SDL_CreateThread(threadVnc, "threadVNC", sdlApp);
-        if (NULL == threadVNC) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadVNC failed: %s", SDL_GetError());
-             configParams->runVnc = 0;
-        } else { SDL_DetachThread(threadVNC);  configParams->runVnc = 2; }
+    if (configParams->runVnc == 1 && doInit == 1 && !stat("/usr/bin/wayvnc", &stats)) {
+    
+        // Manager for the wayvnc process
+		SDL_Log("Attempt to start wayvnc");
+
+        pid_t spedoMeterPid = getpid();
+        configParams->wayvncPid = fork();
+
+        if (configParams->wayvncPid == 0) {
+
+            int fdnull;
+            // close stdin, stderr, stdout
+            if ((fdnull = open("/dev/null", O_RDWR)) > 0)
+            {
+                dup2 (fdnull, STDIN_FILENO);
+                dup2 (fdnull, STDERR_FILENO);
+                close(fdnull);
+            }
+
+			pid_t vnc_pid = -1;
+
+            while(1) {
+
+				if (kill(spedoMeterPid, 0) != 0) {
+					kill(vnc_pid, SIGTERM);
+                    _exit(0);
+                }
+
+                vnc_pid = fork();
+
+                if (vnc_pid == 0) {
+                    // Child to run wayvnc
+                    setpgid(0, 0);
+                    prctl(PR_SET_PDEATHSIG, SIGTERM);
+                    char str[20] = {'\0'};
+                    sprintf(str, "%d", configParams->vncPort);
+                    char *args[] = { "/usr/bin/wayvnc", "192.168.3.3", str, NULL };
+                    execvp(args[0], args);
+                    SDL_Log("Failed to exec wayvnc (not fatal): %s", strerror(errno));
+                    _exit(0);
+                } else if (vnc_pid > 0) {
+                    // Manager waits until wayvnc dies
+                    int status;
+                    waitpid(vnc_pid, &status, 0); // Clean the zombie
+                    if (kill(spedoMeterPid, 0) != 0) {
+                        SDL_Log("wayvnc exit");
+                        _exit(0);
+                    }
+                    SDL_Log("wayvnc exited, restarting in 3 seconds...");
+                    sleep(3);
+                } else {
+                    SDL_Log("Failed to fork wayvnc (non fatal): %s", strerror(errno));
+                    _exit(0);
+                }
+            }
+        }
+    } else if (configParams->runVnc == 1 && doInit == 1) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to run /usr/bin/wayvnc (non fatal): %s", strerror(errno));
+        configParams->runVnc = 0;
     }
 
-
     if (doInit) {
-        flags = configParams->useWm == 1? SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP : 0;
+            
+        if (configParams->useWm == 1)
+            flags = SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP;
+        else
+            flags = SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS;
 
         if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
                 0, 0, // Pos x/y
@@ -5637,22 +5509,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     }
 
     if (doInit) {
-        if (sdlApp->conf->runVnc) {
-            if ((Loading_Surf = SDL_LoadBMP(DEFAULT_RFB_BACKGROUND)) != NULL) {
-                if ((sdlApp->formattedSurf = SDL_ConvertSurfaceFormat(Loading_Surf, SDL_PIXELFORMAT_BGR888, 0)) != NULL) {
-                    if (sdlApp->rfbPauseBuffer == NULL) {
-                        if ((sdlApp->vnc_mutex = SDL_CreateMutex()) == NULL) {
-                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex vnc_mutex failed: %s", SDL_GetError());
-                        }   else if ((sdlApp->rfbPauseBuffer = calloc(configParams->window_w * configParams->window_h, 4)) != NULL) {
-                            memcpy(sdlApp->rfbPauseBuffer, sdlApp->formattedSurf->pixels, sdlApp->formattedSurf->pitch * sdlApp->formattedSurf->h);
-                        }
-                    }
-                    SDL_FreeSurface(sdlApp->formattedSurf);
-                }
-                SDL_FreeSurface(Loading_Surf);
-            }
-        }
-
         if ((Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND)) != NULL) {
             Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
             SDL_FreeSurface(Loading_Surf);
@@ -6029,21 +5885,6 @@ int main(int argc, char *argv[])
         syslog (LOG_NOTICE, "Program started by User %d", getuid ());
     }
 
-    if (configParams.runVnc == 1) {
-        // Create an empty RGB surface that will be used to hold the VNC pixel buffer
-        configParams.vncPixelBuffer = SDL_CreateRGBSurface(0, configParams.window_w, configParams.window_h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000); 
-        if (configParams.vncPixelBuffer != NULL) {
-            rfbErr=SDL_Log; 
-            rfbLog=SDL_Log;
-            configParams.vncServer=rfbGetScreen(&argc, argv, configParams.window_w, configParams.window_h, 8, 3, 4);           
-            configParams.vncServer->frameBuffer = configParams.vncPixelBuffer->pixels;
-            configParams.vncServer->ipv6port = 0;
-        } else {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateRGBSurface failed: %s. VNC Server disabled!", SDL_GetError());
-            configParams.runVnc = 0;
-        }
-    }
-
     sprintf(buf, "%d", configParams.window_h); SDL_setenv("WINDOW_W", buf, 0);
     sprintf(buf, "%d", configParams.window_w); SDL_setenv("WINDOW_H", buf, 0);
 
@@ -6203,10 +6044,6 @@ int main(int argc, char *argv[])
 
     (void)checkSubtask(&sdlApp, &configParams);
 
-    if (configParams.runVnc) {
-        rfbLog=(rfbLogProc)nullLog;
-    }
-
     while(1)
     {
         SDL_Delay(200);
@@ -6243,13 +6080,12 @@ int main(int argc, char *argv[])
             break;
     }
 
-    // Terminate the threads
-    if (configParams.runVnc) {
-        rfbShutdownServer(configParams.vncServer, TRUE);
-        if (configParams.vncPixelBuffer != NULL)
-            SDL_FreeSurface(configParams.vncPixelBuffer);
-    }
+	if (configParams.wayvncPid > 0 && kill(configParams.wayvncPid, 0) == 0) {
+		kill(configParams.wayvncPid, SIGTERM);
+		SDL_Log("Taking down wayvnc");
+	}
 
+    // Terminate the threads
     configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = 0;
 
     // .. and let them close cleanly

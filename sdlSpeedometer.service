@@ -2,8 +2,8 @@
 [Unit]
 Description=Marine instrument application
 DefaultDependencies=no
-After=weston-kiosk.service
-Requires=weston-kiosk.service
+After=labwc-kiosk.service
+Requires=labwc-kiosk.service
 
 [Service]
 Type=simple

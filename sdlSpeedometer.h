@@ -69,6 +69,7 @@ typedef struct {
     volatile int runVnc;
     volatile int runWrn;
     volatile int runTyd;
+	pid_t wayvncPid;
     int numThreads;
     short port;
     char server[100];

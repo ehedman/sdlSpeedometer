@@ -27,6 +27,7 @@ EOF
   --disable-features=TranslateUI \
   --no-sandbox \
   --no-first-run \
+  --password-store=basic \
   --kiosk \
   --user-data-dir="$PROFILE" \
   --disk-cache-size=0 \
