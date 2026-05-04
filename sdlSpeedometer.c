@@ -91,7 +91,6 @@
 #endif
 
 #define DEFAULT_BACKGROUND IMAGE_PATH "Default-bg.bmp"
-#define DEFAULT_RFB_BACKGROUND IMAGE_PATH "Default-rfb-bg.bmp"
 
 #define BLACK   1
 #define WHITE   2
@@ -5326,9 +5325,6 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
 static void closeSDL2(sdl2_app *sdlApp)
 {
-    if (sdlApp->rfbPauseBuffer != NULL)
-        free(sdlApp->rfbPauseBuffer);
-
     TTF_Quit();
     SDL_DestroyRenderer(sdlApp->renderer);
     SDL_DestroyWindow(sdlApp->window);
@@ -5451,7 +5447,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
                     prctl(PR_SET_PDEATHSIG, SIGTERM);
                     char str[20] = {'\0'};
                     sprintf(str, "%d", configParams->vncPort);
-                    char *args[] = { "/usr/bin/wayvnc", "192.168.3.3", str, NULL };
+                    char *args[] = { "/usr/bin/wayvnc", "0.0.0.0", str, NULL };
                     execvp(args[0], args);
                     SDL_Log("Failed to exec wayvnc (not fatal): %s", strerror(errno));
                     _exit(0);
@@ -5480,6 +5476,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             
         if (configParams->useWm == 1)
             flags = SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALWAYS_ON_TOP;
+        else if (configParams->cursor == 1)
+            flags = SDL_WINDOW_SHOWN;
         else
             flags = SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS;
 
@@ -5505,7 +5503,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
 
         TTF_Init();
 
-        sdlApp->rfbPauseBuffer = NULL;
     }
 
     if (doInit) {
@@ -5895,7 +5892,7 @@ int main(int argc, char *argv[])
     } else if (SDL_getenv("DISPLAY") != NULL) {
 
         SDL_setenv("SDL_VIDEODRIVER", "x11", 0);
-        SDL_Log("Using X11/Xweston Videodriver");
+        SDL_Log("Using X11/xwayland Videodriver");
 
         pid_t pid0, pid1=0, pid2;
         int status;

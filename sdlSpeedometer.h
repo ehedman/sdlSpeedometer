@@ -2,7 +2,6 @@
 #define SPEEDOMETER_H
 
 #include <sqlite3.h>
-#include <rfb/rfb.h>
 #ifdef HAS_SMBUS_H
 #include <i2c/smbus.h>
 #endif
@@ -74,7 +73,6 @@ typedef struct {
     short port;
     char server[100];
     int useWm;
-    rfbScreenInfoPtr vncServer;
     SDL_Surface* vncPixelBuffer;
     float scale;
     char ssize[50];
@@ -128,7 +126,6 @@ typedef struct {
     int plotMode;
     SDL_Texture* textFieldArr[60];
     SDL_Surface* formattedSurf;
-    char *rfbPauseBuffer;
     SDL_mutex* vnc_mutex;
     int textFieldArrIndx;
     Uint32 last_reset_time;

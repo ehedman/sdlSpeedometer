@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Start a single session weston(xwayland) -or an openvt bound application
+# Start a single session X11/xwayland -or an openvt bound application
 
 PATH=$PATH:$(pwd)
 export PATH
