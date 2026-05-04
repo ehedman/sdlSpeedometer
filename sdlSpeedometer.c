@@ -1499,7 +1499,7 @@ static int checkConsole(SDL_Event e, sdl2_app *sdlApp)
 {
     char cmd[80] = {'\0'};
 
-    if (e.type == SDL_WINDOWEVENT) {
+    if (e.type == SDL_WINDOWEVENT && sdlApp->conf->cursor == 0) {
         if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
             sprintf(cmd, "wlr-randr --output HDMI-A-1 --mode %dx%d", sdlApp->conf->window_w, sdlApp->conf->window_h);
             Uint32 current_time = SDL_GetTicks();
