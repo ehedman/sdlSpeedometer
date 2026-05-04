@@ -110,7 +110,7 @@ This option makes no sence unless sdlSpeedometer is running as a systemd service
 - Example: http://<rpi-ip>:7600 assuming the -C option is defined as <port> number 7600.
 - The remote configurator will restart the service locally if any changes was made. Again mke sure that your user name property is enabled in /etc/sudoers.d.
 
-### Build and test on the host (Mint, Ubuntu, Debian)
+### Build and test on the host (Mint, Ubuntu, Debian and Zorin)
 - make
 - ./sdlSpeedometer -c (create a default configuration and exit)
 - ./sdlSPeedometer-config (Check the configuration - default values should do)
