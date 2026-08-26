@@ -60,6 +60,7 @@
 #define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
 #define TRGPS       2.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
+#define K2MS        0.5144  // knots 2 ms
 
 #define DEFAULT_SCREEN_SIZE     "800x480"   // Default screen size
 #define DEFAULT_SCREEN_SCALE    1.0
@@ -397,44 +398,66 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
     return 0;
 }
 
-// returns the true wind speed given boat speed, apparent wind speed and apparent wind direction in degrees
-// https://github.com/drasgardian/truewind
+/**
+* Calculates only the true wind speed (TWS) - AI generated.
+*
+* @param boatSpeed ​​Boat speed (STW recommended, in knots)
+* @param apparentWindSpeed ​​Apparent wind speed (AWS, in the same unit as boatSpeed)
+* @param apparentWindDirection Apparent wind angle (AWD, 0-360 degrees)
+* @return double True wind speed (TWS) in the same unit as specified
+*/
 static double trueWindSpeed(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
 {
-    // convert degres to radians
-    double apparentWindDirectionRadian = apparentWindDirection * (M_PI/180);
+    // 1.Convert the apparent angle to radians
+    double awsRad = apparentWindDirection * (M_PI / 180.0);
 
-    return pow(pow(apparentWindSpeed*cos(apparentWindDirectionRadian) - boatSpeed,2) + (pow(apparentWindSpeed*sin(apparentWindDirectionRadian),2)), 0.5);
+    // 2. Divide the apparent wind into X and Y components
+    double awsX = apparentWindSpeed * cos(awsRad);
+    double awsY = apparentWindSpeed * sin(awsRad);
+
+    // 3. Subtract the boat's speed from the X component (along the boat's longitudinal line)
+    double twsX = awsX - boatSpeed;
+    double twsY = awsY;
+
+    // 4. Calculate the true wind speed (TWS) using Pythagoras' theorem
+    double tws = sqrt((twsX * twsX) + (twsY * twsY));
+
+    return tws;
 }
 
-// returns the true wind direction given boat speed, apparent wind speed and apparent wind direction in degrees
-// https://github.com/drasgardian/truewind
-static double trueWindDirection(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
+/**
+* Calculates true wind angle (TWA) and true wind speed (TWS)  - AI generated.
+*
+* @param boatSpeed ​​Boat speed (STW recommended, in knots)
+* @param apparentWindSpeed ​​Apparent wind speed (AWS, in the same unit as boatSpeed)
+* @param apparentWindDirection Apparent wind angle (AWD, 0-360 degrees)
+* @param[out] trueWindAngle Pointer where the true wind angle (TWA, 0-360°) is stored
+*/
+static double trueWindAngle(double boatSpeed, double apparentWindSpeed, double apparentWindDirection)
 {
+    // 1. Convert the apparent angle to radians
+    double awsRad = apparentWindDirection * (M_PI / 180.0);
 
-    int convert180 = 0;
-    double twdRadians;
-    double apparentWindDirectionRadian;
-    double twdDegrees;
+    // 2. Divide the apparent wind into X and Y components
+    double awsX = apparentWindSpeed * cos(awsRad);
+    double awsY = apparentWindSpeed * sin(awsRad);
 
-    // formula below works with values < 180
-    if (apparentWindDirection > 180) {
-        apparentWindDirection = 360 - apparentWindDirection;
-        convert180 = 1;
+    // 3. Subtract the boat's speed from the X component (along the boat's longitudinal line)
+    double twsX = awsX - boatSpeed;
+    double twsY = awsY;
+
+    // 4. Calculate the true wind angle in radians with atan2(Y,X)
+    double twaRad = atan2(twsY, twsX);
+
+    // 5. Convert back to degrees
+    double twaDegrees = twaRad * (180.0 / M_PI);
+
+    // 6. Normalize the answer so that it is always between 0 and 360 degrees
+    if (twaDegrees < 0) {
+        twaDegrees += 360.0;
     }
 
-    // convert degres to radians
-    apparentWindDirectionRadian = apparentWindDirection * (M_PI/180);
-
-    twdRadians = (90 * (M_PI/180)) - atan((apparentWindSpeed*cos(apparentWindDirectionRadian) - boatSpeed) / (apparentWindSpeed*sin(apparentWindDirectionRadian)));
-
-    // convert radians back to degrees
-    twdDegrees = twdRadians*(180/M_PI);
-    if (convert180) {
-        twdDegrees = 360 - twdDegrees;
-    }
-
-    return twdDegrees;
+    return twaDegrees;
 }
 
 #define MAX_LONGITUDE 180
@@ -598,7 +621,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     if (NMPARSE(nmeastr_p1, "MWV")) {
         if (strncmp(getf(2, nmeastr_p1),"R",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
             cnmea.vwra=atof(getf(1, nmeastr_p1));
-            cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
+            cnmea.vwrs=atof(getf(3, nmeastr_p1));
             if (cnmea.vwra > 180) {
                 cnmea.vwrd = 1;
                 cnmea.vwra = 360 - cnmea.vwra;
@@ -607,10 +630,10 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
         if (strncmp(getf(2, nmeastr_p1),"T",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
             cnmea.vwta=atof(getf(1, nmeastr_p1));
-            cnmea.vwts=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s;
+            cnmea.vwts=atof(getf(3, nmeastr_p1));
             cnmea.vwt_ts = ts;
         } else if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-                cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
+                cnmea.vwta=trueWindAngle(cnmea.stw, cnmea.vwrs, cnmea.vwra);
                 cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
                 cnmea.vwt_ts = ts;
         }
@@ -621,11 +644,11 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
         if (NMPARSE(nmeastr_p1, "VWR")) {
             cnmea.vwra=atof(getf(1, nmeastr_p1));
-            cnmea.vwrs=atof(getf(3, nmeastr_p1))/1.94; // kn 2 m/s
+            cnmea.vwrs=atof(getf(3, nmeastr_p1));
             cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
             cnmea.vwr_ts = ts;
             if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-                cnmea.vwta=trueWindDirection(cnmea.stw, cnmea.vwrs,  cnmea.vwra);
+                cnmea.vwta=trueWindAngle(cnmea.stw, cnmea.vwrs, cnmea.vwra);
                 cnmea.vwts=trueWindSpeed(cnmea.stw, cnmea.vwrs, cnmea.vwra);
                 cnmea.vwt_ts = ts;
             }
@@ -635,7 +658,17 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // RSA - Rudder angle
     if (NMPARSE(nmeastr_p1, "RSA")) {
-        cnmea.rsa=atof(getf(1, nmeastr_p1));
+        cnmea.rsa=roundf(atof(getf(1, nmeastr_p1)));
+
+#ifdef IKONVERT_RSABUG
+        // --- PATCH FOR DIGITAL YACHT IKONVERT SIGNED UNDERFLOW BUG ---
+        // Since physical rudders cannot rotate past ~45 degrees, any value
+        // significantly high indicates the rolled-over negative firmware bug.
+        if (cnmea.rsa > 180.0f) {
+             cnmea.rsa-= 375.3f;
+        }
+        // -------------------------------------------------------------
+#endif
         cnmea.rsa_ts = ts;
         return;
     }
@@ -1239,7 +1272,7 @@ void checkFocus(sdl2_app *sdlApp)
 
     while (fgets(line, sizeof(line), fd)) {
         char local_addr[128], remote_addr[128];
-        int state;
+        unsigned int state;
         // The format in /proc/net/tcp:
         // sl local_address rem_address st tx_queue rx_queue tr tm->when retr
         // We are looking for local address/port and state 01 (ESTABLISHED)
@@ -1679,7 +1712,7 @@ static int doCompass(sdl2_app *sdlApp)
 
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
         // RSA - Rudder angle
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
@@ -1977,7 +2010,7 @@ static int doSumlog(sdl2_app *sdlApp)
 
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
                          
@@ -2201,7 +2234,7 @@ static int doGps(sdl2_app *sdlApp)
 
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
@@ -2441,7 +2474,7 @@ static int doDepth(sdl2_app *sdlApp)
 
         // WND - Relative wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
@@ -2878,7 +2911,7 @@ static int doWind(sdl2_app *sdlApp)
          if (ct -  cnmea.vwr_ts > S_TIMEOUT || cnmea.vwrs == 0)
             sprintf(msg_vwrs, "----");
         else
-            sprintf(msg_vwrs, "%.1f", cnmea.vwrs);
+            sprintf(msg_vwrs, "%.1f", cnmea.vwrs*K2MS);
 
         if (ct - cnmea.vwr_ts > S_TIMEOUT)
             sprintf(msg_vwra, "----");
@@ -2890,7 +2923,7 @@ static int doWind(sdl2_app *sdlApp)
          if (ct -  cnmea.vwt_ts > S_TIMEOUT || cnmea.vwts == 0)
             sprintf(msg_vwts, "----");
         else
-            sprintf(msg_vwts, "TRUE: %.1f", cnmea.vwts);
+            sprintf(msg_vwts, "TRUE: %.1f", cnmea.vwts*K2MS);
 
         // DPT - Depth
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
@@ -3137,7 +3170,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     // Volume adjustments
     float volume_percent = 0.0;
     int dragging = 0;
-    int w, h;
+    int w = 0, h = 0;
 
     if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
@@ -3850,7 +3883,7 @@ static int doCamera(sdl2_app *sdlApp)
 
                 // WND - Relative wind speed in m/s
                 if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-                    sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+                    sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
                 // DBT - Depth Below Transponder
                 if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
@@ -4459,7 +4492,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
             // WND - Relative wind speed in m/s
             if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-                sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+                sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
             // DBT - Depth Below Transponder
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
