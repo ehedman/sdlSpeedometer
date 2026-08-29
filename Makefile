@@ -13,6 +13,9 @@ CFLAGS+=-DHAS_SMBUS_H
 LDFLAGS+=-li2c
 endif
 
+# --- PATCH FOR DIGITAL YACHT IKONVERT SIGNED UNDERFLOW RUDDER ANGLE BUG ---
+CFLAGS+=-DIKONVERT_RSABUG
+
 ifeq ($(shell test -e $(GETC) && echo -n yes),yes)
 CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
 endif
