@@ -158,10 +158,11 @@ static int configureDb(configuration *configParams)
                     }
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, audiodev TEXT, camurl TEXT)", -1, &res, &tail);
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,'%s','%s')", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s')", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+printf("%s\n", buf);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -225,15 +226,16 @@ static int configureDb(configuration *configParams)
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport, audiodev, camurl from config", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl from config", -1, &res, &tail);        
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
         strcpy(configParams->server,    (char*)sqlite3_column_text(res, 2));
         configParams->port =            sqlite3_column_int(res, 3);
         configParams->vncPort =         sqlite3_column_int(res, 4);
-        strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 5));
-        strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 6));
+		configParams->style =         	sqlite3_column_int(res, 5);
+        strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 6));
+        strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -1562,7 +1564,7 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
+	SDL_Texture* compassRose;
     SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* windDir = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windDir.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
@@ -1574,6 +1576,12 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
 
     SDL_Texture* calBar = NULL;
+
+	if (sdlApp->conf->style == 0) {
+		compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
+	} else {
+		compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose-flat.png");
+	}
 
     sdlApp->curPage = COGPAGE;
 
@@ -1733,11 +1741,18 @@ static int doCompass(sdl2_app *sdlApp)
 
         t_angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
 
-        SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
         SDL_RenderClear(sdlApp->renderer);
 
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
-        SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
@@ -1805,7 +1820,7 @@ static int doCompass(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        if (boxItem) {
+        if (boxItem && sdlApp->conf->style == 0) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
@@ -1890,7 +1905,7 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
+    SDL_Texture* gaugeSumlog;
     SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
@@ -1900,6 +1915,12 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
 
     sdlApp->curPage = SOGPAGE;
+
+	if (sdlApp->conf->style == 0) {
+		gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
+	} else {
+		gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog-flat.png");
+	}
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -2021,6 +2042,13 @@ static int doSumlog(sdl2_app *sdlApp)
         if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
         else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
 
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
+
         SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
@@ -2075,7 +2103,7 @@ static int doSumlog(sdl2_app *sdlApp)
             }
         }
 
-        if (boxItem) {
+        if (boxItem && sdlApp->conf->style == 0) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
@@ -5538,7 +5566,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
 
     }
 
-    if (doInit) {
+    if (doInit && configParams->style == 0) {
         if ((Loading_Surf = SDL_LoadBMP(DEFAULT_BACKGROUND)) != NULL) {
             Background_Tx = SDL_CreateTextureFromSurface(sdlApp->renderer, Loading_Surf);
             SDL_FreeSurface(Loading_Surf);
@@ -5834,6 +5862,8 @@ int main(int argc, char *argv[])
 
     strcpy(configParams.ssize, DEFAULT_SCREEN_SIZE);
     configParams.scale = DEFAULT_SCREEN_SCALE;
+
+    configParams.style  = 1;
 
     configParams.runSer = configParams.runi2c = configParams.runNet = 1;
         

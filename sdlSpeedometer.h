@@ -8,7 +8,7 @@
 #include <alsa/asoundlib.h>
 
 // Dendent on project  https://github.com/ehedman/flowSensor
-//#define DIGIFLOW
+#define DIGIFLOW
 
 
 // Volume slider
@@ -76,6 +76,7 @@ typedef struct {
     SDL_Surface* vncPixelBuffer;
     float scale;
     char ssize[50];
+    int style;
     int window_w;
     int window_h;
     int vncClients;
