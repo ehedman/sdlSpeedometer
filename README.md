@@ -1,8 +1,8 @@
 # sdlSpeedometer
-README April-2026
+README Sept-2026
 
 The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
-The look and feel of the visualized instruments tries to mimic the look of real physical instruments and will by design have less of a digital look.
+The look and feel of the visualized instruments tries to mimic the look of real physical instruments in a 3D gui style or by configuration, a modern flat gui style.
 
 This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
 

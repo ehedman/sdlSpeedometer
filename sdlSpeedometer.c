@@ -158,10 +158,11 @@ static int configureDb(configuration *configParams)
                     }
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, audiodev TEXT, camurl TEXT)", -1, &res, &tail);
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,'%s','%s')", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s')", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+printf("%s\n", buf);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -225,15 +226,16 @@ static int configureDb(configuration *configParams)
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport, audiodev, camurl from config", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl from config", -1, &res, &tail);        
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
         strcpy(configParams->server,    (char*)sqlite3_column_text(res, 2));
         configParams->port =            sqlite3_column_int(res, 3);
         configParams->vncPort =         sqlite3_column_int(res, 4);
-        strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 5));
-        strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 6));
+        configParams->style =         	sqlite3_column_int(res, 5);
+        strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 6));
+        strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -1562,7 +1564,9 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
+    SDL_Texture* compassRose;
+    SDL_Texture* windScale;
+    SDL_Texture* textBox;
     SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* windDir = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windDir.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
@@ -1570,10 +1574,21 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-    SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+    SDL_Texture* rsaBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rsaBar.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
 
     SDL_Texture* calBar = NULL;
+
+    if (sdlApp->conf->style == 0) {
+        compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+        windScale = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windScale.png");
+       
+    } else {
+        compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose-flat.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+        windScale = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windScale-flat.png");
+    }
 
     sdlApp->curPage = COGPAGE;
 
@@ -1602,9 +1617,11 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect compassR       = {54,52,372,372};
     SDL_Rect clinoMeterR    = {171,178,136,136};
     SDL_Rect windDirR       = {120,122,240,240};
+    SDL_Rect windScaleR     = {54,52,372,372};
     SDL_Rect rsaLbarR       = {454,370,146,15};
     SDL_Rect rsaRbarR       = {600,370,146,15};
     SDL_Rect rsaMbarR       = {590,370,18,18};
+    SDL_Rect rsaIbarR       = {452,370,292,15};
 
     float t_angle = 0;
     float angle = 0;
@@ -1731,14 +1748,27 @@ static int doCompass(sdl2_app *sdlApp)
         if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
         angle_a += offset;
 
-        t_angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
+        angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
 
-        SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        // Run red wind arrow with smooth acceleration
+        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
+        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
         SDL_RenderClear(sdlApp->renderer);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
-        SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+        if (sdlApp->conf->style == 0) {
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+            SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+        }
+
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
+
+        SDL_RenderCopyEx(sdlApp->renderer, windScale, NULL, &windScaleR, 0, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
             SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
@@ -1817,23 +1847,7 @@ static int doCompass(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, rsaLbarR.x-30, rsaLbarR.y, 0, "RA:", fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsa, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsa);
 
-            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
-
-            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 0, 0, 180);
-            SDL_RenderFillRect(sdlApp->renderer,&rsaLbarR);
-
-            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
-            SDL_RenderDrawRect(sdlApp->renderer, &rsaLbarR);
-
-            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 255, 0, 180);
-            SDL_RenderFillRect(sdlApp->renderer,&rsaRbarR);
-
-            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
-            SDL_RenderDrawRect(sdlApp->renderer, &rsaRbarR);
-
-            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 70);
-            SDL_RenderFillRect(sdlApp->renderer, &rsaMbarR);
-
+            SDL_RenderCopyEx(sdlApp->renderer, rsaBar, NULL, &rsaIbarR, 0, NULL, SDL_FLIP_NONE);
             get_text_and_rect(sdlApp->renderer, x+2, rsaMbarR.y, 0, msg_rsa, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsaMbarR, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsaMbarR);
 
@@ -1866,11 +1880,13 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(compassRose);
     SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(windDir);
+    SDL_DestroyTexture(windScale);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
-    SDL_DestroyTexture(unmuteBar);  
+    SDL_DestroyTexture(unmuteBar);
+    SDL_DestroyTexture(rsaBar);
     SDL_DestroyTexture(textBox);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
@@ -1890,7 +1906,7 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
+    SDL_Texture* gaugeSumlog;
     SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
@@ -1900,6 +1916,14 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
 
     sdlApp->curPage = SOGPAGE;
+
+    if (sdlApp->conf->style == 0) {
+        gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+    } else {
+        gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sumlog-flat.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+    }
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -2021,7 +2045,15 @@ static int doSumlog(sdl2_app *sdlApp)
         if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
         else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
+
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
@@ -2127,7 +2159,7 @@ static int doGps(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
+    SDL_Texture* gaugeGps;
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -2136,6 +2168,14 @@ static int doGps(sdl2_app *sdlApp)
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
       
     sdlApp->curPage = GPSPAGE;
+
+    if (sdlApp->conf->style == 0) {
+        gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+    } else {
+        gaugeGps = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "gps-flat.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+    }
   
     SDL_Texture* subTaskbar = NULL;
 
@@ -2202,7 +2242,7 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_LockMutex(sdlApp->conf->nm_mutex);
 
-        ct = time(NULL);    // Get a timestamp for this turn 
+        ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
 
         sprintf(msg_src, "  ");
@@ -2213,7 +2253,7 @@ static int doGps(sdl2_app *sdlApp)
             sprintf(msg_lat, "----");
             sprintf(msg_lot, "----");
         } else {
-            sprintf(msg_hdm, "%.0f",  cnmea.hdm);
+            sprintf(msg_hdm, "%.0f%c",  cnmea.hdm, 0xb0);
             sprintf(msg_lat, "%.4f%s", dms2dd(atof(cnmea.gll),"m"), cnmea.glns);
             sprintf(msg_lot, "%.4f%s", dms2dd(atof(cnmea.glo),"m"), cnmea.glne);
             if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
@@ -2242,7 +2282,15 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
+
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeGps, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
@@ -2281,7 +2329,7 @@ static int doGps(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, GREEN);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -2349,19 +2397,31 @@ static int doDepth(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
-    SDL_Texture* gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
-    SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
+    SDL_Texture* gaugeDepthW;
+    SDL_Texture* gaugeDepth;
+    SDL_Texture* gaugeDepthx10;
+    SDL_Texture* textBox;
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-    SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
     SDL_Texture* gauge;
 
     sdlApp->curPage = DPTPAGE;
+
+    if (sdlApp->conf->style == 0) {
+        gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
+        gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
+        gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+    } else {
+        gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw-flat.png");
+        gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10-flat.png");
+        gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth-flat.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+    }
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -2495,7 +2555,15 @@ static int doDepth(sdl2_app *sdlApp)
         if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
         else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
+
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
     
         if (!sdlApp->plotMode) {
             SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
@@ -2818,7 +2886,8 @@ static int doWind(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* gaugeSumlog = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
+    SDL_Texture* gaugeWind;
+    SDL_Texture* textBox;
     SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-black.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
@@ -2826,11 +2895,18 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-    SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
 
     sdlApp->curPage = WNDPAGE;
 
     SDL_Texture* subTaskbar = NULL;
+
+    if (sdlApp->conf->style == 0) {
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+        gaugeWind = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
+    } else {
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+        gaugeWind = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind-flat.png");
+    }
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
@@ -2967,9 +3043,17 @@ static int doWind(sdl2_app *sdlApp)
         if (angle_t > t_angle_t) t_angle_t += 3.2 * (fabsf(angle_t -t_angle_t) / 24) ;
         else if (angle_t < t_angle_t) t_angle_t -= 3.2 * (fabsf(angle_t -t_angle_t) / 24);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
+
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
-        SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, gaugeWind, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle_a, NULL, SDL_FLIP_NONE);
@@ -2977,7 +3061,7 @@ static int doWind(sdl2_app *sdlApp)
         if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) 
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleTrue, NULL, &needleR, t_angle_t, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 216, 100, 4, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 208, 130, 0, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);    
@@ -3054,7 +3138,7 @@ static int doWind(sdl2_app *sdlApp)
     if (subTaskbar != NULL) {
         SDL_DestroyTexture(subTaskbar);
     }
-    SDL_DestroyTexture(gaugeSumlog);
+    SDL_DestroyTexture(gaugeWind);
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(gaugeNeedleTrue);
     SDL_DestroyTexture(menuBar);
@@ -3102,16 +3186,27 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-
-    SDL_Texture* gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt.png");
-    SDL_Texture* gaugeVolt24 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-24.png");
-    SDL_Texture* gaugeCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "curr.png");
-    SDL_Texture* gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp.png");
     SDL_Texture* needleVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
     SDL_Texture* needleCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
     SDL_Texture* needleTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "sneedle.png");
+    SDL_Texture* gaugeVolt;
+    SDL_Texture* gaugeVolt24;
+    SDL_Texture* gaugeCurr;
+    SDL_Texture* gaugeTemp ;
 
     sdlApp->curPage = PWRPAGE;
+
+    if (sdlApp->conf->style == 0) {
+        gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt.png");
+        gaugeVolt24 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-24.png");
+        gaugeCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "curr.png");
+        gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp.png");
+    } else {
+        gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-flat.png");
+        gaugeVolt24 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-24-flat.png");
+        gaugeCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "curr-flat.png");
+        gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp-flat.png");
+    }
 
     SDL_Texture* subTaskbar = NULL;
 
@@ -3287,7 +3382,15 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
+
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
         SDL_RenderCopyEx(sdlApp->renderer, cnmea.volt < v_max? gaugeVolt:gaugeVolt24, NULL, &gaugeVoltR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, gaugeCurr, NULL, &gaugeCurrR, 0, NULL, SDL_FLIP_NONE);
@@ -4000,6 +4103,8 @@ static int doCamera(sdl2_app *sdlApp)
                     SDL_RenderClear(sdlApp->renderer);
 
                     SDL_RenderCopy(sdlApp->renderer,tex,NULL,NULL);
+
+                    SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
 
                     // Draw Exit button
                     if (pQuit != NULL) {
@@ -4912,13 +5017,13 @@ static int doWater(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* gaugeWtr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "dflow.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+    SDL_Texture* gaugeWtr;
 
     SDL_Rect menuBarR       = {400,400,393,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
@@ -4928,6 +5033,11 @@ static int doWater(sdl2_app *sdlApp)
 
     SDL_Rect gaugeR         = {19,18,440,440};
 
+
+    if (sdlApp->conf->style == 0)
+        gaugeWtr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "dflow.png");
+    else
+        gaugeWtr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "dflow-flat.png");
 
     int boxItems[] = {120,170,220,270,320};
 
@@ -5012,8 +5122,16 @@ static int doWater(sdl2_app *sdlApp)
             sprintf(msg_gtv, "GTVL: %.0f", cnmea.gvol); 
             sprintf(msg_use, "USED: %.0f", cnmea.tvol);
         }
+
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
         
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeWtr, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
@@ -5269,8 +5387,8 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
         SDL_RenderClear(sdlApp->renderer);
 
-        SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
-
+        if (sdlApp->conf->style == 0)
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
         if (seconds ++ > 10) {
             sprintf(msg_cal, "Calibration about to begin in %d seconds", progress--);
@@ -5313,7 +5431,8 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
                 } else SDL_DetachThread(threadCalib);
             }
 
-            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+            if (sdlApp->conf->style == 0)
+                SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
 
             if (seconds++ > 10) {
                 sprintf(msg_cal, "Calibration in progress for %d more seconds", progress--);
@@ -5834,6 +5953,8 @@ int main(int argc, char *argv[])
 
     strcpy(configParams.ssize, DEFAULT_SCREEN_SIZE);
     configParams.scale = DEFAULT_SCREEN_SCALE;
+
+    configParams.style  = 1;
 
     configParams.runSer = configParams.runi2c = configParams.runNet = 1;
         
