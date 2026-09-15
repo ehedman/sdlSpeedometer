@@ -170,3 +170,9 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 <img src="https://hedmanshome.se/sdlspeedometer11.png" width=100%>
 - sdlSpeedometers' configurator
 <img src="https://hedmanshome.se/sdlspeedometer28.png" width=100%>
+- Modern Flat GUI style examples
+<img src="https://hedmanshome.se/sdlspeedometer29.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer30.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer31.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer32.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer33.png" width=100%>
