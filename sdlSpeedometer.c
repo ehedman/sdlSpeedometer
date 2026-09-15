@@ -1564,7 +1564,8 @@ static int doCompass(sdl2_app *sdlApp)
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-	SDL_Texture* compassRose;
+    SDL_Texture* compassRose;
+    SDL_Texture* windScale;
     SDL_Texture* textBox;
     SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* windDir = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windDir.png");
@@ -1573,7 +1574,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-	SDL_Texture* rsaBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rsaBar.png");
+    SDL_Texture* rsaBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rsaBar.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
 
     SDL_Texture* calBar = NULL;
@@ -1581,9 +1582,12 @@ static int doCompass(sdl2_app *sdlApp)
     if (sdlApp->conf->style == 0) {
         compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose.png");
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+        windScale = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windScale.png");
+       
     } else {
         compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose-flat.png");
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+        windScale = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "windScale-flat.png");
     }
 
     sdlApp->curPage = COGPAGE;
@@ -1613,10 +1617,11 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect compassR       = {54,52,372,372};
     SDL_Rect clinoMeterR    = {171,178,136,136};
     SDL_Rect windDirR       = {120,122,240,240};
+    SDL_Rect windScaleR     = {54,52,372,372};
     SDL_Rect rsaLbarR       = {454,370,146,15};
     SDL_Rect rsaRbarR       = {600,370,146,15};
     SDL_Rect rsaMbarR       = {590,370,18,18};
-	SDL_Rect rsaIbarR       = {452,370,292,15};
+    SDL_Rect rsaIbarR       = {452,370,292,15};
 
     float t_angle = 0;
     float angle = 0;
@@ -1743,7 +1748,11 @@ static int doCompass(sdl2_app *sdlApp)
         if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
         angle_a += offset;
 
-        t_angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
+        angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
+
+        // Run red wind arrow with smooth acceleration
+        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
+        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
 
         if (sdlApp->conf->style == 0)
             SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
@@ -1752,13 +1761,14 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
-        if (sdlApp->conf->style == 0)
+        if (sdlApp->conf->style == 0) {
             SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
-
-        if (sdlApp->conf->style == 0)
             SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+        }
 
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
+
+        SDL_RenderCopyEx(sdlApp->renderer, windScale, NULL, &windScaleR, 0, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT))
             SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
@@ -1837,7 +1847,7 @@ static int doCompass(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, rsaLbarR.x-30, rsaLbarR.y, 0, "RA:", fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsa, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsa);
 
-			SDL_RenderCopyEx(sdlApp->renderer, rsaBar, NULL, &rsaIbarR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, rsaBar, NULL, &rsaIbarR, 0, NULL, SDL_FLIP_NONE);
             get_text_and_rect(sdlApp->renderer, x+2, rsaMbarR.y, 0, msg_rsa, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsaMbarR, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsaMbarR);
 
@@ -1870,12 +1880,13 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(compassRose);
     SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(windDir);
+    SDL_DestroyTexture(windScale);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
-	SDL_DestroyTexture(rsaBar);
+    SDL_DestroyTexture(rsaBar);
     SDL_DestroyTexture(textBox);
     TTF_CloseFont(fontCog);
     TTF_CloseFont(fontRoll);
@@ -2231,7 +2242,7 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_LockMutex(sdlApp->conf->nm_mutex);
 
-        ct = time(NULL);    // Get a timestamp for this turn 
+        ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, gmtime(&ct)); // Here we expose GMT/UTC time
 
         sprintf(msg_src, "  ");
@@ -2242,7 +2253,7 @@ static int doGps(sdl2_app *sdlApp)
             sprintf(msg_lat, "----");
             sprintf(msg_lot, "----");
         } else {
-            sprintf(msg_hdm, "%.0f",  cnmea.hdm);
+            sprintf(msg_hdm, "%.0f%c",  cnmea.hdm, 0xb0);
             sprintf(msg_lat, "%.4f%s", dms2dd(atof(cnmea.gll),"m"), cnmea.glns);
             sprintf(msg_lot, "%.4f%s", dms2dd(atof(cnmea.glo),"m"), cnmea.glne);
             if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
@@ -2318,7 +2329,7 @@ static int doGps(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, GREEN);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
@@ -4092,6 +4103,8 @@ static int doCamera(sdl2_app *sdlApp)
                     SDL_RenderClear(sdlApp->renderer);
 
                     SDL_RenderCopy(sdlApp->renderer,tex,NULL,NULL);
+
+                    SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
 
                     // Draw Exit button
                     if (pQuit != NULL) {

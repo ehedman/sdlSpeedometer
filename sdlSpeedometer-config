@@ -168,6 +168,18 @@ Enter the port number of the VNC Server
   fi
 }
 
+do_set_gui_style() {
+    whiptail --msgbox "\
+Enter the number for the GUI style: 0=Classic 3D - 1=Modern FLat
+" 20 70 1
+
+  CURRENT_GUISTYLE=$(sqlite3 $SPEEDOMETER_DB 'SELECT style FROM config;')
+  NEW_GUISTYLE=$(whiptail --inputbox "Please enter a style number" 20 60 "$CURRENT_GUISTYLE" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_GUISTYLE" ]; then
+    echo "UPDATE config SET style = '$NEW_GUISTYLE' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
 do_set_camera_url() {
     whiptail --msgbox "\
 Enter the URL to an RTSP Camera
@@ -550,21 +562,22 @@ do_config_menu() {
     "5 NMEA Network" "Enter NMEA-0183 server name" \
     "6 NMEA Net port" "Enter NMEA-0183 server port" \
     "7 VNC Server port" "Enter VNC server port" \
-    "8 Application  1" "Enter External Application for page COG" \
-    "9 Application  2" "Enter External Application for page SOG" \
-    "10 Application 3" "Enter External Application for page DPT" \
-    "11 Application 4" "Enter External Application for page WND" \
-    "12 Application 5" "Enter External Application for page GPS" \
-    "13 Application 6" "Enter External Application for page PWR" \
-    "14 Compass offset" "Enter manual compass offset" \
-    "15 Compass roll offset" "Enter manual compass roll offset" \
-    "16 Depth warning" "Enter the audible depth level warning" \
-    "17 Wessel draft" "Enter the wessel draft level warning" \
-    "18 Voltage warning" "Enter the audible low voltage level warning" \
-    "19 Current warning" "Enter the audible high current level warning" \
-    "20 Audio Device" "Enter the audio device used for spoken warnings" \
-    "21 RTSP Camera" "Enter the URL for an RTSP Camera" \
-    "22 Configuration" "Run raspi-config" \
+    "8 GUI style" "Enter GUI Style" \
+    "9 Application  1" "Enter External Application for page COG" \
+    "10 Application  2" "Enter External Application for page SOG" \
+    "11 Application 3" "Enter External Application for page DPT" \
+    "12 Application 4" "Enter External Application for page WND" \
+    "13 Application 5" "Enter External Application for page GPS" \
+    "14 Application 6" "Enter External Application for page PWR" \
+    "15 Compass offset" "Enter manual compass offset" \
+    "16 Compass roll offset" "Enter manual compass roll offset" \
+    "17 Depth warning" "Enter the audible depth level warning" \
+    "18 Wessel draft" "Enter the wessel draft level warning" \
+    "19 Voltage warning" "Enter the audible low voltage level warning" \
+    "20 Current warning" "Enter the audible high current level warning" \
+    "21 Audio Device" "Enter the audio device used for spoken warnings" \
+    "22 RTSP Camera" "Enter the URL for an RTSP Camera" \
+    "23 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -578,21 +591,22 @@ do_config_menu() {
       5\ *) do_set_nmea_server ;;
       6\ *) do_set_nmea_port ;;
       7\ *) do_set_vnc_port ;;
-      8\ *) do_set_external_app 1 ;;
-      9\ *) do_set_external_app 2 ;;
-      10\ *) do_set_external_app 3 ;;
-      11\ *) do_set_external_app 4 ;;
-      12\ *) do_set_external_app 5 ;;
-      13\ *) do_set_external_app 6 ;;
-      14\ *) do_set_compass_offset ;;
-      15\ *) do_set_compass_roll_offset ;;
-      16\ *) do_set_depth_warning ;;
-      17\ *) do_set_wessel_draft ;;
-      18\ *) do_set_voltage_warning ;;
-      19\ *) do_set_current_warning ;;
-      20\ *) do_set_audio_device ;;
-      21\ *) do_set_camera_url ;;
-      22\ *) do_raspi_config ;;
+      8\ *) do_set_gui_style ;;
+      9\ *) do_set_external_app 1 ;;
+      10\ *) do_set_external_app 2 ;;
+      11\ *) do_set_external_app 3 ;;
+      12\ *) do_set_external_app 4 ;;
+      13\ *) do_set_external_app 5 ;;
+      14\ *) do_set_external_app 6 ;;
+      15\ *) do_set_compass_offset ;;
+      16\ *) do_set_compass_roll_offset ;;
+      17\ *) do_set_depth_warning ;;
+      18\ *) do_set_wessel_draft ;;
+      19\ *) do_set_voltage_warning ;;
+      20\ *) do_set_current_warning ;;
+      21\ *) do_set_audio_device ;;
+      22\ *) do_set_camera_url ;;
+      23\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi
