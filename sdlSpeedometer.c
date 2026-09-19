@@ -1623,6 +1623,13 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect rsaMbarR       = {590,370,18,18};
     SDL_Rect rsaIbarR       = {452,370,292,15};
 
+    SDL_Rect slider = {
+        (SWINDOW_WIDTH_BR - SLIDER_WIDTH_BR) / 2,
+        (SWINDOW_HEIGHT_BR - SLIDER_HEIGHT_BR) / 2,
+        SLIDER_WIDTH_BR,
+        SLIDER_HEIGHT_BR
+    };
+
     float t_angle = 0;
     float angle = 0;
     float t_angle_a = 0;
@@ -1635,6 +1642,12 @@ static int doCompass(sdl2_app *sdlApp)
     float dynUpd;
 
     const float offset = 131; // For scale
+
+    int dragging = 0;
+    int hideBrBar = 30;
+
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
 
     while (1) {
         int boxItem = 0;
@@ -1651,8 +1664,12 @@ static int doCompass(sdl2_app *sdlApp)
         time_t ct;
 
         int doBreak = 0;
+
+        ct = time(NULL);    // Get a timestamp for this turn
         
         while (SDL_PollEvent(&e)) {
+
+            static int last_ct;
 
             if (e.type == SDL_QUIT) {
                 doBreak = 1;
@@ -1662,7 +1679,26 @@ static int doCompass(sdl2_app *sdlApp)
             if (checkConsole(e, sdlApp))
                 break;
 
-            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+
+            if (e.type == SDL_MOUSEMOTION && dragging) {
+
+                SDL_Point p = (SDL_Point){e.motion.x/sdlApp->conf->scale, e.motion.y/sdlApp->conf->scale};
+
+                if (SDL_PointInRect(&p, &slider)) {
+                        int mouseY = p.y;
+
+                        float rel = (float)(slider.y + slider.h - mouseY) / slider.h;
+
+                        if (rel < 0.0f) rel = 0.0f;
+                        if (rel > 1.0f) rel = 1.0f;
+
+                        sdlApp->conf->br_percent = rel;
+                        hideBrBar=40;
+                    }
+            }
+
+
+            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_FINGERMOTION)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
@@ -1673,13 +1709,34 @@ static int doCompass(sdl2_app *sdlApp)
                     }
                     break;
                 }
+
+                SDL_Point p;
+                int x, y;
+                if (e.type == SDL_FINGERDOWN) {
+                    x = e.tfinger.x* win_w;
+                    y = e.tfinger.y* win_h;
+                    p = (SDL_Point){ x, y };
+                } else {
+                    p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
+                }
+
+                if ( ct-1 > last_ct) {
+                    last_ct = ct;
+                    hideBrBar=40;
+                }
+
+                if (SDL_PointInRect(&p, &slider)) {
+                    dragging = 1;
+                }
             }
         }
+
+        if (e.type == SDL_MOUSEBUTTONUP)
+            dragging = 0;
 
         if (doBreak == 1) break;
 
         SDL_LockMutex(sdlApp->conf->nm_mutex);
-        ct = time(NULL);    // Get a timestamp for this turn 
 
         if (!(ct - cnmea.rmc_nme_ts > S_TIMEOUT)) {
             // Set system UTC time
@@ -1853,6 +1910,57 @@ static int doCompass(sdl2_app *sdlApp)
 
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
             SDL_RenderDrawRect(sdlApp->renderer, &rsaMbarR);
+        }
+
+
+        if (--hideBrBar > 0) {
+
+            slider.x = SLIDER_WIDTH_BR;
+            slider.w = SLIDER_WIDTH_BR;
+            slider.h = SLIDER_HEIGHT_BR;
+
+            slider.y = win_h - SLIDER_HEIGHT_BR - (int)(win_h * 0.28);
+
+            /* Slider background */
+            SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &slider);
+
+            /* Filled portion */
+            SDL_Rect fill = slider;
+            fill.h = (int)(slider.h * sdlApp->conf->br_percent);
+            fill.y = slider.y + (slider.h - fill.h);
+
+            /* Slider foreground green to red */
+            SDL_SetRenderDrawColor(sdlApp->renderer, (Uint8)(sdlApp->conf->br_percent * 200.0f), 200-(Uint8)(sdlApp->conf->br_percent * 150.0f), 0, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &fill);
+
+            /* Render volume text */
+            char text[16];
+            int percent_display = (int)(sdlApp->conf->br_percent * 100.0f);
+            snprintf(text, sizeof(text), "%d%%", percent_display);
+
+            SDL_Color black = {0, 0, 0, 255};
+            SDL_Surface *surface = TTF_RenderText_Blended(fontSrc, text, black);
+
+            SDL_Texture *texture = SDL_CreateTextureFromSurface(sdlApp->renderer, surface);
+
+            SDL_Rect textRect;
+            textRect.w = surface->w;
+            textRect.h = surface->h;
+            textRect.x = slider.x -4;
+            textRect.y = slider.y - 20;
+            SDL_RenderCopy(sdlApp->renderer, texture, NULL, &textRect);
+
+            SDL_FreeSurface(surface);
+            SDL_DestroyTexture(texture);
+        }
+
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * slider.h);
+        if (br < 40) br = 0;
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
         }
 
         SDL_RenderPresent(sdlApp->renderer);
@@ -2112,6 +2220,15 @@ static int doSumlog(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
+        }
+
         SDL_RenderPresent(sdlApp->renderer); 
 
         // Reduce CPU load if only short scale movements
@@ -2353,6 +2470,15 @@ static int doGps(sdl2_app *sdlApp)
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
@@ -2833,6 +2959,15 @@ static int doDepth(sdl2_app *sdlApp)
             }
         }
 
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
+        }
+
         SDL_RenderPresent(sdlApp->renderer);
 
         if (!sdlApp->plotMode) {
@@ -3119,6 +3254,15 @@ static int doWind(sdl2_app *sdlApp)
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
         }
 
         SDL_RenderPresent(sdlApp->renderer);
@@ -3696,6 +3840,15 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         }
 
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
+        }
+
         SDL_RenderPresent(sdlApp->renderer);
  
         if (!dragging) {
@@ -4201,6 +4354,15 @@ static int doCamera(sdl2_app *sdlApp)
                             }
                             draw_textc(sdlApp->renderer,fontCog,msg_dbt,win_w-120, (y+=20), c);
                         }
+                    }
+
+                    int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+                    if (br < 40) br = 0;
+
+                    if (br) {
+                        SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+                        SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+                        SDL_RenderFillRect(sdlApp->renderer, NULL);
                     }
 
                     SDL_RenderPresent(sdlApp->renderer);
@@ -4795,6 +4957,15 @@ static int doVideoCapture(sdl2_app *sdlApp)
             }
         }
 
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
+        }
+
         SDL_RenderPresent(sdlApp->renderer);
     }
 
@@ -4970,6 +5141,15 @@ static int doVideo(sdl2_app *sdlApp)
         if (selected) {
             SDL_RenderDrawRect(sdlApp->renderer,&commit);
             SDL_RenderCopy(sdlApp->renderer,commit_text,NULL,&commit_text_rect);
+        }
+
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
         }
 
         SDL_RenderPresent(sdlApp->renderer);
@@ -5957,6 +6137,7 @@ int main(int argc, char *argv[])
     configParams.scale = DEFAULT_SCREEN_SCALE;
 
     configParams.style  = 1;
+    configParams.br_percent = 1;
 
     configParams.runSer = configParams.runi2c = configParams.runNet = 1;
         

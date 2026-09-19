@@ -8,7 +8,7 @@
 #include <alsa/asoundlib.h>
 
 // Dendent on project  https://github.com/ehedman/flowSensor
-#define DIGIFLOW
+//#define DIGIFLOW
 
 
 // Volume slider
@@ -17,6 +17,13 @@
 #define SLIDER_WIDTH 20
 #define SLIDER_HEIGHT 300
 #define RIGHT_MARGIN 20
+
+// Brightness slider
+#define SWINDOW_WIDTH_BR 20
+#define SWINDOW_HEIGHT_BR 200
+#define SLIDER_WIDTH_BR 20
+#define SLIDER_HEIGHT_BR 200
+#define BR_LOW_BR 235
 
 // Power plot
 #define PWINDOW_W 700
@@ -77,6 +84,7 @@ typedef struct {
     float scale;
     char ssize[50];
     int style;
+    float br_percent;
     int window_w;
     int window_h;
     int vncClients;
