@@ -1085,23 +1085,18 @@ static int nmeaNetCollector(void* conf)
 }
 
 /*
-- x, y: upper left corner.
-- texture, rect: outputs.
+- x, y: start position (either left corner or right corner, depending on alignment).
+- l: alignment control. If l > 0, left-aligned with fixed width compensation.
 */
 inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, const char *text,
         TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) 
 {
-    int text_width = 0;
-    int text_height = 0;
-    int f_width = 0;
-    int f_height = 0;
-    SDL_Surface *surface;
-    SDL_Color textColor;
-
-    if (text == NULL || !strlen(text))
+    if (text == NULL || text[0] == '\0') {
+        *texture = NULL;
         return;
+    }
 
-    textColor.a = 255;
+    SDL_Color textColor = {0, 0, 0, 255}; // Standard black
 
     switch (color)
     {
@@ -1111,17 +1106,11 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
         case GREEN: textColor.r = 0; textColor.g = 255; textColor.b = 0; break;
     }
 
-    if (color == WHITE || color == RED || color == GREEN) {
-        SDL_Color textColorB;
-        textColorB.r = 0; textColorB.g = 0;  textColorB.b = 0;  textColorB.a = 0;
-        if ((surface = TTF_RenderUTF8_LCD(font,text, textColor, textColorB)) != NULL) {
-            Uint32 colorkey = SDL_MapRGB(surface->format, 0, 0, 0);
-            SDL_SetColorKey(surface, SDL_TRUE, colorkey);
-        }
-    } else {
-      surface = TTF_RenderText_Solid(font, text, textColor);
+    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text, textColor);
+    if (surface == NULL) {
+        *texture = NULL;
+        return;
     }
-    if (surface == NULL) return;
 
     *texture = SDL_CreateTextureFromSurface(renderer, surface);
     if (*texture == NULL) {
@@ -1129,21 +1118,32 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
         return;
     }
 
-    text_width = surface->w;
-    text_height = surface->h;
+    // Enable alpha blending on the texture so that the soft edges blend into the background.
+    SDL_SetTextureBlendMode(*texture, SDL_BLENDMODE_BLEND);
+
+    rect->w = surface->w;
+    rect->h = surface->h;
+    rect->y = y;
+
     SDL_FreeSurface(surface);
 
-    // Get the width of one ch of the font used
-    TTF_SizeText(font,"0", &f_width, &f_height);
+    if (l == -1) {
+        // RIGHT ALIGNMENT: 'x' is the point where the text should end.
+        rect->x = x - rect->w;
+    }
+    else if (l > 1) {
+        // Dynamic centering/alignment based on the actual width of the typeface.
+        int total_font_width = 0;
+        int total_font_height = 0;
 
-    if (l >1)
-        rect->x = x + abs((strlen(text)-l))*f_width/2;  // Align towards (l)
-    else
-       rect->x = x;
-
-    rect->y = y;
-    rect->w = text_width;
-    rect->h = text_height;
+        // Calculate exactly how wide the string "0" (or the entire text) actually is in pixels.
+        TTF_SizeText(font, "0", &total_font_width, &total_font_height);
+        rect->x = x + abs((int)strlen(text) - l) * total_font_width / 2;
+    }
+    else {
+        // Standard LEFT ALIGNMENT: 'x' is the starting point.
+        rect->x = x;
+    }
 }
 
 inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
@@ -2253,7 +2253,7 @@ static int doGps(sdl2_app *sdlApp)
             sprintf(msg_lat, "----");
             sprintf(msg_lot, "----");
         } else {
-            sprintf(msg_hdm, "%.0f%c",  cnmea.hdm, 0xb0);
+            sprintf(msg_hdm, "%.0f%s",  cnmea.hdm, "\u00B0");
             sprintf(msg_lat, "%.4f%s", dms2dd(atof(cnmea.gll),"m"), cnmea.glns);
             sprintf(msg_lot, "%.4f%s", dms2dd(atof(cnmea.glo),"m"), cnmea.glne);
             if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
@@ -2294,7 +2294,7 @@ static int doGps(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeGps, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 190, 142, 3, msg_hdm, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 290, 142, -1, msg_hdm, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         get_text_and_rect(sdlApp->renderer, 290, 168, 1, msg_src, fontMG, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
@@ -2992,7 +2992,7 @@ static int doWind(sdl2_app *sdlApp)
         if (ct - cnmea.vwr_ts > S_TIMEOUT)
             sprintf(msg_vwra, "----");
         else {
-            sprintf(msg_vwra, " %.0f%c", cnmea.vwra, 0xb0);
+            sprintf(msg_vwra, " %.0f%s", cnmea.vwra, "\u00B0");
         }
 
         // True wind speed
@@ -5502,6 +5502,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "Couldn't initialize SDL. Video driver %s!", SDL_GetError());
             return SDL_QUIT;
         }
+
+		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 
         if ((sdlApp->conf->nm_mutex = SDL_CreateMutex()) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex nm_mutex failed: %s", SDL_GetError());
