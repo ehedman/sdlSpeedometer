@@ -1915,11 +1915,11 @@ static int doCompass(sdl2_app *sdlApp)
 
         if (--hideBrBar > 0) {
 
-            slider.x = SLIDER_WIDTH_BR;
+            slider.x = win_w - SLIDER_WIDTH_BR - RIGHT_MARGIN_BR;
             slider.w = SLIDER_WIDTH_BR;
             slider.h = SLIDER_HEIGHT_BR;
 
-            slider.y = win_h - SLIDER_HEIGHT_BR - (int)(win_h * 0.28);
+            slider.y = win_h - SLIDER_HEIGHT_BR - (int)(win_h * 0.32);
 
             /* Slider background */
             SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
@@ -3023,8 +3023,8 @@ static int doWind(sdl2_app *sdlApp)
 
     SDL_Texture* gaugeWind;
     SDL_Texture* textBox;
-    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wa.png");
-    SDL_Texture* gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wt.png");
+    SDL_Texture* gaugeNeedleApp;
+    SDL_Texture* gaugeNeedleTrue;
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -3038,9 +3038,13 @@ static int doWind(sdl2_app *sdlApp)
     if (sdlApp->conf->style == 0) {
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
         gaugeWind = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
+        gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
+        gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-black.png");
     } else {
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
         gaugeWind = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind-flat.png");
+        gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wa.png");
+        gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wt.png");
     }
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {

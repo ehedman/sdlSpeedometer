@@ -23,6 +23,7 @@
 #define SWINDOW_HEIGHT_BR 200
 #define SLIDER_WIDTH_BR 20
 #define SLIDER_HEIGHT_BR 200
+#define RIGHT_MARGIN_BR 13
 #define BR_LOW_BR 235
 
 // Power plot
