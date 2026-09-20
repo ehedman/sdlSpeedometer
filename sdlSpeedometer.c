@@ -3023,8 +3023,8 @@ static int doWind(sdl2_app *sdlApp)
 
     SDL_Texture* gaugeWind;
     SDL_Texture* textBox;
-    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
-    SDL_Texture* gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-black.png");
+    SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wa.png");
+    SDL_Texture* gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wt.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -3190,11 +3190,14 @@ static int doWind(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeWind, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) {
+            SDL_SetTextureBlendMode(gaugeNeedleTrue, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureAlphaMod(gaugeNeedleTrue, 230);
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleTrue, NULL, &needleR, t_angle_t, NULL, SDL_FLIP_NONE);
+        }
+
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle_a, NULL, SDL_FLIP_NONE);
-
-        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) 
-            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleTrue, NULL, &needleR, t_angle_t, NULL, SDL_FLIP_NONE);
 
         get_text_and_rect(sdlApp->renderer, 208, 130, 0, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -5366,6 +5369,15 @@ static int doWater(sdl2_app *sdlApp)
         if (boxItem) {
             textBoxR.h = boxItem*50 +30;
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+        }
+
+        int br = BR_LOW_BR - (sdlApp->conf->br_percent * SLIDER_HEIGHT_BR);
+        if (br < 40) br = 0;
+
+        if (br) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 20, 25, 65, br);
+            SDL_RenderFillRect(sdlApp->renderer, NULL);
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
