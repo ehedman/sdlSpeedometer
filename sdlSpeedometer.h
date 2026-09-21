@@ -201,6 +201,10 @@ typedef struct {
     time_t  vwt_ts;     // True wind data Timestamp
     int     vwrd;       // Right or Left Heading
     float   vwrs;       // Relative wind speed knots
+    float   wsAcc[90];  // Accumulated wind speed
+    int     wsAccIndx;  // Acc indx
+    int     wsAccRdy;   // Acc indx full
+    int     wsAccDur;   // Round trip duration
     float   vwts;       // True wind speed
     char    gll[40];    // Position Latitude
     time_t  gll_ts;     // Position Timestamp
