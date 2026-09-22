@@ -181,6 +181,10 @@ typedef struct {
     int     rmc_tm_set; // time isset ?
     time_t  rmc_ts;     // RMC Timestamp
     time_t  rmc_nme_ts; // Got RMC
+    float   sogAcc[90]; // Accumulated speed over ground
+    int     sogAccIndx; // Acc indx
+    int     sogAccRdy;  // Acc indx full
+    int     sogAccDur;  // Round trip duration
     float   roll;       // Vessel roll (non NMEA)
     time_t  roll_i2cts; // Roll timestamp
     float   stw;        // Speed of vessel relative to the water (Knots)

@@ -491,7 +491,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 {
     float hdm;
     time_t ts = time(NULL);    // Get a timestamp for this turn
-    static time_t lastTs, lastDur;
+    static time_t wlastTs, wlastDur, slastTs, slastDur;
     static int hasGPENV;
 
     if (nmeaChecksum(nmeastr_p1, nmeastr_p2, cnt)) {
@@ -499,7 +499,8 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         return;
     }
 
-    if (!lastDur) lastDur=ts;
+    if (!wlastDur) wlastDur=ts;
+    if (!slastDur) slastDur=ts;
 
     // RMC - Recommended minimum specific GPS/Transit data
     if (NMPARSE(nmeastr_p1, "RMC")) {
@@ -509,6 +510,17 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             if ((hdm=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
                 cnmea.hdm=hdm;
                 cnmea.hdm_ts = ts;
+            }
+
+            if (cnmea.sogAccIndx < sizeof(cnmea.sogAcc)/sizeof(float) && slastTs+2 < ts) {
+                cnmea.sogAcc[cnmea.sogAccIndx++] = cnmea.rmc;
+                slastTs = ts;
+                if (cnmea.sogAccIndx >= sizeof(cnmea.sogAcc)/sizeof(float)) {
+                    cnmea.sogAccRdy = 1;
+                    cnmea.sogAccIndx = 0;
+                    cnmea.sogAccDur=ts-slastDur;
+                    slastDur=0;
+                }
             }
         }
         strcpy(cnmea.gll, getf(3, nmeastr_p1));
@@ -628,14 +640,14 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             cnmea.vwra=atof(getf(1, nmeastr_p1));
             cnmea.vwrs=atof(getf(3, nmeastr_p1));
 
-            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(float) && lastTs+2 < ts) {
+            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(float) && wlastTs+2 < ts) {
                 cnmea.wsAcc[cnmea.wsAccIndx++] = cnmea.vwrs;
-                lastTs = ts;
+                wlastTs = ts;
                 if (cnmea.wsAccIndx >= sizeof(cnmea.wsAcc)/sizeof(float)) {
                     cnmea.wsAccRdy = 1;
                     cnmea.wsAccIndx = 0;
-                    cnmea.wsAccDur=ts-lastDur;
-                    lastDur=0;
+                    cnmea.wsAccDur=ts-wlastDur;
+                    wlastDur=0;
                 }
             }
 
@@ -665,14 +677,14 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
             cnmea.vwr_ts = ts;
 
-            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(float) && lastTs+2 < ts) {
+            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(float) && wlastTs+2 < ts) {
                 cnmea.wsAcc[cnmea.wsAccIndx++] = cnmea.vwrs;
-                lastTs = ts;
+                wlastTs = ts;
                 if (cnmea.wsAccIndx >= sizeof(cnmea.wsAcc)/sizeof(float)) {
                     cnmea.wsAccRdy = 1;
                     cnmea.wsAccIndx = 0;
-                    cnmea.wsAccDur=ts-lastDur;
-                    lastDur=0;
+                    cnmea.wsAccDur=ts-wlastDur;
+                    wlastDur=0;
                 }
             }
 
@@ -2093,6 +2105,7 @@ static int doSumlog(sdl2_app *sdlApp)
         char msg_mtw[40] = { "" };
         char msg_hdm[40] = { "" };
         char msg_tod[40] = { "" };
+        char msg_spd[40] = { "" };
         time_t ct;
 
         float speed, wspeed;
@@ -2102,6 +2115,9 @@ static int doSumlog(sdl2_app *sdlApp)
         const float minangle = 13;  // Scale start
         const float maxangle = 237; // Scale end
         const float maxspeed = 10;
+
+        float sogAvrg = 0;
+        float sogHigh = 0;
 
         int doBreak = 0;
         
@@ -2136,6 +2152,22 @@ static int doSumlog(sdl2_app *sdlApp)
 
         ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
+
+        // Collect accumulated speed data
+        if (cnmea.sogAccRdy && cnmea.sogAccDur >=60) {
+            for (size_t i=0; i < sizeof(cnmea.sogAcc)/sizeof(float); i++) {
+                sogAvrg += cnmea.sogAcc[i];
+                if (cnmea.sogAcc[i] > sogHigh)
+                    sogHigh = cnmea.sogAcc[i];
+            }
+
+            if (ct -  cnmea.rmc_ts > 30) { // time out, reset all.
+                cnmea.sogAccRdy = cnmea.sogAccIndx = cnmea.sogAccDur = 0;
+                memset(cnmea.sogAcc, 0, sizeof(cnmea.sogAcc));
+            } else {
+                sprintf(msg_spd, "%d min AVGSOG=%.1f : TOPSOG=%.1f", cnmea.sogAccDur/60, (sogAvrg/(sizeof(cnmea.sogAcc)/sizeof(float))), sogHigh);
+            }
+        }
 
         // VHW - Water speed and Heading
          if (ct - cnmea.stw_ts > S_TIMEOUT) {
@@ -2210,6 +2242,11 @@ static int doSumlog(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
+
+        if (cnmea.sogAccRdy) {
+            get_text_and_rect(sdlApp->renderer, 270, 356, 4, msg_spd, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -3159,7 +3196,13 @@ static int doWind(sdl2_app *sdlApp)
                 if (cnmea.wsAcc[i] > windHigh)
                     windHigh = cnmea.wsAcc[i];
             }
-            sprintf(msg_wav, "%d min AVGA=%.1f : TOPA=%.1f", cnmea.wsAccDur/60, (windAvrg/(sizeof(cnmea.wsAcc)/sizeof(float)))*K2MS, windHigh*K2MS);
+
+            if (ct -  cnmea.vwr_ts > 30) { // time out, reset all.
+                cnmea.wsAccRdy = cnmea.wsAccIndx = cnmea.wsAccDur = 0;
+                memset(cnmea.wsAcc, 0, sizeof(cnmea.wsAcc));
+            } else {
+                sprintf(msg_wav, "%d min AVGA=%.1f : TOPA=%.1f", cnmea.wsAccDur/60, (windAvrg/(sizeof(cnmea.wsAcc)/sizeof(float)))*K2MS, windHigh*K2MS);
+            }
         }
 
         // Wind speed and angle (relative)
@@ -3275,7 +3318,7 @@ static int doWind(sdl2_app *sdlApp)
         }
 
         if (cnmea.wsAccRdy) {
-            get_text_and_rect(sdlApp->renderer, 335, 356, 4, msg_wav, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 310, 356, 4, msg_wav, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
