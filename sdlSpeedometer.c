@@ -3089,6 +3089,7 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Texture* textBox;
     SDL_Texture* gaugeNeedleApp;
     SDL_Texture* gaugeNeedleTrue;
+    SDL_Texture* gaugeNeedleRudder = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rudder.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -3152,6 +3153,7 @@ static int doWind(sdl2_app *sdlApp)
         char msg_rmc[40] = { "" };
         char msg_tod[40] = { "" };
         char msg_wav[40] = { "" };
+        char msg_rsa[40] = { "" };
         time_t ct;
         int doBreak = 0;
         float windHigh = 0;
@@ -3239,6 +3241,10 @@ static int doWind(sdl2_app *sdlApp)
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
+        // RSA - Rudder angle
+        if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
+            sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
+
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         angle_a = cnmea.vwra; // 0-180
@@ -3317,6 +3323,13 @@ static int doWind(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
+        if (!(ct - cnmea.rsa_ts > S_TIMEOUT) && sdlApp->conf->style == 1) {
+            float invRsa = cnmea.rsa * -1.0f;
+            SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleRudder, NULL, &needleR, invRsa, NULL, SDL_FLIP_NONE);
+            get_text_and_rect(sdlApp->renderer, 215, 230, 4, msg_rsa, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
+
         if (cnmea.wsAccRdy) {
             get_text_and_rect(sdlApp->renderer, 310, 356, 4, msg_wav, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -3380,6 +3393,7 @@ static int doWind(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeWind);
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(gaugeNeedleTrue);
+    SDL_DestroyTexture(gaugeNeedleRudder);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);

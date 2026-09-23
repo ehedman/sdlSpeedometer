@@ -158,6 +158,14 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 [An Open Source Yacht Glass Cockpit](https://github.com/ehedman/websocketNmea)
 
 ### Screenshots
+- Modern Flat GUI style examples
+<img src="https://hedmanshome.se/sdlspeedometer29.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer30.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer35.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer36.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer32.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer33.png" width=100%>
+- Legacy 3D style
 <img src="https://hedmanshome.se/sdlspeedometer20.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer21.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer22.png" width=100%>
@@ -170,9 +178,4 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 <img src="https://hedmanshome.se/sdlspeedometer11.png" width=100%>
 - sdlSpeedometers' configurator
 <img src="https://hedmanshome.se/sdlspeedometer28.png" width=100%>
-- Modern Flat GUI style examples
-<img src="https://hedmanshome.se/sdlspeedometer29.png" width=100%>
-<img src="https://hedmanshome.se/sdlspeedometer30.png" width=100%>
-<img src="https://hedmanshome.se/sdlspeedometer34.png" width=100%>
-<img src="https://hedmanshome.se/sdlspeedometer32.png" width=100%>
-<img src="https://hedmanshome.se/sdlspeedometer33.png" width=100%>
+

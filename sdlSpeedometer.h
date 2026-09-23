@@ -8,7 +8,7 @@
 #include <alsa/asoundlib.h>
 
 // Dendent on project  https://github.com/ehedman/flowSensor
-//#define DIGIFLOW
+#//define DIGIFLOW
 
 
 // Volume slider
