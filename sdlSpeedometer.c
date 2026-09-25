@@ -3292,7 +3292,7 @@ static int doWind(sdl2_app *sdlApp)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle_a, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 208, 130, 0, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 268, 130, -1, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
