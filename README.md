@@ -1,7 +1,7 @@
 # sdlSpeedometer
 README Sept-2026
 
-The sdlSpeedometer application is a marine instruemnt solution that features electronic instrument displays, typically used on private sailing yachts.
+The sdlSpeedometer application is a marine instrument solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments in a 3D gui style or by configuration, a modern flat gui style.
 
 This application is based on the Rasperry Pi and the [Simple DirectMedia Layer - SDL](https://www.libsdl.org/)
@@ -12,7 +12,7 @@ As of February 2026 the Xorg environment is deprecated in favor of a labwc kiosk
 
 The instruments can be accessed one-by-one by a mouse click or directly from the touch screen menu.
 
-The communication mechanism between this application with its GUI and data sources uses two paralell paths:
+The communication mechanism between this application with its GUI and data sources uses two parallel paths:
  - Data collected from a [BerryGPS-IMUv2](http://ozzmaker.com/new-products-berrygps-berrygps-imu) - GPS and 10DOF sensor for The Raspberry Pi - Accelerometer, Gyroscope, Magnetometer and Barometric/Altitude Sensor.
  - Data from an NMEA-0183 network server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
  - Alternatively data from an NMEA-2K (SeatalkNG) to NMEA-0183 USB dongle.
@@ -22,7 +22,7 @@ This instrument can work independently and always provide compass, heading, posi
 Currently there are eight virtual pages with instruments working:
 
     Compass       : With heading, roll and rudder angle from NMEA-net and/or from BerryGPS-IMUv2
-    GPS           : Lo, Lat and Heading from NMEA-net and/or from BerryGPS-IMUv2
+    GPS           : Lo, Lat, Heading, course over ground, drift a graphical Vector Triangle showing current Set, Drift, and Drift Angle (CRX).
     Log           : SOW, SOG from NMEA-net
     Wind          : Real, Relative and speed from NMEA-net
     Depth         : With low water warning and water temp from NMEA-net and a depth plotting screen.

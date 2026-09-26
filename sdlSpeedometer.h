@@ -8,7 +8,7 @@
 #include <alsa/asoundlib.h>
 
 // Dendent on project  https://github.com/ehedman/flowSensor
-#//define DIGIFLOW
+//#define DIGIFLOW
 
 
 // Volume slider
@@ -63,10 +63,10 @@ typedef struct {
     int magXmin;
     int magYmin;
     int magZmin;
-    float declval;
+    double declval;
     int coffset;
-    float roffset;
-    float depthw;
+    double roffset;
+    double depthw;
 } calibration;
 
 typedef struct {
@@ -82,10 +82,10 @@ typedef struct {
     char server[100];
     int useWm;
     SDL_Surface* vncPixelBuffer;
-    float scale;
+    double scale;
     char ssize[50];
     int style;
-    float br_percent;
+    double br_percent;
     int window_w;
     int window_h;
     int vncClients;
@@ -145,9 +145,9 @@ typedef struct {
 
 typedef struct {
     int run;
-    float latitude;
-    float longitude;
-    float declination;
+    double latitude;
+    double longitude;
+    double declination;
     char progress[200];
     int i2cFile;
 } calRunner;
@@ -162,54 +162,56 @@ typedef struct {
 
 
 typedef struct {
-    float depthw;
-    float draftw;
-    float lowvoltw;
-    float highcurrw;
+    double depthw;
+    double draftw;
+    double lowvoltw;
+    double highcurrw;
 } warnings;
 
 extern int i2cinit(int bus);
-extern float i2cReadHdm(int file, calibration *calib);
-extern float i2cReadRoll(int file, int dt, calibration *calib);
+extern double i2cReadHdm(int file, calibration *calib);
+extern double i2cReadRoll(int file, int dt, calibration *calib);
 extern void i2creadMAG(int  m[], int file);
 
 typedef struct {
     // Dynamic data from NMEA server
-    float   rmc;        // RMC (Speed Over Ground) in knots
+    double   rmc;        // RMC (Speed Over Ground) in knots
     char    time[20];   // UTC Time
     char    date[20];   // Date
     int     rmc_tm_set; // time isset ?
     time_t  rmc_ts;     // RMC Timestamp
     time_t  rmc_nme_ts; // Got RMC
-    float   sogAcc[90]; // Accumulated speed over ground
+    double   sogAcc[90]; // Accumulated speed over ground
     int     sogAccIndx; // Acc indx
     int     sogAccRdy;  // Acc indx full
     int     sogAccDur;  // Round trip duration
-    float   roll;       // Vessel roll (non NMEA)
-    time_t  roll_i2cts; // Roll timestamp
-    float   stw;        // Speed of vessel relative to the water (Knots)
+    double   heel;       // Vessel heel (non NMEA)
+    time_t  heel_i2cts; // Heel timestamp
+    double   stw;        // Speed of vessel relative to the water (Knots)
     time_t  stw_ts;     // STW Timestamp
-    float   dbt;        // Depth in meters
+    double   dbt;        // Depth in meters
     time_t  dbt_ts;     // DBT Timestamp
-    float   mtw;        // Water temperature
+    double   mtw;        // Water temperature
     time_t  mtw_ts;     // Water temperature Timestamp
-    float   hdm;        // Heading
-    time_t  hdm_ts;     // HDM Timestamp (nmea)
-    float   rsa;        // Rudder angle
+    double   hdg;        // Heading
+    time_t  hdg_ts;     // HDM Timestamp (nmea)
+    double   cog;        // Course  over ground
+    time_t  cog_ts;     // HDM Timestamp (nmea)
+    double   rsa;        // Rudder angle
     time_t  rsa_ts;     // Rudder angle Timestamp
     time_t  hdm_i2cts;  // HDM Timestamp (i2c)
-    time_t  xdr_ts;     // Wessel roll Timestamp
-    float   vwra;       // Relative wind angle (0-180)
-    float   vwta;       // True wind angle
+    time_t  xdr_ts;     // Wessel heel Timestamp
+    double   vwra;       // Relative wind angle (0-180)
+    double   vwta;       // True wind angle
     time_t  vwr_ts;     // Wind data Timestamp
     time_t  vwt_ts;     // True wind data Timestamp
     int     vwrd;       // Right or Left Heading
-    float   vwrs;       // Relative wind speed knots
-    float   wsAcc[90];  // Accumulated wind speed
+    double   vwrs;       // Relative wind speed knots
+    double   wsAcc[90];  // Accumulated wind speed
     int     wsAccIndx;  // Acc indx
     int     wsAccRdy;   // Acc indx full
     int     wsAccDur;   // Round trip duration
-    float   vwts;       // True wind speed
+    double   vwts;       // True wind speed
     char    gll[40];    // Position Latitude
     time_t  gll_ts;     // Position Timestamp
     char    glo[40];    // Position Longitude
@@ -217,27 +219,27 @@ typedef struct {
     char    glne[2];    // East (E) or West (W)
     time_t  net_ts;     // Data valid from network
     // Sensors $P type messages
-    float   volt;       // Sensor Volt
+    double   volt;       // Sensor Volt
     char    volt_bank[20];  // Batery sensor bank #
     time_t  volt_ts;    // Volt Timestamp
-    float   curr;       // Sensor Current
+    double   curr;       // Sensor Current
     char    curr_bank[20];  // Current sensor bank #
     time_t  curr_ts;    // Current Timestamp
-    float   temp;       // Sensor Temp
+    double   temp;       // Sensor Temp
     char    temp_loc[20];   // Sensor location i.e, indoor ...
     time_t  temp_ts;    // Temp Timestamp
-    float   kWhp;       // Kilowatt hour - charged
-    float   kWhn;       // Kilowatt hour - consumed
+    double   kWhp;       // Kilowatt hour - charged
+    double   kWhn;       // Kilowatt hour - consumed
     time_t  startTime;  // Server's starttime
     // Misc
-    float   declination;  // from NOAA
+    double   declination;  // from NOAA
 #ifdef DIGIFLOW
     time_t  fdate;      // Filter date
-    float   tvol;       // Total consumed volume
-    float   gvol;       // Grand total consumed volume
-    float   tank;       // Tank Volume
+    double   tvol;       // Total consumed volume
+    double   gvol;       // Grand total consumed volume
+    double   tank;       // Tank Volume
     int     tds;        // TDS value
-    float   ttemp;      // Water temp
+    double   ttemp;      // Water temp
 #endif
 } collected_nmea;
 

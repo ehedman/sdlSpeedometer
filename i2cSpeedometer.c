@@ -263,10 +263,10 @@ int i2cinit(int bus)
     return file;
 }
 
-float i2cReadHdm(int file, calibration *calib)
+double i2cReadHdm(int file, calibration *calib)
 {
 
-    static float accXnorm,accYnorm,pitch,roll,magXcomp,magYcomp;
+    static double accXnorm,accYnorm,pitch,roll,magXcomp,magYcomp;
     static int magRaw[3];
     static int accRaw[3];
     static int oldXMagRawValue;
@@ -277,7 +277,7 @@ float i2cReadHdm(int file, calibration *calib)
     static int oldZAccRawValue;
     static int sampleCnt;
 
-    static float heading, curHeading;
+    static double heading, curHeading;
     int result = 0;
 
     if (LSM9DS0 + LSM9DS1 == 0)
@@ -316,10 +316,10 @@ float i2cReadHdm(int file, calibration *calib)
 
 #if 0
      //Apply soft iron calibration
-    static float scaledMag[3];
-    scaledMag[0]  = (float)(magRaw[0] - calib->magXmin) / (calib->magXmax - calib->magXmin) * 2 - 1;
-    scaledMag[1]  = (float)(magRaw[1] - calib->magYmin) / (calib->magYmax - calib->magYmin) * 2 - 1;
-    scaledMag[2]  = (float)(magRaw[2] - calib->magZmin) / (calib->magZmax - calib->magZmin) * 2 - 1;
+    static double scaledMag[3];
+    scaledMag[0]  = (double)(magRaw[0] - calib->magXmin) / (calib->magXmax - calib->magXmin) * 2 - 1;
+    scaledMag[1]  = (double)(magRaw[1] - calib->magYmin) / (calib->magYmax - calib->magYmin) * 2 - 1;
+    scaledMag[2]  = (double)(magRaw[2] - calib->magZmin) / (calib->magZmax - calib->magZmin) * 2 - 1;
 #endif
 
     //If your IMU is upside down, comment out the two lines below which we correct the tilt calculation
@@ -360,21 +360,21 @@ float i2cReadHdm(int file, calibration *calib)
 
 }
 
-float i2cReadRoll(int file, int dt, calibration *calib)
+double i2cReadRoll(int file, int dt, calibration *calib)
 {
     //Each (dt) loop should be at least 20ms.
 
-    static float gyroXangle;
-    static float gyroYangle;
-    static float gyroZangle;
-    static float AccYangle;
-    static float AccXangle;
-    static float CFangleX;
-    static float CFangleY;
+    static double gyroXangle;
+    static double gyroYangle;
+    static double gyroZangle;
+    static double AccYangle;
+    static double AccXangle;
+    static double CFangleX;
+    static double CFangleY;
 
-    static float rate_gyr_y;    // [deg/s]
-    static float rate_gyr_x;    // [deg/s]
-    static float rate_gyr_z;    // [deg/s]
+    static double rate_gyr_y;    // [deg/s]
+    static double rate_gyr_x;    // [deg/s]
+    static double rate_gyr_z;    // [deg/s]
 
     int  acc_raw[3];
     int  gyr_raw[3];
@@ -387,41 +387,41 @@ float i2cReadRoll(int file, int dt, calibration *calib)
     readGYR(gyr_raw, file);
 
     //Convert Gyro raw to degrees per second
-    rate_gyr_x = (float) gyr_raw[0] * G_GAIN;
-    rate_gyr_y = (float) gyr_raw[1]  * G_GAIN;
-    rate_gyr_z = (float) gyr_raw[2]  * G_GAIN;
+    rate_gyr_x = (double) gyr_raw[0] * G_GAIN;
+    rate_gyr_y = (double) gyr_raw[1]  * G_GAIN;
+    rate_gyr_z = (double) gyr_raw[2]  * G_GAIN;
 
     //Calculate the angles from the gyro
-    gyroXangle+=rate_gyr_x*(float)dt/1000;
-    gyroYangle+=rate_gyr_y*(float)dt/1000;
-    gyroZangle+=rate_gyr_z*(float)dt/1000;;
+    gyroXangle+=rate_gyr_x*(double)dt/1000;
+    gyroYangle+=rate_gyr_y*(double)dt/1000;
+    gyroZangle+=rate_gyr_z*(double)dt/1000;;
 
     //Convert Accelerometer values to degrees
-    AccXangle = (float) (atan2(acc_raw[1],acc_raw[2])+M_PI)*RAD_TO_DEG;
-    AccYangle = (float) (atan2(acc_raw[2],acc_raw[0])+M_PI)*RAD_TO_DEG;
+    AccXangle = (double) (atan2(acc_raw[1],acc_raw[2])+M_PI)*RAD_TO_DEG;
+    AccYangle = (double) (atan2(acc_raw[2],acc_raw[0])+M_PI)*RAD_TO_DEG;
 
     //Change the rotation value of the accelerometer to -/+ 180 and move the Y axis '0' point to up.
     //Two different pieces of code are used depending on how your IMU is mounted.
     //If IMU is upside down
     /*
     if (AccXangle >180)
-        AccXangle -= (float)360.0;
+        AccXangle -= (double)360.0;
 
     AccYangle-=90;
     if (AccYangle >180)
-    A    ccYangle -= (float)360.0;
+    A    ccYangle -= (double)360.0;
     */
 
     //If IMU is up the correct way, use these lines
-    AccXangle -= (float)180.0;
+    AccXangle -= (double)180.0;
     if (AccYangle > 90)
-        AccYangle -= (float)270;
+        AccYangle -= (double)270;
     else
-        AccYangle += (float)90;
+        AccYangle += (double)90;
 
     //Complementary filter used to combine the accelerometer and gyro values.
-    CFangleX=AA*(CFangleX+rate_gyr_x*(float)dt/1000) +(1 - AA) * AccXangle;
-    CFangleY=AA*(CFangleY+rate_gyr_y*(float)dt/1000) +(1 - AA) * AccYangle;
+    CFangleX=AA*(CFangleX+rate_gyr_x*(double)dt/1000) +(1 - AA) * AccXangle;
+    CFangleY=AA*(CFangleY+rate_gyr_y*(double)dt/1000) +(1 - AA) * AccYangle;
 
     //printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n",gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
 
