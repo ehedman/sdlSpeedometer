@@ -58,7 +58,7 @@
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
 #define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
-#define TRGPS       2.5     // Min speed to be trusted as real movement from GPS RMC
+#define TRGPS       1.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 #define K2MS        0.5144  // knots 2 ms
 
@@ -159,10 +159,10 @@ static int configureDb(configuration *configParams)
                     }
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT)", -1, &res, &tail);
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s')", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
 printf("%s\n", buf);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
@@ -227,7 +227,7 @@ printf("%s\n", buf);
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl from config", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot from config", -1, &res, &tail);
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
@@ -237,6 +237,7 @@ printf("%s\n", buf);
         configParams->style =         	sqlite3_column_int(res, 5);
         strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 6));
         strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
+		cnmea.logDistT =         		sqlite3_column_double(res, 8);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -543,8 +544,11 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     // RMC - Recommended minimum specific GPS/Transit data
     if (NMPARSE(nmeastr_p1, "RMC")) {
         double cog;
+        struct timespec ct;
+        static time_t lastCt;
+
         cnmea.rmc_nme_ts = ts;
-        if ((cnmea.rmc=atof(getf(7, nmeastr_p1))) >= TRGPS) {   // SOG
+        if ((cnmea.sog=atof(getf(7, nmeastr_p1))) >= TRGPS) {   // SOG
             cnmea.rmc_ts = ts;
             if ((cog=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
                 cnmea.cog=cog;
@@ -552,7 +556,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             }
 
             if (cnmea.sogAccIndx < sizeof(cnmea.sogAcc)/sizeof(double) && slastTs+2 < ts) {
-                cnmea.sogAcc[cnmea.sogAccIndx++] = cnmea.rmc;
+                cnmea.sogAcc[cnmea.sogAccIndx++] = cnmea.sog;
                 slastTs = ts;
                 if (cnmea.sogAccIndx >= sizeof(cnmea.sogAcc)/sizeof(double)) {
                     cnmea.sogAccRdy = 1;
@@ -561,7 +565,73 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                     slastDur=0;
                 }
             }
+
+            // Calculate the trip log
+            clock_gettime(CLOCK_MONOTONIC, &ct);
+
+            // 1. Calculate the time difference (delta t) in seconds since the last loop.
+            double current_time = ct.tv_sec + (ct.tv_nsec / 1000000000.0);
+            double delta_time_seconds = current_time - cnmea.logStart;
+            cnmea.logStart = current_time;
+
+            // 2. Convert seconds to hours (since knots are nautical miles per hour)
+            double delta_time_hours = delta_time_seconds / 3600.0;
+
+            // 3. Calculate distance for this range and add to total 
+            // Distance = Speed * Time
+            double interval_distance = cnmea.sog * delta_time_hours;
+            cnmea.logDist += interval_distance;
+            cnmea.logDistT += interval_distance;
+
+            // 4. Update total nmtot in config row periodically
+            if (difftime(ts, lastCt) > 10.0) {
+				configuration configParams;
+				const char *tail;
+                char sql[200];
+                sqlite3_stmt *res;
+				lastCt = ts;
+
+		        if (sqlite3_open_v2(SQLDBPATH, &configParams.conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
+					SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams.conn));
+					(void)sqlite3_close(configParams.conn);
+					configParams.conn = NULL;
+				} else {
+
+					if (cnmea.logtReset) {
+						cnmea.logDistT = 0.0;
+						cnmea.logtReset = 0;
+					}
+
+					sprintf(sql, "UPDATE config SET nmtot = %.1f WHERE Id = 1", cnmea.logDistT);
+
+					if (sqlite3_prepare_v2(configParams.conn, sql, -1, &res, &tail) == SQLITE_OK) {
+
+					    int step_res = sqlite3_step(res);
+
+                        if (step_res != SQLITE_DONE) {
+                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SQL update failed for TOT-NM: %s", sqlite3_errmsg(configParams.conn));
+                        }
+
+					    (void)sqlite3_finalize(res);
+
+					    int bval = SQLITE_BUSY;
+
+					    while(bval == SQLITE_BUSY) { // make sure ! busy ! db locked
+						    bval = SQLITE_OK;
+						    sqlite3_stmt * res = sqlite3_next_stmt(configParams.conn, NULL);
+						    if (res != NULL) {
+							    bval = sqlite3_finalize(res);
+							    if (bval == SQLITE_OK) {
+								    bval = sqlite3_close(configParams.conn);
+							    }
+						    }
+					    }
+					}
+                    (void)sqlite3_close(configParams.conn);
+				}
+			}
         }
+
         strcpy(cnmea.gll, getf(3, nmeastr_p1));
         strcpy(cnmea.glo, getf(5, nmeastr_p1));
         strcpy(cnmea.glns, getf(4, nmeastr_p1));
@@ -603,7 +673,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
         double hdm;
         if (NMPARSE(nmeastr_p1, "VTG")) {
-            if ((cnmea.rmc=atof(getf(5, nmeastr_p1))) >= TRGPS) {   // SOG
+            if ((cnmea.sog=atof(getf(5, nmeastr_p1))) >= TRGPS) {   // SOG
                 if (src == 1)
                     cnmea.net_ts = cnmea.rmc_ts = ts;
                 else
@@ -709,7 +779,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
        return;
     }
 
-    // VWR - Relative Wind Speed and Angle (obsolete)
+    // VWR - Apparent Wind Speed and Angle (obsolete)
     if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
         if (NMPARSE(nmeastr_p1, "VWR")) {
             cnmea.vwra=atof(getf(1, nmeastr_p1));
@@ -1900,13 +1970,13 @@ static int doCompass(sdl2_app *sdlApp)
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-            sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+            sprintf(msg_sog, "SOG: %.1f", cnmea.sog);
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
 
-        // WND - Relative wind speed in m/s
+        // WND - Apparent wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
@@ -2176,13 +2246,15 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,106,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
-
+	SDL_Rect logResetR      = {186,380,90,20};
+	SDL_Rect logResetRT     = {166,170,130,20};
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
 
+	int boxItems[] = {120,170,220};
     double t_angle = 0;
     double angle = 0;
-    int boxItems[] = {120,170,220};
+
     double dynUpd;
 
     while (1) {
@@ -2190,6 +2262,8 @@ static int doSumlog(sdl2_app *sdlApp)
         sdlApp->textFieldArrIndx = 0;
         char msg_stw[40] = { "" };
         char msg_sog[40] = { "" };
+        char msg_log[40] = { "" };
+        char msg_tlg[40] = { "" };
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_hdg[40] = { "" };
@@ -2198,7 +2272,6 @@ static int doSumlog(sdl2_app *sdlApp)
         time_t ct;
 
         double speed, wspeed;
-        int stw;
 
         // Constants for instrument
         const double minangle = 13;  // Scale start
@@ -2209,6 +2282,8 @@ static int doSumlog(sdl2_app *sdlApp)
         double sogHigh = 0;
 
         int doBreak = 0;
+
+		ct = time(NULL);    // Get a timestamp for this turn
         
         while (SDL_PollEvent(&e)) {
 
@@ -2231,6 +2306,16 @@ static int doSumlog(sdl2_app *sdlApp)
                     }
                     break;
                 }
+
+				SDL_Point p = (SDL_Point){e.button.x, e.button.y};
+
+                if (SDL_PointInRect(&p, &logResetR)) {
+					cnmea.logDist = 0.0;
+                }
+
+				if (SDL_PointInRect(&p, &logResetRT)) {
+					cnmea.logtReset = 1;
+                }
             }
         }
         if (doBreak == 1) break;
@@ -2239,7 +2324,6 @@ static int doSumlog(sdl2_app *sdlApp)
 
         SDL_LockMutex(sdlApp->conf->nm_mutex);
 
-        ct = time(NULL);    // Get a timestamp for this turn
         strftime(msg_tod, sizeof(msg_tod), TIMEDATFMT, localtime(&ct));
 
         // Collect accumulated speed data
@@ -2262,22 +2346,27 @@ static int doSumlog(sdl2_app *sdlApp)
          if (ct - cnmea.stw_ts > S_TIMEOUT) {
             sprintf(msg_stw, "----");
             wspeed = 0.0;
-            stw = 0;
         } else {
             sprintf(msg_stw, "%.2f", cnmea.stw);
             wspeed = cnmea.stw;
-            stw = 1;
+        }
+
+        if (!cnmea.logtReset) {
+		    sprintf(msg_tlg, "TOT LOG:%.1fM", cnmea.logDistT);
+        } else {
+            sprintf(msg_tlg, "TOT LOG: RESET");
         }
 
         // RMC - Recommended minimum specific GPS/Transit data
-        if (ct - cnmea.rmc_ts > S_TIMEOUT)
+        if (ct - cnmea.rmc_ts > S_TIMEOUT) {
             sprintf(msg_sog, "----");
-        else {
-            sprintf(msg_sog, "SOG:%.2f", cnmea.rmc);
+        } else {
+            sprintf(msg_sog, "SOG:%.2f", cnmea.sog);
             if (wspeed == 0.0) {
-                wspeed = cnmea.rmc;
-                sprintf(msg_stw, "%.2f", cnmea.rmc);
+                wspeed = cnmea.sog;
+                sprintf(msg_stw, "%.2f", cnmea.sog);
             }
+			sprintf(msg_log, "LOG:%.1fM", cnmea.logDist);
         }
        
         // Heading
@@ -2288,7 +2377,7 @@ static int doSumlog(sdl2_app *sdlApp)
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
             sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
 
-        // WND - Relative wind speed in m/s
+        // WND - Apparent wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
@@ -2345,10 +2434,16 @@ static int doSumlog(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-         if (stw) {
-            get_text_and_rect(sdlApp->renderer, 186, 366, 8, msg_sog, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);       
+         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+            get_text_and_rect(sdlApp->renderer, 186, 360, 1, msg_sog, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
+
+        get_text_and_rect(sdlApp->renderer, logResetRT.x, logResetRT.y, 1, msg_tlg, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+
+        get_text_and_rect(sdlApp->renderer, logResetR.x, logResetR.y, 1, msg_log, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -2458,6 +2553,7 @@ static int doGps(sdl2_app *sdlApp)
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,106,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
+	SDL_Rect vctGraphR		= {compassR.x+compassR.w/2,compassR.h/2+compassR.y,150,0};
 
     int boxItems[] = {120,170,220,270};
 
@@ -2534,13 +2630,13 @@ static int doGps(sdl2_app *sdlApp)
 
         // RMC SOG - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-            sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+            sprintf(msg_sog, "SOG: %.1f", cnmea.sog);
 
         // VHW - Water speed and Heading
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-        // WND - Relative wind speed in m/s
+        // WND - Apparent wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
@@ -2581,48 +2677,68 @@ static int doGps(sdl2_app *sdlApp)
             SDL_RenderDrawLineThick(renderer, end_x, end_y, arrow_x2, arrow_y2, 3);
         }
 
-            // Drawing the power triangle in a nautical style.
-            void draw_vector_triangle(SDL_Renderer* renderer, int center_x, int center_y, int radius, 
-                                    double hdg, double stw, double cog, double sog, double set, double dft) {
-            
-            // Scaling factor: Determines how many pixels correspond to 1 knot.
-            // We base this on the assumption that the maximum speed (e.g., SOG or STW) should fill approximately 80% of the radius.
-            double max_speed = (stw > sog) ? stw : sog;
-            if (max_speed < 1.0) max_speed = 1.0; // Avoid division by zero
-            double scale = (radius * 0.8) / max_speed;
+        /**
+         * Renders the Vector Triangle (Current Navigation) inside the compass rose.
+         *
+         * This function dynamically draws a Vector Triangle (Current Triangle) to visually
+         * represent the environmental forces acting on the vessel:
+         *
+         * - Heading Vector (Blue): Represents Heading (HDG) and Speed Through Water (STW).
+         *   Shows where the bow is pointing and the boat's speed relative to the water.
+         *
+         * - Current Vector (Red): Represents the Set (SET) and Drift (DFT).
+         *   Displays the direction the current is flowing toward and its speed.
+         *
+         * - Course Vector (Green): The resultant vector representing Course Over Ground (COG)
+         *   and Speed Over Ground (SOG). This is the actual track and speed relative to the earth.
+         *
+         * - Drift Angle (CRX): Displays the angular difference between where the boat is
+         *   heading and where it is actually moving (Heading vs COG) to Port (PRT) or Starboard (STB).
+         */
 
-            //--- 1. PROJECT THE VECTORS ONTO SCREEN COORDINATES ---
-            // Remember: 0° North is straight up (-Y in SDL), East is right (+X).
+        // Drawing the power triangle in a nautical style.
+        void draw_vector_triangle(SDL_Renderer* renderer, int center_x, int center_y, int radius,
+                                double hdg, double stw, double cog, double sog, double set, double dft)
+		{
+	        // Scaling factor: Determines how many pixels correspond to 1 knot.
+	        // We base this on the assumption that the maximum speed (e.g., SOG or STW) should fill approximately 80% of the radius.
+	        double max_speed = (stw > sog) ? stw : sog;
+	        if (max_speed < 1.0) max_speed = 1.0; // Avoid division by zero
+	        double scale = (radius * 0.85) / max_speed;
 
-            // Vattenvektor (HDG & STW) - Startar i centrum
-            double hdg_rad = hdg * (M_PI / 180.0);
-            int water_end_x = center_x + (int)(stw * scale * sin(hdg_rad));
-            int water_end_y = center_y - (int)(stw * scale * cos(hdg_rad)); // Minus pga SDL Y-axel
+	        //--- 1. PROJECT THE VECTORS ONTO SCREEN COORDINATES ---
+	        // Remember: 0° North is straight up (-Y in SDL), East is right (+X).
 
-            // Ground Vector (COG & SOG) – Also starts at the center.
-            double cog_rad = cog * (M_PI / 180.0);
-            int ground_end_x = center_x + (int)(sog * scale * sin(cog_rad));
-            int ground_end_y = center_y - (int)(sog * scale * cos(cog_rad));
+	        // Water vector (HDG & STW) – Starts at the center
+	        double hdg_rad = hdg * (M_PI / 180.0);
+	        int water_end_x = center_x + (int)(stw * scale * sin(hdg_rad));
+	        int water_end_y = center_y - (int)(stw * scale * cos(hdg_rad)); // Minus pga SDL Y-axel
 
-            // --- 2. DRAW THE VECTORS (CURRENT TRIANGLE) ---
+	        // Ground Vector (COG & SOG) – Also starts at the center.
+	        double cog_rad = cog * (M_PI / 180.0);
+	        int ground_end_x = center_x + (int)(sog * scale * sin(cog_rad));
+	        int ground_end_y = center_y - (int)(sog * scale * cos(cog_rad));
 
-            // Blå Vektor: WATER (Heading & Fart genom vattnet)
-            SDL_SetRenderDrawColor(renderer, 52, 152, 219, 255); // Marinblå
-            draw_vector_arrow(renderer, center_x, center_y, water_end_x, water_end_y, 20);
+	        // --- 2. DRAW THE VECTORS (CURRENT TRIANGLE) ---
+			SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
-            // Green Vector: GROUND (COG & SOG over ground)
-            SDL_SetRenderDrawColor(renderer, 46, 204, 113, 255); // Green
-            draw_vector_arrow(renderer, center_x, center_y, ground_end_x, ground_end_y, 20);
+	        // Blue Vector: WATER (Heading & Speed ​​through the water)
+	        SDL_SetRenderDrawColor(renderer, 52, 152, 219, 180); // Blue
+	        draw_vector_arrow(renderer, center_x, center_y, water_end_x, water_end_y, 20);
 
-            // Red vector: SET & DRIFT (Leeway/Current)
-            // This vector connects the end of the water vector to the end of the ground vector.
-            SDL_SetRenderDrawColor(renderer, 231, 76, 60, 255); // Röd
-            draw_vector_arrow(renderer, water_end_x, water_end_y, ground_end_x, ground_end_y, 12);
-            
-            // Draw a small dot in the center of the instrument
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-            SDL_Rect center_dot = { center_x - 2, center_y - 2, 4, 4 };
-            SDL_RenderFillRect(renderer, &center_dot); //
+	        // Green Vector: GROUND (COG & SOG over ground)
+	        SDL_SetRenderDrawColor(renderer, 46, 204, 113, 180); // Green
+	        draw_vector_arrow(renderer, center_x, center_y, ground_end_x, ground_end_y, 20);
+
+	        // Red vector: SET & DRIFT (Leeway/Current)
+	        // This vector connects the end of the water vector to the end of the ground vector.
+	        SDL_SetRenderDrawColor(renderer, 231, 76, 60, 180); // Red
+	        draw_vector_arrow(renderer, water_end_x, water_end_y, ground_end_x, ground_end_y, 12);
+
+	        // Draw a small dot in the center of the instrument
+	        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+	        SDL_Rect center_dot = { center_x - 2, center_y - 2, 4, 4 };
+	        SDL_RenderFillRect(renderer, &center_dot);
         }
 
         typedef struct {
@@ -2633,21 +2749,12 @@ static int doGps(sdl2_app *sdlApp)
         double to_radians(double degrees) { return degrees * (M_PI / 180.0); }
         double to_degrees(double radians) { return radians * (180.0 / M_PI); }
 
-#if 1
-        // Snabbare och säkrare normalisering för 0 till 360
+        // Function to normalize angles to 0–360 degrees
         double normalize_degrees(double deg) {
             deg = fmod(deg, 360.0);
             if (deg < 0.0) deg += 360.0;
             return deg;
         }
-#else
-        // Function to normalize angles to 0–360 degrees
-        double normalize_degrees(double deg) {
-            while (deg < 0.0) deg += 360.0;
-            while (deg >= 360.0) deg -= 360.0;
-            return deg;
-        }
-#endif
 
         Vector2D nav_to_vector(double course_deg, double speed) {
             Vector2D vec;
@@ -2659,7 +2766,7 @@ static int doGps(sdl2_app *sdlApp)
 
         // 1. Vector calculation
         Vector2D v_water  = nav_to_vector(cnmea.hdg, cnmea.stw);
-        Vector2D v_ground = nav_to_vector(cnmea.cog, cnmea.rmc);
+        Vector2D v_ground = nav_to_vector(cnmea.cog, cnmea.sog);
 
         Vector2D v_drift;
         v_drift.x = v_ground.x - v_water.x;
@@ -2679,31 +2786,12 @@ static int doGps(sdl2_app *sdlApp)
 
         // 3. If the difference is too small, we display 0° (no drift)
         if (fabs(leeway) < 0.5) {
-            sprintf(msg_crx, "CRX: 0%s", "\u00B0");
+            sprintf(msg_crx, "CRX: 0%s", "\u00B0 CMG");
         } else {
-            // If COG is greater than HDG, we drift to starboard (STB); otherwise, to port (BB)
+            // If COG is greater than HDG, we drift to starboard (STB); otherwise, to port (PRT)
             // We round to the nearest whole degree (.0f) to match the current display style
-            sprintf(msg_crx, "CRX: %.0f%s %s", fabs(leeway), "\u00B0",(leeway > 0) ? "STB" : "BB");
+            sprintf(msg_crx, "CRX: %.0f%s %s", fabs(leeway), "\u00B0",(leeway > 0) ? "STB" : "PRT");
         }
-
-        /**
-         * @brief Renders the Vector Triangle (Current Navigation) inside the compass rose.
-         *
-         * This function dynamically draws a Vector Triangle (Current Triangle) to visually
-         * represent the environmental forces acting on the vessel:
-         *
-         * - Heading Vector (Blue): Represents Heading (HDG) and Speed Through Water (STW).
-         *   Shows where the bow is pointing and the boat's speed relative to the water.
-         *
-         * - Current Vector (Red): Represents the Set (SET) and Drift (DFT).
-         *   Displays the direction the current is flowing toward and its speed.
-         *
-         * - Course Vector (Green): The resultant vector representing Course Over Ground (COG)
-         *   and Speed Over Ground (SOG). This is the actual track and speed relative to the earth.
-         *
-         * - Drift Angle (CRX): Displays the angular difference between where the boat is 
-         *   heading and where it is actually moving (Heading vs COG) to Port (PRT) or Starboard (STB).
-         */
 
         get_text_and_rect(sdlApp->renderer, 294, 134, -1, msg_cog, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, GREEN);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -2725,34 +2813,35 @@ static int doGps(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
             sprintf(msg_set, "SET: %.0f%s",  set, "\u00B0");
-            get_text_and_rect(sdlApp->renderer, 290, 274, -1, msg_set, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, RED);
+            get_text_and_rect(sdlApp->renderer, 193, 274, 1, msg_set, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, RED);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 166, 298, 1, msg_crx, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 170, 298, 1, msg_crx, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            int win_w, win_h;
-            SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+            draw_vector_triangle(sdlApp->renderer, vctGraphR.x, vctGraphR.y, vctGraphR.w, cnmea.hdg, cnmea.stw, cnmea.cog, cnmea.sog, set, dft);
 
-            draw_vector_triangle(sdlApp->renderer,  240, win_h/2, 150, cnmea.hdg, cnmea.stw, cnmea.cog, cnmea.rmc, set, dft);
-        }
+        } else if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+			get_text_and_rect(sdlApp->renderer, 330, 250, -1, "Uncomplete data", fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, RED);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+		}
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
@@ -2802,7 +2891,7 @@ static int doGps(sdl2_app *sdlApp)
             SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
         } while (sdlApp->textFieldArrIndx-- >0);
 
-        SDL_Delay(200);
+        SDL_Delay(400);
     }
 
     if (subTaskbar != NULL) {
@@ -2957,7 +3046,7 @@ static int doDepth(sdl2_app *sdlApp)
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-             sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
+             sprintf(msg_rmc, "SOG: %.1f", cnmea.sog);
         
         // VHW - Water speed and Heading
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
@@ -2969,7 +3058,7 @@ static int doDepth(sdl2_app *sdlApp)
         else
             sprintf(msg_vwt, "Temp :%.1f", cnmea.mtw);
 
-        // WND - Relative wind speed in m/s
+        // WND - Apparent wind speed in m/s
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
@@ -3454,7 +3543,7 @@ static int doWind(sdl2_app *sdlApp)
             }
         }
 
-        // Wind speed and angle (relative)
+        // Wind speed and angle (apparent)
          if (ct -  cnmea.vwr_ts > S_TIMEOUT || cnmea.vwrs == 0)
             sprintf(msg_vwrs, "----");
         else
@@ -3482,7 +3571,7 @@ static int doWind(sdl2_app *sdlApp)
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-             sprintf(msg_rmc, "SOG: %.1f", cnmea.rmc);
+             sprintf(msg_rmc, "SOG: %.1f", cnmea.sog);
         
         // VHW - Water speed and Heading
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
@@ -4487,13 +4576,13 @@ static int doCamera(sdl2_app *sdlApp)
 
                 // RMC - Recommended minimum specific GPS/Transit data
                 if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-                    sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+                    sprintf(msg_sog, "SOG: %.1f", cnmea.sog);
 
                 // VHW - Water speed and Heading
                  if (!(ct - cnmea.stw_ts > S_TIMEOUT))
                     sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-                // WND - Relative wind speed in m/s
+                // WND - Apparent wind speed in m/s
                 if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
                     sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
@@ -5107,13 +5196,13 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
             // RMC - Recommended minimum specific GPS/Transit data
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
-                sprintf(msg_sog, "SOG: %.1f", cnmea.rmc);
+                sprintf(msg_sog, "SOG: %.1f", cnmea.sog);
 
             // VHW - Water speed and Heading
              if (!(ct - cnmea.stw_ts > S_TIMEOUT))
                 sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-            // WND - Relative wind speed in m/s
+            // WND - Apparent wind speed in m/s
             if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
                 sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
@@ -6488,6 +6577,7 @@ int main(int argc, char *argv[])
     sdl2_app sdlApp;
     char buf[FILENAME_MAX];
     struct stat stats;
+    struct timespec ts;
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
@@ -6496,6 +6586,9 @@ int main(int argc, char *argv[])
 
     cnmea.wsAccRdy = cnmea.wsAccIndx = cnmea.wsAccDur = 0;
     memset(cnmea.wsAcc, 0, sizeof(cnmea.wsAcc));
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+	cnmea.logStart = ts.tv_sec + (ts.tv_nsec / 1000000000.0);
 
     sdlApp.fontPath = DEFAULT_FONT;
 

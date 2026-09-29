@@ -161,6 +161,7 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 - Modern Flat GUI style examples
 <img src="https://hedmanshome.se/sdlspeedometer29.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer30.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer39.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer35.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer38.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer37.png" width=100%>
