@@ -181,37 +181,37 @@ typedef struct {
     int     rmc_tm_set; // time isset ?
     time_t  rmc_ts;     // RMC Timestamp
     time_t  rmc_nme_ts; // Got RMC
-    double   sogAcc[90]; // Accumulated speed over ground
+    double  sogAcc[90]; // Accumulated speed over ground
     int     sogAccIndx; // Acc indx
     int     sogAccRdy;  // Acc indx full
     int     sogAccDur;  // Round trip duration
-    double   heel;      // Vessel heel (non NMEA)
+    double  heel;       // Vessel heel (non NMEA)
     time_t  heel_i2cts; // Heel timestamp
-    double   stw;       // Speed of vessel relative to the water (Knots)
+    double  stw;        // Speed of vessel relative to the water (Knots)
     time_t  stw_ts;     // STW Timestamp
-    double   dbt;       // Depth in meters
+    double  dbt;        // Depth in meters
     time_t  dbt_ts;     // DBT Timestamp
-    double   mtw;       // Water temperature
+    double  mtw;        // Water temperature
     time_t  mtw_ts;     // Water temperature Timestamp
-    double   hdg;       // Heading
+    double  hdg;        // Heading
     time_t  hdg_ts;     // HDM Timestamp (nmea)
-    double   cog;       // Course  over ground
+    double  cog;        // Course  over ground
     time_t  cog_ts;     // HDM Timestamp (nmea)
-    double   rsa;       // Rudder angle
+    double  rsa;        // Rudder angle
     time_t  rsa_ts;     // Rudder angle Timestamp
-    time_t  hdm_i2cts;  // HDM Timestamp (i2c)
+    time_t  hdg_i2cts;  // HDG Timestamp (i2c)
     time_t  xdr_ts;     // Wessel heel Timestamp
-    double   vwra;      // Relative wind angle (0-180)
-    double   vwta;      // True wind angle
+    double  vwra;       // Relative wind angle (0-180)
+    double  vwta;       // True wind angle
     time_t  vwr_ts;     // Wind data Timestamp
     time_t  vwt_ts;     // True wind data Timestamp
     int     vwrd;       // Right or Left Heading
-    double   vwrs;      // Relative wind speed knots
-    double   wsAcc[90];  // Accumulated wind speed
+    double  vwrs;       // Relative wind speed knots
+    double  wsAcc[90];  // Accumulated wind speed
     int     wsAccIndx;  // Acc indx
     int     wsAccRdy;   // Acc indx full
     int     wsAccDur;   // Round trip duration
-    double   vwts;      // True wind speed
+    double  vwts;      // True wind speed
     char    gll[40];    // Position Latitude
     time_t  gll_ts;     // Position Timestamp
     char    glo[40];    // Position Longitude
@@ -219,17 +219,17 @@ typedef struct {
     char    glne[2];    // East (E) or West (W)
     time_t  net_ts;     // Data valid from network
     // Sensors $P type messages
-    double   volt;      // Sensor Volt
+    double  volt;       // Sensor Volt
     char    volt_bank[20];  // Batery sensor bank #
     time_t  volt_ts;    // Volt Timestamp
-    double   curr;      // Sensor Current
+    double  curr;       // Sensor Current
     char    curr_bank[20];  // Current sensor bank #
     time_t  curr_ts;    // Current Timestamp
-    double   temp;      // Sensor Temp
+    double  temp;       // Sensor Temp
     char    temp_loc[20];   // Sensor location i.e, indoor ...
     time_t  temp_ts;    // Temp Timestamp
-    double   kWhp;      // Kilowatt hour - charged
-    double   kWhn;      // Kilowatt hour - consumed
+    double  kWhp;       // Kilowatt hour - charged
+    double  kWhn;       // Kilowatt hour - consumed
     time_t  startTime;  // Server's starttime
 	double	logStart;   // Log start time
 	double	logDist;    // Distance M trip
@@ -239,11 +239,11 @@ typedef struct {
     double   declination;  // from NOAA
 #ifdef DIGIFLOW
     time_t  fdate;      // Filter date
-    double   tvol;      // Total consumed volume
-    double   gvol;      // Grand total consumed volume
-    double   tank;      // Tank Volume
+    double  tvol;       // Total consumed volume
+    double  gvol;       // Grand total consumed volume
+    double  tank;       // Tank Volume
     int     tds;        // TDS value
-    double   ttemp;     // Water temp
+    double  ttemp;      // Water temp
 #endif
 } collected_nmea;
 

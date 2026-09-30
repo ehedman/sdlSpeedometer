@@ -273,7 +273,7 @@ printf("%s\n", buf);
  // Extract an item from an NMEA sentence
 static char *getf(int pos, const char *str)
 {
-    int len=strlen(str);
+    int len=strnlen(str, NMBUFF);
     int i,j,k;
     int npos=0;
     static char out[200];
@@ -669,11 +669,11 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
     }
 
-    // VTG - Track made good and ground speed
+    // VTG - Track made good and ground speed (obsoleted)
     if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
         double hdm;
         if (NMPARSE(nmeastr_p1, "VTG")) {
-            if ((cnmea.sog=atof(getf(5, nmeastr_p1))) >= TRGPS) {   // SOG
+            if ((cnmea.sog=atof(getf(5, nmeastr_p1))) >= TRGPS) { // SOG
                 if (src == 1)
                     cnmea.net_ts = cnmea.rmc_ts = ts;
                 else
@@ -690,11 +690,26 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // HDG - Heading - Deviation and Variation
     if (NMPARSE(nmeastr_p1, "HDG")) {
-        cnmea.hdg=atof(getf(1, nmeastr_p1));
-        cnmea.hdg += atof(getf(4, nmeastr_p1));
+        double raw_hdg = atof(getf(1, nmeastr_p1));
+        double variation = atof(getf(4, nmeastr_p1));
+        const char* var_dir = getf(5, nmeastr_p1); // E or W
+
+        // Correct for magnetic variation (add East, subtract West)
+        if (var_dir != NULL && *var_dir == 'W') {
+            raw_hdg -= variation;
+        } else {
+            raw_hdg += variation; // Default East or no variation
+        }
+
+        // Handle 360-degree wrap-around (so the heading stays within 0.0 – 359.9)
+        if (raw_hdg >= 360.0) raw_hdg -= 360.0;
+        if (raw_hdg < 0.0)    raw_hdg += 360.0;
+
+        cnmea.hdg = raw_hdg;
         cnmea.hdg_ts = ts;
         return;
     }
+
     // HDT - Heading - True (obsoleted)
     if (NMPARSE(nmeastr_p1, "HDT")) {
         cnmea.hdg=atof(getf(1, nmeastr_p1));
@@ -980,7 +995,7 @@ static int i2cCollector(void *conf)
     while(configParams->runi2c)
     {
         time_t ct;
-        double hdm;
+        double hdg;
 
         SDL_Delay(dt);
 
@@ -1047,7 +1062,7 @@ static int i2cCollector(void *conf)
 
         ct = time(NULL);    // Get a timestamp for this turn
 
-        if ((hdm = i2cReadHdm(configParams->i2cFile, &calib)) < 0) {
+        if ((hdg = i2cReadHdm(configParams->i2cFile, &calib)) < 0) {
             if (retry++ > 3) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Too many read errors, giving up i2c now!");
                 break;
@@ -1059,8 +1074,8 @@ static int i2cCollector(void *conf)
 
         // Take over if no NMEA
         if (ct - cnmea.hdg_ts > S_TIMEOUT) {
-            cnmea.hdg = hdm;
-            cnmea.hdm_i2cts = ct;
+            cnmea.hdg = hdg;
+            cnmea.hdg_i2cts = ct;
         }
     }
 
@@ -1707,42 +1722,6 @@ static int checkConsole(SDL_Event e, sdl2_app *sdlApp)
     return 0;
 }
 
-// Replacement for SDL_RenderDrawLine that supports arbitrary thickness
-static void SDL_RenderDrawLineThick(SDL_Renderer* renderer, double x1, double y1, double x2, double y2, double thickness) {
-    // 1. Calculate the angle and direction of the line
-    double dx = x2 - x1;
-    double dy = y2 - y1;
-    double length = sqrtf(dx * dx + dy * dy);
-
-    if (length == 0.0f) return; // Avoid division by zero
-
-    // 2. Calculate a normal vector (90 degrees to the line) with length thickness / 2
-    double nx = -dy / length * (thickness / 2.0f);
-    double ny = dx / length * (thickness / 2.0f);
-
-    // 3. Create the 4 corners for the rectangle that forms the thick line
-    SDL_Vertex vertices[4];
-
-    // Get the current color the renderer is set to
-    Uint8 r, g, b, a;
-    SDL_GetRenderDrawColor(renderer, &r, &g, &b, &a);
-    SDL_Color color = { r, g, b, a };
-
-    // Corners 1 & 2 (The starting point)
-    vertices[0].position.x = x1 + nx; vertices[0].position.y = y1 + ny; vertices[0].color = color;
-    vertices[1].position.x = x1 - nx; vertices[1].position.y = y1 - ny; vertices[1].color = color;
-
-    // Corners 3 & 4 (The End Point)
-    vertices[2].position.x = x2 + nx; vertices[2].position.y = y2 + ny; vertices[2].color = color;
-    vertices[3].position.x = x2 - nx; vertices[3].position.y = y2 - ny; vertices[3].color = color;
-
-    // Indices to connect the vertices into 2 triangles (0-1-2 and 1-2-3)
-    int indices[6] = { 0, 1, 2, 1, 2, 3 };
-
-    // 4. Draw the thick line on the screen (hardware-accelerated)
-    SDL_RenderGeometry(renderer, NULL, vertices, 4, indices, 6);
-}
-
 // Present the compass with heading ant heel
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -1797,15 +1776,14 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
-    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
-
     SDL_Rect outerRingR     = {19,18,440,440};
     SDL_Rect calbarR        = {20,60,25,25};
-    SDL_Rect compassR       = {54,52,372,372};
-    SDL_Rect clinoMeterR    = {171,178,136,136};
-    SDL_Rect windDirR       = {120,122,240,240};
-    SDL_Rect windScaleR     = {54,52,372,372};
+    SDL_Rect compassR       = {29,28,420,420};
+    SDL_Rect clinoMeterR    = {159,164,160,160};
+    SDL_Rect windDirR       = {108,108,260,260};
+    SDL_Rect windScaleR     = {29,28,420,420};
     SDL_Rect rsaLbarR       = {454,370,146,15};
     SDL_Rect rsaRbarR       = {600,370,146,15};
     SDL_Rect rsaMbarR       = {590,370,18,18};
@@ -1826,7 +1804,7 @@ static int doCompass(sdl2_app *sdlApp)
     double heel = 0;
     int res = 1;
     int res_a = 1;
-    int boxItems[] = {120,170,220,270};
+    int boxItems[] = {86,136,186,236,286};
     double dynUpd;
 
     const double offset = 131; // For scale
@@ -1935,18 +1913,19 @@ static int doCompass(sdl2_app *sdlApp)
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
-        // Magnetic/Net or GPS HDM
-        if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
+        // HDG - Magnetic BerryGPS or from Net/USB. The direction the bow points.
+        if (!(ct - cnmea.hdg_i2cts > S_TIMEOUT)) {
             sprintf(msg_hdg, "%.0f", cnmea.hdg);
             sprintf(msg_src, "HDG M");
         } else {
             sprintf(msg_hdg, "%.0f", cnmea.hdg);
-            if (!( ct - cnmea.net_ts > S_TIMEOUT))
+            if (!(ct - cnmea.net_ts > S_TIMEOUT))
                 sprintf(msg_src, "HDG");
             else
                 sprintf(msg_src, "HDG");
         }
 
+        // COG - Course over ground
         if (!(ct - cnmea.cog_ts > S_TIMEOUT))
             sprintf(msg_cog, "COG: %.0f", cnmea.cog);
 
@@ -1984,8 +1963,6 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
             sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
 
-        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
-
         angle = rotate(roundf(cnmea.hdg), res); res=0;
 
         // Run needle and heel with smooth acceleration
@@ -1996,6 +1973,8 @@ static int doCompass(sdl2_app *sdlApp)
 
         if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
         angle_a += offset;
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
 
@@ -2036,6 +2015,11 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
+        if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
+
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -2055,12 +2039,6 @@ static int doCompass(sdl2_app *sdlApp)
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
-#if 0
-        if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-        }
-#endif
 
         get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -2244,14 +2222,14 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
-    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
 	SDL_Rect logResetR      = {186,380,90,20};
-	SDL_Rect logResetRT     = {166,170,130,20};
+	SDL_Rect logResetRT     = {166,165,130,20};
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
 
-	int boxItems[] = {120,170,220};
+    int boxItems[] = {86,136,186,236};
     double t_angle = 0;
     double angle = 0;
 
@@ -2262,6 +2240,7 @@ static int doSumlog(sdl2_app *sdlApp)
         sdlApp->textFieldArrIndx = 0;
         char msg_stw[40] = { "" };
         char msg_sog[40] = { "" };
+        char msg_cog[40] = { "" };
         char msg_log[40] = { "" };
         char msg_tlg[40] = { "" };
         char msg_dbt[40] = { "" };
@@ -2369,9 +2348,13 @@ static int doSumlog(sdl2_app *sdlApp)
 			sprintf(msg_log, "LOG:%.1fM", cnmea.logDist);
         }
        
-        // Heading
+        // HDG - The direction the bow points
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
             sprintf(msg_hdg, "HDG: %.0f", cnmea.hdg);
+
+        // COG - Course over ground
+        if (!(ct - cnmea.cog_ts > S_TIMEOUT))
+            sprintf(msg_cog, "COG: %.0f", cnmea.cog);
         
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
@@ -2410,6 +2393,11 @@ static int doSumlog(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
+
+        if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -2551,11 +2539,11 @@ static int doGps(sdl2_app *sdlApp)
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
-    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
 	SDL_Rect vctGraphR		= {compassR.x+compassR.w/2,compassR.h/2+compassR.y,150,0};
 
-    int boxItems[] = {120,170,220,270};
+    int boxItems[] = {86,136,186,236};
 
     while (1) {
         int boxItem = 0;
@@ -2618,13 +2606,13 @@ static int doGps(sdl2_app *sdlApp)
          }
 
         // Magnetic/Net or GPS HDM
-        if (!(ct - cnmea.hdm_i2cts > S_TIMEOUT)) {
+        if (!(ct - cnmea.hdg_i2cts > S_TIMEOUT)) {
             sprintf(msg_hdg, "HDG: %.0f%sM", cnmea.hdg, "\u00B0");
         } else {
             sprintf(msg_hdg, "HDG: %.0f%s", cnmea.hdg, "\u00B0");
         }
 
-        // RMC COG - Recommended minimum specific GPS/Transit data
+        // COG - Course over ground
         if (!(ct - cnmea.cog_ts > S_TIMEOUT))
             sprintf(msg_cog, "COG: %.0f%s",  cnmea.cog, "\u00B0");
 
@@ -2658,6 +2646,42 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 0, NULL, SDL_FLIP_NONE);
 
+        // Replacement for SDL_RenderDrawLine that supports arbitrary thickness
+        void SDL_RenderDrawLineThick(SDL_Renderer* renderer, double x1, double y1, double x2, double y2, double thickness)
+        {
+            // 1. Calculate the angle and direction of the line
+            double dx = x2 - x1;
+            double dy = y2 - y1;
+            double length = sqrtf(dx * dx + dy * dy);
+
+            if (length == 0.0f) return; // Avoid division by zero
+
+            // 2. Calculate a normal vector (90 degrees to the line) with length thickness / 2
+            double nx = -dy / length * (thickness / 2.0f);
+            double ny = dx / length * (thickness / 2.0f);
+
+            // 3. Create the 4 corners for the rectangle that forms the thick line
+            SDL_Vertex vertices[4];
+
+            // Get the current color the renderer is set to
+            Uint8 r, g, b, a;
+            SDL_GetRenderDrawColor(renderer, &r, &g, &b, &a);
+            SDL_Color color = { r, g, b, a };
+
+            // Corners 1 & 2 (The starting point)
+            vertices[0].position.x = x1 + nx; vertices[0].position.y = y1 + ny; vertices[0].color = color;
+            vertices[1].position.x = x1 - nx; vertices[1].position.y = y1 - ny; vertices[1].color = color;
+
+            // Corners 3 & 4 (The End Point)
+            vertices[2].position.x = x2 + nx; vertices[2].position.y = y2 + ny; vertices[2].color = color;
+            vertices[3].position.x = x2 - nx; vertices[3].position.y = y2 - ny; vertices[3].color = color;
+
+            // Indices to connect the vertices into 2 triangles (0-1-2 and 1-2-3)
+            int indices[6] = { 0, 1, 2, 1, 2, 3 };
+
+            // 4. Draw the thick line on the screen (hardware-accelerated)
+            SDL_RenderGeometry(renderer, NULL, vertices, 4, indices, 6);
+        }
 
         // Helper function for drawing a simple arrow (vector) in SDL2
         void draw_vector_arrow(SDL_Renderer* renderer, int start_x, int start_y, int end_x, int end_y, int arrow_size) {
@@ -2962,13 +2986,13 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
-    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
 
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
 
-    int boxItems[] = {120,170,220,270};
+    int boxItems[] = {86,136,186,236,286};
 
     double t_angle = 0;
     double angle = 0;
@@ -2983,6 +3007,7 @@ static int doDepth(sdl2_app *sdlApp)
         char msg_mtw[40] = { "" };
         char msg_dtw[40] = { "" };
         char msg_hdg[40] = { "" };
+        char msg_cog[40] = { "" };
         char msg_stw[40] = { "" };
         char msg_rmc[40] = { "" };
         char msg_vwt[40] = { "" };
@@ -3040,9 +3065,13 @@ static int doDepth(sdl2_app *sdlApp)
             sprintf(msg_dtw, "@%.1f", warn.depthw);
         }
 
-        // Heading
+        // HDG - The direction the bow points
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
             sprintf(msg_hdg, "HDG: %.0f", cnmea.hdg);
+
+        // COG - Course over ground
+        if (!(ct - cnmea.cog_ts > S_TIMEOUT))
+            sprintf(msg_cog, "COG: %.0f", cnmea.cog);
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
@@ -3062,8 +3091,6 @@ static int doDepth(sdl2_app *sdlApp)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
 
-        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
-
         gauge = gaugeDepth;
         if (cnmea.dbt <=5 || (cnmea.dbt <= 10 && cnmea.dbt <= warn.depthw)) {
             gauge = gaugeDepthW;
@@ -3071,8 +3098,10 @@ static int doDepth(sdl2_app *sdlApp)
         if (cnmea.dbt > 10) gauge = gaugeDepthx10;
 
         depth = cnmea.dbt;
-        if (depth > 10.0) depth /=10;
 
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
+
+        if (depth > 10.0) depth /=10;
 
         scale = depth * (maxangle/maxsdepth);
         angle = roundf(scale+minangle);
@@ -3113,6 +3142,12 @@ static int doDepth(sdl2_app *sdlApp)
                 get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
+
+            if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
+                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
+
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
                 get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -3459,13 +3494,13 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
-    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
 
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
 
-    int boxItems[] = {120,170,220,270,320};
+    int boxItems[] = {86,136,186,236,286};
 
     double t_angle_a = 0;
     double t_angle_t = 0;
@@ -3486,6 +3521,7 @@ static int doWind(sdl2_app *sdlApp)
         char msg_dbt[40] = { "" };
         char msg_stw[40] = { "" };
         char msg_hdg[40] = { "" };
+        char msg_cog[40] = { "" };
         char msg_rmc[40] = { "" };
         char msg_tod[40] = { "" };
         char msg_wav[40] = { "" };
@@ -3565,9 +3601,13 @@ static int doWind(sdl2_app *sdlApp)
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
             sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
         
-        // Heading
+        // HDG - The direction the bow points
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
             sprintf(msg_hdg, "HDG: %.0f", cnmea.hdg);
+
+        // COG - Course over ground
+        if (!(ct - cnmea.cog_ts > S_TIMEOUT))
+            sprintf(msg_cog, "COG: %.0f", cnmea.cog);
 
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
@@ -3580,8 +3620,6 @@ static int doWind(sdl2_app *sdlApp)
         // RSA - Rudder angle
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
             sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
-
-        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         angle_a = cnmea.vwra; // 0-180
 
@@ -3598,6 +3636,8 @@ static int doWind(sdl2_app *sdlApp)
         angle_t = cnmea.vwta; // 0-180
 
         if (cnmea.vwrd == 1) angle_t = 360 - angle_t; // Mirror the needle motion
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         angle_t += offset;  
 
@@ -3641,6 +3681,11 @@ static int doWind(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
             get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
+
+        if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
+            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
         
@@ -4570,7 +4615,7 @@ static int doCamera(sdl2_app *sdlApp)
             if ( hideQuit <= 0 && showNavbox) {
                 SDL_LockMutex(sdlApp->conf->nm_mutex);
 
-                // Heading
+                // HDG - The direction the bow points
                 if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
                     sprintf(msg_hdg, "HDG: %.0f", cnmea.hdg);
 
@@ -5190,7 +5235,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
         if ( hideQuit <= 0 && showNavbox) {
             SDL_LockMutex(sdlApp->conf->nm_mutex);
 
-            // Heading
+            // HDG - The direction the bow points
             if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
                 sprintf(msg_hdg, "HDG: %.0f", cnmea.hdg);
 
@@ -5653,7 +5698,7 @@ static int doWater(sdl2_app *sdlApp)
     SDL_Rect menuBarR       = {400,400,393,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
-    SDL_Rect textBoxR       = {470,106,290,42};
+    SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
 
     SDL_Rect gaugeR         = {19,18,440,440};

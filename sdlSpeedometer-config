@@ -204,13 +204,13 @@ Enter the manual compass offset, Max -10 to + 10 degrees
   fi
 }
 
-do_set_compass_roll_offset() {
+do_set_compass_heel_offset() {
     whiptail --msgbox "\
-Enter the manual compass roll offset, Max -4 to + 4 degrees.\\nThis is for the clinometer symbol.
+Enter the manual compass heel offset, Max -4 to + 4 degrees.\\nThis is for the clinometer symbol.
 " 20 70 1
 
   CURRENT_COMPASS_ROLL_OFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT rOffset FROM calib;')
-  NEW_COMPASS_ROLL_OFFSET=$(whiptail --inputbox "Please the compass roll offset" 20 60 -- "$CURRENT_COMPASS_ROLL_OFFSET" 3>&1 1>&2 2>&3)
+  NEW_COMPASS_ROLL_OFFSET=$(whiptail --inputbox "Please the compass heel offset" 20 60 -- "$CURRENT_COMPASS_ROLL_OFFSET" 3>&1 1>&2 2>&3)
   if [ -n "$NEW_COMPASS_ROLL_OFFSET" ]; then
     echo "UPDATE calib SET rOffset = '$NEW_COMPASS_ROLL_OFFSET' WHERE Id=1;" >> "$SQLFILE"
   fi
@@ -570,7 +570,7 @@ do_config_menu() {
     "13 Application 5" "Enter External Application for page GPS" \
     "14 Application 6" "Enter External Application for page PWR" \
     "15 Compass offset" "Enter manual compass offset" \
-    "16 Compass roll offset" "Enter manual compass roll offset" \
+    "16 Compass heel offset" "Enter manual compass heel offset" \
     "17 Depth warning" "Enter the audible depth level warning" \
     "18 Wessel draft" "Enter the wessel draft level warning" \
     "19 Voltage warning" "Enter the audible low voltage level warning" \
@@ -599,7 +599,7 @@ do_config_menu() {
       13\ *) do_set_external_app 5 ;;
       14\ *) do_set_external_app 6 ;;
       15\ *) do_set_compass_offset ;;
-      16\ *) do_set_compass_roll_offset ;;
+      16\ *) do_set_compass_heel_offset ;;
       17\ *) do_set_depth_warning ;;
       18\ *) do_set_wessel_draft ;;
       19\ *) do_set_voltage_warning ;;
