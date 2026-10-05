@@ -235,6 +235,7 @@ typedef struct {
 	double	logDist;    // Distance M trip
     double  logDistT;   // Distance M total
     int     logtReset;  // Reset total log
+    int     units;      // Metric or US Customary
     // Misc
     double   declination;  // from NOAA
 #ifdef DIGIFLOW

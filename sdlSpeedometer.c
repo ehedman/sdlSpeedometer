@@ -23,6 +23,7 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL_net.h>
+#include <SDL2/SDL2_gfxPrimitives.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
@@ -60,7 +61,9 @@
 #define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
 #define TRGPS       1.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
-#define K2MS        0.5144  // knots 2 ms
+
+#define METRIC 0    // Metric units
+#define US 1        // US Customary units
 
 #define DEFAULT_SCREEN_SIZE     "800x480"   // Default screen size
 #define DEFAULT_SCREEN_SCALE    1.0
@@ -159,10 +162,10 @@ static int configureDb(configuration *configParams)
                     }
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL)", -1, &res, &tail);
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0,0)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
 printf("%s\n", buf);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
@@ -227,7 +230,7 @@ printf("%s\n", buf);
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot from config", -1, &res, &tail);
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot, units from config", -1, &res, &tail);
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
@@ -238,6 +241,7 @@ printf("%s\n", buf);
         strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 6));
         strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
 		cnmea.logDistT =         		sqlite3_column_double(res, 8);
+        cnmea.units =         		    sqlite3_column_double(res, 9);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -502,29 +506,41 @@ static double trueWindAngle(double boatSpeed,
     return twa;
 }
 
-#define MAX_LONGITUDE 180
-#define MAX_LATITUDE   90
+#define MAX_LONGITUDE 180.0
+#define MAX_LATITUDE   90.0
+/*
+* Converts NMEA format (DDMM.MMMM) to decimal degrees
+* Coordinates: The NMEA string (e.g., "5920.1234")
+* Direction: The direction string ("N", "S", "E", or "W")
+* Type: 'L' for Latitude, 'O' for Longitude
+* Return Decimal degrees (negative for S/W), or NaN on error
+*/
+static double nmea2dd(const char *coordinates, const char *direction, char type)
+{
+    if (!coordinates || strlen(coordinates) == 0) return NAN;
+    
+    double raw_val = atof(coordinates);
 
-static double dms2dd(double coordinates, const char *val)
-{ // Degrees Minutes Seconds to Decimal Degrees
+    // 1. Split NMEA DDMM.MMMM into Degrees and Minutes
+    int degrees = (int)(raw_val / 100.0);
+    double minutes = raw_val - (degrees * 100.0);
 
-    // Check limits
-    if ((*val == 'm') && (coordinates < 0.0 && coordinates > MAX_LATITUDE)) {
-        return 0;    
+    // 2. Calculate decimal degrees
+    double dd = degrees + (minutes / 60.0);
+
+    // 3. Apply Southern/Western hemisphere (becomes minus)
+    if (direction != NULL && (*direction == 'S' || *direction == 'W')) {
+        dd = -dd;
     }
-    if (*val == 'p' && (coordinates < 0.0 && coordinates > MAX_LONGITUDE)) {
-          return 0;
+
+    // 4. Validation based on type ('L' = Latitude, 'O' = Longitude)
+    if (type == 'L') {
+        if (fabs(dd) > MAX_LATITUDE) return NAN;
+    } else if (type == 'O') {
+        if (fabs(dd) > MAX_LONGITUDE) return NAN;
     }
-   int b;   //to store the degrees
-   double c; //to store de decimal
- 
-   // Calculate the value in format nn.nnnnnn 
-   b = coordinates/100;
-   c= (coordinates/100 - b)*100 ;
-   c /= 60;
-   c += b;
-   
-   return c;
+
+    return dd;
 }
 
 static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
@@ -669,25 +685,6 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
     }
 
-    // VTG - Track made good and ground speed (obsoleted)
-    if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-        double hdm;
-        if (NMPARSE(nmeastr_p1, "VTG")) {
-            if ((cnmea.sog=atof(getf(5, nmeastr_p1))) >= TRGPS) { // SOG
-                if (src == 1)
-                    cnmea.net_ts = cnmea.rmc_ts = ts;
-                else
-                    cnmea.rmc_ts = ts;
-
-                if ((hdm=atof(getf(1, nmeastr_p1))) != 0) { // Track made good
-                    cnmea.hdg=hdm;
-                    cnmea.hdg_ts = ts;
-                }
-            }
-            return;
-        }
-    }
-
     // HDG - Heading - Deviation and Variation
     if (NMPARSE(nmeastr_p1, "HDG")) {
         double raw_hdg = atof(getf(1, nmeastr_p1));
@@ -711,17 +708,42 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     }
 
     // HDT - Heading - True (obsoleted)
-    if (NMPARSE(nmeastr_p1, "HDT")) {
-        cnmea.hdg=atof(getf(1, nmeastr_p1));
-        cnmea.hdg_ts = ts;
-        return;
+    if (ts - cnmea.hdg_ts > S_TIMEOUT/2) { // If not from HDG
+        if (NMPARSE(nmeastr_p1, "HDT")) {
+            cnmea.hdg=atof(getf(1, nmeastr_p1));
+            cnmea.hdg_ts = ts;
+            return;
+        }
     }
 
     // HDM Heading - Heading Magnetic (obsoleted)
-    if (NMPARSE(nmeastr_p1, "HDM")) {
-        cnmea.hdg=atof(getf(1, nmeastr_p1));
-        cnmea.hdg_ts = ts;
-        return;
+    if (ts - cnmea.hdg_ts > S_TIMEOUT/2) { // If not from HDG or HDT
+        if (NMPARSE(nmeastr_p1, "HDM")) {
+            cnmea.hdg=atof(getf(1, nmeastr_p1));
+            cnmea.hdg_ts = ts;
+            return;
+        }
+    }
+
+    // VTG - Track made good and ground speed (obsoleted)
+    if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
+        double hdg;
+        if (NMPARSE(nmeastr_p1, "VTG")) {
+            if ((cnmea.sog=atof(getf(5, nmeastr_p1))) >= TRGPS) { // SOG
+                if (src == 1)
+                    cnmea.net_ts = cnmea.rmc_ts = ts;
+                else
+                    cnmea.rmc_ts = ts;
+
+                if (ts - cnmea.hdg_ts > S_TIMEOUT/2) { // If not from HDG, HDM or HDT
+                    if ((hdg=atof(getf(1, nmeastr_p1))) != 0) { // Track made good
+                        cnmea.hdg=hdg;
+                        cnmea.hdg_ts = ts;
+                    }
+                }
+            }
+            return;
+        }
     }
 
     // VHW - Water speed
@@ -734,11 +756,12 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     // DPT - Depth (Depth of transponder added)
     if (NMPARSE(nmeastr_p1, "DPT")) {
         cnmea.dbt=atof(getf(1, nmeastr_p1))+atof(getf(2, nmeastr_p1));
+        //cnmea.dbt = cnmea.units==METRIC? cnmea.dbt : cnmea.dbt * 3.280839;
         cnmea.dbt_ts = ts;
         return;
     }
 
-    // DBT - Depth Below Transponder
+    // DBT - Depth Below Transponder (aged standard)
     if (ts - cnmea.dbt_ts > S_TIMEOUT/2) { // If not from DPT
         if (NMPARSE(nmeastr_p1, "DBT")) {
             double dbt = atof(getf(3, nmeastr_p1));
@@ -753,15 +776,27 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     // MTW - Water temperature in C
     if (NMPARSE(nmeastr_p1, "MTW")) {
         cnmea.mtw=atof(getf(1, nmeastr_p1));
+        cnmea.mtw=cnmea.units==US? (cnmea.mtw * 1.8) + 32 : cnmea.mtw;
         cnmea.mtw_ts = ts;
         return;
     }
 
     // MWV - Wind Speed and Angle (report VWR style)
     if (NMPARSE(nmeastr_p1, "MWV")) {
-        if (strncmp(getf(2, nmeastr_p1),"R",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
+        int isKnots = 0;    // Default is metric m/s
+
+        if (!strncmp(getf(4, nmeastr_p1),"N",1)) {
+            isKnots = 1;
+        }
+
+        double heel = 0.0;
+        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT)) {
+            heel = (double)cnmea.heel;
+        }
+          
+        if (!strncmp(getf(2, nmeastr_p1),"R",1) && isKnots) {
             cnmea.vwra=atof(getf(1, nmeastr_p1));
-            cnmea.vwrs=atof(getf(3, nmeastr_p1));
+            cnmea.vwrs=atof(getf(3, nmeastr_p1)); 
 
             if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(double) && wlastTs+2 < ts) {
                 cnmea.wsAcc[cnmea.wsAccIndx++] = cnmea.vwrs;
@@ -780,22 +815,44 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             } else cnmea.vwrd = 0;
             cnmea.vwr_ts = ts;
         }
-        if (strncmp(getf(2, nmeastr_p1),"T",1) + strncmp(getf(4, nmeastr_p1),"N",1) == 0) {
+
+        if (!strncmp(getf(2, nmeastr_p1),"T",1) && isKnots) {
             cnmea.vwta=atof(getf(1, nmeastr_p1));
             cnmea.vwts=atof(getf(3, nmeastr_p1));
             cnmea.vwt_ts = ts;
         } else if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-                double heel = 0.0;
-                if (!(ts - cnmea.heel_i2cts > S_TIMEOUT))
-                    heel = (double)cnmea.heel;
-                cnmea.vwta=trueWindAngle(cnmea.stw, cnmea.vwrs, cnmea.vwra, heel, &cnmea.vwts);
-                cnmea.vwt_ts = ts;
+            double vwrsKnots = 0;
+            if (isKnots && cnmea.units==METRIC) {
+                vwrsKnots = cnmea.vwrs;
+                cnmea.vwrs *= 0.5144;
+
+            } else if (isKnots && cnmea.units==US) {
+                vwrsKnots = cnmea.vwrs;
+            } else if (!isKnots && cnmea.units==METRIC) {
+                vwrsKnots = cnmea.vwrs *1.943844; 
+            }
+            double vwts = 0.0;
+            cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
+            vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144 : cnmea.vwts;
+            cnmea.vwts = vwts;
+            cnmea.vwt_ts = ts;
         }
        return;
     }
 
     // VWR - Apparent Wind Speed and Angle (obsolete)
     if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
+        int isKnots = 0;    // Default is metric m/s
+
+        if (!strncmp(getf(4, nmeastr_p1),"N",1)) {
+            isKnots = 1;
+        }
+
+        double heel = 0.0;
+        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT)) {
+            heel = (double)cnmea.heel;
+        }
+
         if (NMPARSE(nmeastr_p1, "VWR")) {
             cnmea.vwra=atof(getf(1, nmeastr_p1));
             cnmea.vwrs=atof(getf(3, nmeastr_p1));
@@ -814,12 +871,22 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             }
 
             if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-                double heel = 0.0;
-                if (!(ts - cnmea.heel_i2cts > S_TIMEOUT))
-                    heel = (double)cnmea.heel;
-                cnmea.vwta=trueWindAngle(cnmea.stw, cnmea.vwrs, cnmea.vwra, heel, &cnmea.vwts);
+                double vwrsKnots = 0.0;
+                if (isKnots && cnmea.units==METRIC) {
+                    vwrsKnots = cnmea.vwrs;
+                    cnmea.vwrs *= 0.5144;
+
+                } else if (isKnots && cnmea.units==US) {
+                    vwrsKnots = cnmea.vwrs;
+                } else if (!isKnots && cnmea.units==METRIC) {
+                    vwrsKnots = cnmea.vwrs *1.943844; 
+                }
+                double vwts = 0.0;
+                cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
+                vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144 : cnmea.vwts;
+                cnmea.vwts = vwts;
                 cnmea.vwt_ts = ts;
-            }
+                }
             return;
         }
     }
@@ -854,8 +921,9 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         cnmea.curr_ts = ts;
 
         cnmea.temp=         atof(getf(5, nmeastr_p1));
+        cnmea.temp=cnmea.units==US? (cnmea.temp*1.8)+32 : cnmea.temp;
         strcpy(cnmea.temp_loc, getf(6, nmeastr_p1));
-        if(cnmea.temp != 100) cnmea.temp_ts = ts;
+        if(cnmea.temp < 125) cnmea.temp_ts = ts;
 
         cnmea.kWhp=         atof(getf(7, nmeastr_p1));
         cnmea.kWhn=         atof(getf(8, nmeastr_p1));
@@ -883,8 +951,9 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             }
             if (*getf(9, nmeastr_p1) == 'C') {
                 cnmea.temp = atof(getf(10, nmeastr_p1));
+                cnmea.temp=cnmea.units==US? (cnmea.temp*1.8)+32 : cnmea.temp;
                 strcpy(cnmea.temp_loc, getf(12, nmeastr_p1));
-                if(cnmea.temp != 100) cnmea.temp_ts = ts;
+                if(cnmea.temp < 125) cnmea.temp_ts = ts;
             }
             cnmea.kWhp=cnmea.kWhn=0;
             cnmea.startTime=1;
@@ -1106,7 +1175,7 @@ static int i2cCollector(void *conf)
     return 0;
 }
 
-// Optionally collect data fron NMEA network server
+// Collect data fron NMEA network server
 static int nmeaNetCollector(void* conf)
 {
     configuration *configParams = conf;
@@ -1547,7 +1616,7 @@ static void setUTCtime(void)
     sys_rawtime = time(&rawtime);
     settm = gmtime(&rawtime);
 
-    setenv("TZ","UTC",1);       // Temporarily set UTC
+    setenv("TZ","UTC",1);   // Temporarily set UTC
 
     buf[2] = '\0';
 
@@ -1728,7 +1797,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Event e;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
     TTF_Font* fontHeel = TTF_OpenFont(sdlApp->fontPath, 22);
-    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* compassRose;
@@ -1814,6 +1883,8 @@ static int doCompass(sdl2_app *sdlApp)
 
     int win_w, win_h;
     SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
+    double m2f=cnmea.units==METRIC? 1 : 3.28084;
 
     while (1) {
         int boxItem = 0;
@@ -1913,12 +1984,12 @@ static int doCompass(sdl2_app *sdlApp)
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
-        // HDG - Magnetic BerryGPS or from Net/USB. The direction the bow points.
+        // HDG - The direction the bow points. Magnetic BerryGPS or from Net/USB.
         if (!(ct - cnmea.hdg_i2cts > S_TIMEOUT)) {
-            sprintf(msg_hdg, "%.0f", cnmea.hdg);
+            sprintf(msg_hdg, "%.0f%s", cnmea.hdg, "\u00B0");
             sprintf(msg_src, "HDG M");
         } else {
-            sprintf(msg_hdg, "%.0f", cnmea.hdg);
+            sprintf(msg_hdg, "%.0f%s", cnmea.hdg, "\u00B0");
             if (!(ct - cnmea.net_ts > S_TIMEOUT))
                 sprintf(msg_src, "HDG");
             else
@@ -1953,11 +2024,11 @@ static int doCompass(sdl2_app *sdlApp)
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
-        // WND - Apparent wind speed in m/s
+        // WND - Apparent wind speed
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
         // RSA - Rudder angle
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
@@ -2004,10 +2075,10 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, windDir, NULL, &windDirR, t_angle_a, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 252, 180, -1, msg_src, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 225, 180, 0, msg_src, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
     
-        get_text_and_rect(sdlApp->renderer, 200, 200, 3, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 200, 200, 5, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
@@ -2187,7 +2258,7 @@ static int doSumlog(sdl2_app *sdlApp)
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* gaugeSumlog;
@@ -2234,6 +2305,8 @@ static int doSumlog(sdl2_app *sdlApp)
     double angle = 0;
 
     double dynUpd;
+
+    double m2f=cnmea.units==METRIC? 1 : 3.28084;
 
     while (1) {
         int boxItem = 0;
@@ -2358,11 +2431,11 @@ static int doSumlog(sdl2_app *sdlApp)
         
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
-        // WND - Apparent wind speed in m/s
+        // WND - Apparent wind speed
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
                          
@@ -2505,7 +2578,7 @@ static int doGps(sdl2_app *sdlApp)
 {
     SDL_Event e;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontPos = TTF_OpenFont(sdlApp->fontPath, 20);
 
@@ -2545,12 +2618,14 @@ static int doGps(sdl2_app *sdlApp)
 
     int boxItems[] = {86,136,186,236};
 
+    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
         char msg_hdg[40] = { "" };
         char msg_lat[40] = { "" };
-        char msg_lot[40] = { "" };
+        char msg_lon[40] = { "" };
         char msg_src[40] = { "" };
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
@@ -2600,9 +2675,18 @@ static int doGps(sdl2_app *sdlApp)
         sprintf(msg_src, "  ");
 
         // RMC - Recommended minimum specific GPS/Transit data
-         if (ct - cnmea.gll_ts < S_TIMEOUT) {         
-            sprintf(msg_lat, "LAT: %.3f%s", dms2dd(atof(cnmea.gll),"m"), cnmea.glns);
-            sprintf(msg_lot, "LOT: %.3f%s", dms2dd(atof(cnmea.glo),"m"), cnmea.glne);
+         if (ct - cnmea.gll_ts < S_TIMEOUT) {
+            double lat_dd = nmea2dd(cnmea.gll, cnmea.glns, 'L');
+            double lon_dd = nmea2dd(cnmea.glo, cnmea.glne, 'O');
+
+            if (!isnan(lat_dd) && !isnan(lon_dd)) {
+                // Use fabs() when printing, since we already have "N/S" or "E/W" in the cnmea string.
+                sprintf(msg_lat, "LAT: %.3f%s%s", fabs(lat_dd), "\u00B0", cnmea.glns);
+                sprintf(msg_lon, "LON: %.3f%s%s", fabs(lon_dd), "\u00B0", cnmea.glne);
+            } else {
+                sprintf(msg_lat, "LAT: --.---");
+                sprintf(msg_lon, "LON: --.---");
+            }
          }
 
         // Magnetic/Net or GPS HDM
@@ -2624,13 +2708,13 @@ static int doGps(sdl2_app *sdlApp)
          if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-        // WND - Apparent wind speed in m/s
+        // WND - Apparent wind speed
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
@@ -2824,10 +2908,10 @@ static int doGps(sdl2_app *sdlApp)
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
 
-        get_text_and_rect(sdlApp->renderer, 310, 182, -1, msg_lat, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 160, 182, 0, msg_lat, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        get_text_and_rect(sdlApp->renderer, 310, 208, -1, msg_lot, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        get_text_and_rect(sdlApp->renderer, 160, 208, 0, msg_lon, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (ct - cnmea.hdg_ts < S_TIMEOUT && ct - cnmea.stw_ts < S_TIMEOUT && ct - cnmea.cog_ts < S_TIMEOUT && ct - cnmea.rmc_ts < S_TIMEOUT)
@@ -2944,13 +3028,20 @@ static int doDepth(sdl2_app *sdlApp)
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 18);
     TTF_Font* fontMedium =  TTF_OpenFont(sdlApp->fontPath, 24);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
-    SDL_Texture* gaugeDepthW;
-    SDL_Texture* gaugeDepth;
-    SDL_Texture* gaugeDepthx10;
     SDL_Texture* textBox;
+
+    SDL_Texture* gaugeDepth  = gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
+    SDL_Texture* gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
+    SDL_Texture* gaugeDepthWx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthwx100.png");
+    SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
+    SDL_Texture* gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100.png");
+    SDL_Texture* gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200.png");
+    SDL_Texture* gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd.png");
+
+    SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -2961,15 +3052,9 @@ static int doDepth(sdl2_app *sdlApp)
 
     sdlApp->curPage = DPTPAGE;
 
-    if (sdlApp->conf->style == 0) {
-        gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
-        gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
-        gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
+    if (sdlApp->conf->style == METRIC) {
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
     } else {
-        gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw-flat.png");
-        gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10-flat.png");
-        gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth-flat.png");
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
     }
 
@@ -2988,11 +3073,14 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
+    SDL_Rect outerRingR     = {19,18,440,440};
 
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
 
     int boxItems[] = {86,136,186,236,286};
+
+    double m2f=cnmea.units==METRIC? 1 : 3.28084;
 
     double t_angle = 0;
     double angle = 0;
@@ -3057,13 +3145,11 @@ static int doDepth(sdl2_app *sdlApp)
          if (ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0)
             sprintf(msg_dbt, "----");
         else {
-            sprintf(msg_dbt, cnmea.dbt >= 100.0? "%.0f" : "%.1f", cnmea.dbt);
+            sprintf(msg_dbt, cnmea.dbt >= 30.0? "%.0f" : "%.1f", cnmea.dbt*m2f);
             doPlot++;
         }
 
-        if (sdlApp->conf->runWrn) {
-            sprintf(msg_dtw, "@%.1f", warn.depthw);
-        }
+        sprintf(msg_dtw, "@%.1f", cnmea.units==US? warn.depthw*m2f : warn.depthw);
 
         // HDG - The direction the bow points
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
@@ -3081,27 +3167,53 @@ static int doDepth(sdl2_app *sdlApp)
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-        // MTW - Water temperature in C
+        // MTW - Water temperature
         if (ct - cnmea.mtw_ts > S_TIMEOUT || cnmea.mtw == 0)
             sprintf(msg_vwt, "----");
         else
-            sprintf(msg_vwt, "Temp :%.1f", cnmea.mtw);
+            sprintf(msg_vwt, "Temp :%.1f%s%s", cnmea.mtw,"\u00B0",cnmea.units==METRIC? "C":"F");
 
-        // WND - Apparent wind speed in m/s
+        // WND - Apparent wind speed
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
-        gauge = gaugeDepth;
-        if (cnmea.dbt <=5 || (cnmea.dbt <= 10 && cnmea.dbt <= warn.depthw)) {
-            gauge = gaugeDepthW;
+        if (cnmea.units==METRIC) {
+
+            switch((int)ceil(cnmea.dbt)) {
+                case 1  ... 5:      gauge = gaugeDepthW;    break;
+                case 6  ... 10:     gauge = gaugeDepth;     break;
+                case 11 ... 100:    gauge = gaugeDepthx10;  break;
+                case 101 ... 199:   gauge = gaugeDepthx100; break;
+                case 200 ... 300:   gauge = gaugeDepthx200; break;
+                default:            gauge = gaugeDud;       break;
+            }
+
+            if (cnmea.dbt <= 10 && cnmea.dbt <= warn.depthw) {
+                gauge=gaugeDepthW;
+            }
+
+        } else {
+
+            switch((int)ceil(cnmea.dbt)) {
+                case 1  ... 3:      gauge = gaugeDepthW;    break;
+                case 4  ... 30:     gauge = gaugeDepthx10;  break;
+                case 31 ... 61:     gauge = gaugeDepthx100; break;
+                case 62 ... 92:     gauge = gaugeDepthx200; break;
+                default:            gauge = gaugeDud;       break;
+            }
+
+            if (cnmea.dbt >=3 && cnmea.dbt <= 30 && cnmea.dbt <= warn.depthw) {
+                gauge=gaugeDepthWx100;
+            }  
         }
-        if (cnmea.dbt > 10) gauge = gaugeDepthx10;
 
-        depth = cnmea.dbt;
+        depth = cnmea.dbt*m2f;
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
-
-        if (depth > 10.0) depth /=10;
+    
+        if (depth > 10.0 && depth < 100) depth /=10.0;
+        if (depth >= 100.0 && depth < 200) { depth -= 100; depth /=10.0; }
+        if (depth >= 200.0) {depth -= 200; depth /=10.0; }
 
         scale = depth * (maxangle/maxsdepth);
         angle = roundf(scale+minangle);
@@ -3117,15 +3229,23 @@ static int doDepth(sdl2_app *sdlApp)
 
         SDL_RenderClear(sdlApp->renderer);
 
-        if (sdlApp->conf->style == 0)
+        if (sdlApp->conf->style == METRIC) {
             SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+            if (!sdlApp->plotMode)
+                SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+        }
     
         if (!sdlApp->plotMode) {
             SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
+            double maxd=cnmea.units == METRIC? 300 : 92;
 
-            if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0) && cnmea.dbt < 110)
+            if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0) && cnmea.dbt < maxd)
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
         }
+
+        char *unit=cnmea.units==METRIC? "MTR" : "FT";
+        get_text_and_rect(sdlApp->renderer, 90, 322, 4, unit, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!sdlApp->plotMode) {
             get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
@@ -3135,7 +3255,7 @@ static int doDepth(sdl2_app *sdlApp)
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!sdlApp->plotMode) {
-            get_text_and_rect(sdlApp->renderer, 180, 370, 1, msg_vwt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 170, 370, 1, msg_vwt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
             if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
@@ -3164,6 +3284,34 @@ static int doDepth(sdl2_app *sdlApp)
             }
         }
 
+        if ((cnmea.dbt <= 10/m2f && warn.depthw > 0) && !sdlApp->plotMode) {
+            // Draw the wessel's draft warning  arc
+
+            double warn_draftw=cnmea.units==US? warn.draftw*3.28084 : warn.draftw;
+            double grd=((warn_draftw*10)*365)/150;
+            // Draw the arc using SDL2_gfx
+            // Parameters: renderer, cx, cy, radius, start_angle, end_angle, R, G, B, A
+            // The angles are in degrees and it moves clockwise.
+            int cx = 236;                   // Center X
+            int cy = 238;                   // Center Y
+            int radius = 186;               // Radius in pixels
+            int startAngle = 150;           // Start at the protractor's 0 mark (left lower)
+            int endAngle = 151+ceil(grd);   // Stop at x degrees (left higher to tight)
+
+            int thickness = 12; // Desired thickness in pixels
+
+            // Loops through the thickness and draws several thin arcs close together.
+            for (int i = 0; i < thickness; i++) {
+                // By adjusting the radius inwards, we create a thicker edge.
+                if (i >= 0 && i < 3)
+                    arcRGBA(sdlApp->renderer, cx, cy, radius - i, startAngle, endAngle, 255, 0, 0, 255);
+                else if (i <= 12 && i > 7)
+                    arcRGBA(sdlApp->renderer, cx, cy, radius - i, startAngle, endAngle, 255, 0, 0, 160);
+                else
+                    arcRGBA(sdlApp->renderer, cx, cy, radius - i, startAngle, endAngle, 255, 90, 0, 160);
+            }
+        }
+
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
@@ -3180,12 +3328,12 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, noNetStatbar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
-        if (sdlApp->conf->runWrn) {
-            if (!sdlApp->plotMode) {
-                get_text_and_rect(sdlApp->renderer, 264, 158, 1, msg_dtw, fontMedium, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
+        if (!sdlApp->plotMode) {
+            get_text_and_rect(sdlApp->renderer, 264, 152, 1, msg_dtw, fontMedium, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
 
+        if (sdlApp->conf->runWrn) {
             if (sdlApp->conf->muted == 0) {
                 SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
             } else {
@@ -3233,8 +3381,10 @@ static int doDepth(sdl2_app *sdlApp)
             int h=DWINDOW_H;
             char buf[32];
 
+            double cnmea_dbt = cnmea.dbt;
+
             SDL_Rect plot = {80,60,w-120,h-175};
-            depthHist[histHead] = cnmea.dbt;
+            depthHist[histHead] = cnmea_dbt;
 
             histHead = (histHead+1)%DHISTORY;
 
@@ -3305,8 +3455,8 @@ static int doDepth(sdl2_app *sdlApp)
                 plot.x+plot.w,
                 thresholdY);
 
-            if (cnmea.dbt < 35) {
-                sprintf(buf,"%.1f m",warn.depthw);
+            if (cnmea_dbt< 35) {
+                sprintf(buf,"%.1f %s",warn.depthw*m2f,cnmea.units==US? "F":"M");
                 draw_text(sdlApp->renderer,fontSrc,buf,plot.x,thresholdY);
             }
 
@@ -3323,8 +3473,8 @@ static int doDepth(sdl2_app *sdlApp)
                 plot.x+plot.w,
                 thresholdW);
 
-            if (cnmea.dbt < 35) {
-                sprintf(buf,"%.1f m",warn.draftw);
+            if (cnmea_dbt < 35) {
+                sprintf(buf,"%.1f %s",warn.draftw*m2f, cnmea.units==US? "F":"M");
                 draw_text(sdlApp->renderer,fontSrc,buf,plot.x,thresholdW);
             }
 
@@ -3359,13 +3509,13 @@ static int doDepth(sdl2_app *sdlApp)
                 prevY=y;
             }
 
-            sprintf(buf,"%.0f m",yMax);
+            sprintf(buf,"%.0f %s",yMax*m2f,cnmea.units==US? "F":"M");
             draw_text(sdlApp->renderer,fontSrc,buf,20,plot.y-6);
 
-            sprintf(buf,"%.0f m",yMax/2);
+            sprintf(buf,"%.0f %s",(yMax/2)*m2f,cnmea.units==US? "F":"M");
             draw_text(sdlApp->renderer,fontSrc,buf,28,plot.y+plot.h/2-6);
 
-            draw_text(sdlApp->renderer,fontSrc,"0 m",40,plot.y+plot.h-10);
+            draw_text(sdlApp->renderer,fontSrc,"0",40,plot.y+plot.h-10);
 
             // ----- TIME MARKERS -----
 
@@ -3428,7 +3578,12 @@ static int doDepth(sdl2_app *sdlApp)
 
     SDL_DestroyTexture(gaugeDepth);
     SDL_DestroyTexture(gaugeDepthW);
+    SDL_DestroyTexture(gaugeDepthWx100);
     SDL_DestroyTexture(gaugeDepthx10);
+    SDL_DestroyTexture(gaugeDepthx100);
+    SDL_DestroyTexture(gaugeDepthx200);
+    SDL_DestroyTexture(gaugeDud);
+    SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
@@ -3453,7 +3608,7 @@ static int doWind(sdl2_app *sdlApp)
     TTF_Font* fontLarge =  TTF_OpenFont(sdlApp->fontPath, 46);
     TTF_Font* fontSmall =  TTF_OpenFont(sdlApp->fontPath, 20);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* gaugeWind;
@@ -3511,6 +3666,8 @@ static int doWind(sdl2_app *sdlApp)
     double dynUpd;
 
     const double offset = 131; // For scale
+
+    double m2f=cnmea.units==METRIC? 1 : 3.28084;
 
     while (1) {
         int boxItem = 0;
@@ -3575,7 +3732,7 @@ static int doWind(sdl2_app *sdlApp)
                 cnmea.wsAccRdy = cnmea.wsAccIndx = cnmea.wsAccDur = 0;
                 memset(cnmea.wsAcc, 0, sizeof(cnmea.wsAcc));
             } else {
-                sprintf(msg_wav, "%d min AVGA=%.1f : TOPA=%.1f", cnmea.wsAccDur/60, (windAvrg/(sizeof(cnmea.wsAcc)/sizeof(double)))*K2MS, windHigh*K2MS);
+                sprintf(msg_wav, "%d min AVGA=%.1f : TOPA=%.1f", cnmea.wsAccDur/60, (windAvrg/(sizeof(cnmea.wsAcc)/sizeof(double))), windHigh);
             }
         }
 
@@ -3583,7 +3740,7 @@ static int doWind(sdl2_app *sdlApp)
          if (ct -  cnmea.vwr_ts > S_TIMEOUT || cnmea.vwrs == 0)
             sprintf(msg_vwrs, "----");
         else
-            sprintf(msg_vwrs, "%.1f", cnmea.vwrs*K2MS);
+            sprintf(msg_vwrs, "%.1f", cnmea.vwrs);
 
         if (ct - cnmea.vwr_ts > S_TIMEOUT)
             sprintf(msg_vwra, "----");
@@ -3595,11 +3752,11 @@ static int doWind(sdl2_app *sdlApp)
          if (ct -  cnmea.vwt_ts > S_TIMEOUT || cnmea.vwts == 0)
             sprintf(msg_vwts, "----");
         else
-            sprintf(msg_vwts, "TRUE: %.1f", cnmea.vwts*K2MS);
+            sprintf(msg_vwts, "TRUE: %.1f", cnmea.vwts);
 
         // DPT - Depth
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0))
-            sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt);
+            sprintf(msg_dbt, "DBT: %.1f", cnmea.dbt*m2f);
         
         // HDG - The direction the bow points
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
@@ -3668,6 +3825,10 @@ static int doWind(sdl2_app *sdlApp)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle_a, NULL, SDL_FLIP_NONE);
 
+        char *unit=cnmea.units==METRIC? "m/s" : "kts";
+        get_text_and_rect(sdlApp->renderer, 130, 260, 4, unit, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+
         get_text_and_rect(sdlApp->renderer, 268, 130, -1, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
@@ -3675,7 +3836,7 @@ static int doWind(sdl2_app *sdlApp)
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) {
-            get_text_and_rect(sdlApp->renderer, 150, 356, 4, msg_vwts, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 144, 356, 4, msg_vwts, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -3834,12 +3995,18 @@ static int doEnvironment(sdl2_app *sdlApp)
         gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt.png");
         gaugeVolt24 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-24.png");
         gaugeCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "curr.png");
-        gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp.png");
+        if (cnmea.units==METRIC)
+            gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp.png");
+        else
+            gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp-fa.png");
     } else {
         gaugeVolt = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-flat.png");
         gaugeVolt24 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "volt-24-flat.png");
         gaugeCurr = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "curr-flat.png");
-        gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp-flat.png");
+        if (cnmea.units==METRIC)
+            gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp-flat.png");
+        else
+            gaugeTemp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "temp-faf.png");
     }
 
     SDL_Texture* subTaskbar = NULL;
@@ -3995,7 +4162,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.temp_ts > S_TIMEOUT)) {
             sprintf(msg_temp, "%.1f", cnmea.temp);
-            temp_value = cnmea.temp;
+            temp_value=cnmea.units==US? (cnmea.temp-32)/1.8 : cnmea.temp;
             sprintf(msg_temp_loca, "%s", cnmea.temp_loc);
         }
 
@@ -4080,7 +4247,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
-        addMenuItems(sdlApp, fontSmall);
+        addMenuItems(sdlApp, fontTod);
 
         get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
@@ -4386,6 +4553,8 @@ static int doCamera(sdl2_app *sdlApp)
     AVCodecContext *actx = NULL;
     struct SwrContext *swr = NULL;
 
+    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+
     // Volume adjustments
     double volume_percent = 0.0;
     int dragging = 0;
@@ -4627,13 +4796,13 @@ static int doCamera(sdl2_app *sdlApp)
                  if (!(ct - cnmea.stw_ts > S_TIMEOUT))
                     sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-                // WND - Apparent wind speed in m/s
+                // WND - Apparent wind speed
                 if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-                    sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
+                    sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
                 // DBT - Depth Below Transponder
                 if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-                    sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+                    sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
                 SDL_UnlockMutex(sdlApp->conf->nm_mutex);
             }
@@ -5072,6 +5241,8 @@ static int doVideoCapture(sdl2_app *sdlApp)
         size_t length;
     };
 
+    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+
     static audRunner doRun;
 
     doRun.run = 0;
@@ -5247,13 +5418,13 @@ static int doVideoCapture(sdl2_app *sdlApp)
              if (!(ct - cnmea.stw_ts > S_TIMEOUT))
                 sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-            // WND - Apparent wind speed in m/s
+            // WND - Apparent wind speed
             if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
-                sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs*K2MS);
+                sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
             // DBT - Depth Below Transponder
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-                sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt);
+                sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
             SDL_UnlockMutex(sdlApp->conf->nm_mutex);
         }
@@ -5684,7 +5855,7 @@ static int doWater(sdl2_app *sdlApp)
     TTF_Font* fontLO =  TTF_OpenFont(sdlApp->fontPath, 30);
     TTF_Font* fontMG =  TTF_OpenFont(sdlApp->fontPath, 14);
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
-    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 14);
+    TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
@@ -5980,8 +6151,8 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
     // If the GPS is running OK, prepare for NOAA declination fetch
     if (!(time(NULL) - cnmea.gll_ts > S_TIMEOUT)) {
-        doRun.latitude = dms2dd(atof(cnmea.gll),"m");
-        doRun.longitude = dms2dd(atof(cnmea.glo),"m");
+        doRun.latitude = nmea2dd(cnmea.gll, cnmea.glns, 'L');
+        doRun.longitude = nmea2dd(cnmea.glo, cnmea.glne, 'O');
     }
 
     // If we are on-line, try to update the declination from NOAA
@@ -6852,27 +7023,51 @@ int main(int argc, char *argv[])
 
         SDL_Log("Attempt to start the ttyd daemon for remote configurtion");
 
+        int useSudo = (system("id -nG | grep -qw sudo") == 0);
+
         pid_t pid = fork();
 
-        if (pid == 0 ) {
-
-            // Redirect stdout to /dev/null
+        if (pid == 0) {
 
             int fd = open("/dev/null", O_RDWR);
             if (fd >= 0) {
-               // dup2(fd, STDOUT_FILENO);
                 dup2(fd, STDERR_FILENO);
                 dup2(fd, STDIN_FILENO);
                 close(fd);
             }
 
-			setenv("DISPLAY", ":0", 1);	// May be required by subtasks although not by ttyd itself.
+            setenv("DISPLAY", ":0", 1); // May be required by subtasks although not by ttyd itself.
 
-            // Start the ttyd
             sprintf(buf, "%d", configParams.runTyd);
-            char *args[] = { "/usr/bin/ttyd", "-p", buf, "--writable", CONFICMD, NULL };
-            execvp(args[0], args);
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to execute  %s : %s (non fatal)", args[0], strerror(errno));
+
+            if (useSudo) {
+                char *args[] = {
+                    "/usr/bin/sudo",
+                    "/usr/bin/ttyd",
+                    "-p", buf,
+                    "--writable",
+                    CONFICMD,
+                    NULL
+                };
+
+                execv(args[0], args);
+            }
+            else {
+                char *args[] = {
+                    "/usr/bin/ttyd",
+                    "-p", buf,
+                    "--writable",
+                    CONFICMD,
+                    NULL
+                };
+
+                execv(args[0], args);
+            }
+
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "Failed to execute (non fatal) ttyd: %s",
+                         strerror(errno));
+
             _exit(0);
         }
 
