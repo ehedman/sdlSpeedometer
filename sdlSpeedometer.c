@@ -2488,7 +2488,7 @@ static int doSumlog(sdl2_app *sdlApp)
         }
 
         if (cnmea.sogAccRdy) {
-            get_text_and_rect(sdlApp->renderer, 270, 356, 4, msg_spd, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            get_text_and_rect(sdlApp->renderer, 276, 356, 4, msg_spd, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
