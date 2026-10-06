@@ -3032,29 +3032,42 @@ static int doDepth(sdl2_app *sdlApp)
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
     SDL_Texture* textBox;
+    SDL_Texture* gauge;
 
-    SDL_Texture* gaugeDepth  = gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
-    SDL_Texture* gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
-    SDL_Texture* gaugeDepthWx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthwx100.png");
-    SDL_Texture* gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
-    SDL_Texture* gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100.png");
-    SDL_Texture* gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200.png");
-    SDL_Texture* gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd.png");
+    SDL_Texture* gaugeDepth;
+    SDL_Texture* gaugeDepthW;
+    SDL_Texture* gaugeDepthWx100;
+    SDL_Texture* gaugeDepthx10;
+    SDL_Texture* gaugeDepthx100;
+    SDL_Texture* gaugeDepthx200 ;
+    SDL_Texture* gaugeDud;
 
-    SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
     SDL_Texture* gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
     SDL_Texture* muteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
-    SDL_Texture* gauge;
 
     sdlApp->curPage = DPTPAGE;
 
-    if (sdlApp->conf->style == METRIC) {
+    if (sdlApp->conf->style == 1) {
+        gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth.png");
+        gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw.png");
+        gaugeDepthWx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthwx100.png");
+        gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10.png");
+        gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100.png");
+        gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200.png");
+        gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd.png");
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
     } else {
+        gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth-l.png");
+        gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw-l.png");
+        gaugeDepthWx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthwx100-l.png");
+        gaugeDepthx10 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx10-l.png");
+        gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100-l.png");
+        gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200-l.png");
+        gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd-l.png");
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
     }
 
@@ -3073,7 +3086,6 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
-    SDL_Rect outerRingR     = {19,18,440,440};
 
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
@@ -3231,8 +3243,6 @@ static int doDepth(sdl2_app *sdlApp)
 
         if (sdlApp->conf->style == METRIC) {
             SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
-            if (!sdlApp->plotMode)
-                SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
         }
     
         if (!sdlApp->plotMode) {
@@ -3287,6 +3297,8 @@ static int doDepth(sdl2_app *sdlApp)
         if ((cnmea.dbt <= 10/m2f && warn.depthw > 0) && !sdlApp->plotMode) {
             // Draw the wessel's draft warning  arc
 
+            int lr = sdlApp->conf->style == 0? 15 : 0;
+
             double warn_draftw=cnmea.units==US? warn.draftw*3.28084 : warn.draftw;
             double grd=((warn_draftw*10)*365)/150;
             // Draw the arc using SDL2_gfx
@@ -3294,7 +3306,7 @@ static int doDepth(sdl2_app *sdlApp)
             // The angles are in degrees and it moves clockwise.
             int cx = 236;                   // Center X
             int cy = 238;                   // Center Y
-            int radius = 186;               // Radius in pixels
+            int radius = 186-lr;            // Radius in pixels
             int startAngle = 150;           // Start at the protractor's 0 mark (left lower)
             int endAngle = 151+ceil(grd);   // Stop at x degrees (left higher to tight)
 
@@ -3583,7 +3595,6 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_DestroyTexture(gaugeDepthx100);
     SDL_DestroyTexture(gaugeDepthx200);
     SDL_DestroyTexture(gaugeDud);
-    SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(gaugeNeedleApp);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
