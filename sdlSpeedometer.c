@@ -1847,7 +1847,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
     SDL_Rect textField_rect = {0,0,0,0};
-    SDL_Rect outerRingR     = {19,18,440,440};
+    SDL_Rect outerRingR     = {17,18,442,442};
     SDL_Rect calbarR        = {20,60,25,25};
     SDL_Rect compassR       = {29,28,420,420};
     SDL_Rect clinoMeterR    = {159,164,160,160};
@@ -2062,7 +2062,6 @@ static int doCompass(sdl2_app *sdlApp)
 
         if (sdlApp->conf->style == 0) {
             SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
-            SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 360-t_angle, NULL, SDL_FLIP_NONE);
@@ -2074,6 +2073,10 @@ static int doCompass(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, windDir, NULL, &windDirR, t_angle_a, NULL, SDL_FLIP_NONE);
+
+        if (sdlApp->conf->style == 0) {
+            SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+        }
 
         get_text_and_rect(sdlApp->renderer, 225, 180, 0, msg_src, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
