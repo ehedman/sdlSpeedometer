@@ -1849,7 +1849,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect textField_rect = {0,0,0,0};
     SDL_Rect outerRingR     = {17,18,442,442};
     SDL_Rect calbarR        = {20,60,25,25};
-    SDL_Rect compassR       = {29,28,420,420};
+    SDL_Rect compassR       = {39,38,400,400};
     SDL_Rect clinoMeterR    = {159,164,160,160};
     SDL_Rect windDirR       = {108,108,260,260};
     SDL_Rect windScaleR     = {29,28,420,420};
@@ -1857,6 +1857,10 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect rsaRbarR       = {600,370,146,15};
     SDL_Rect rsaMbarR       = {590,370,18,18};
     SDL_Rect rsaIbarR       = {452,370,292,15};
+
+    if (sdlApp->conf->style == 1) {
+        compassR.x=29;compassR.y=28;compassR.w=420;compassR.h=420;
+    }
 
     SDL_Rect slider = {
         (SWINDOW_WIDTH_BR - SLIDER_WIDTH_BR) / 2,
@@ -2585,7 +2589,8 @@ static int doGps(sdl2_app *sdlApp)
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontPos = TTF_OpenFont(sdlApp->fontPath, 20);
 
-    SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose-gps.png");;
+    SDL_Texture* compassRose = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "compassRose-gps.png");
+    SDL_Texture* outerRing = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "outerRing.png");
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -2611,6 +2616,7 @@ static int doGps(sdl2_app *sdlApp)
     }
 
     SDL_Rect compassR       = {14,10,460,460};
+    SDL_Rect outerRingR     = {24,16,442,442};
     SDL_Rect menuBarR       = {400,400,393,50};
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
@@ -2730,6 +2736,10 @@ static int doGps(sdl2_app *sdlApp)
 
         if (sdlApp->conf->style == 0)
             SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+
+        if (sdlApp->conf->style == 0) {
+            SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
+        }
 
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 0, NULL, SDL_FLIP_NONE);
 
@@ -3009,6 +3019,7 @@ static int doGps(sdl2_app *sdlApp)
         SDL_DestroyTexture(subTaskbar);
     }
     SDL_DestroyTexture(compassRose);
+    SDL_DestroyTexture(outerRing);
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);
