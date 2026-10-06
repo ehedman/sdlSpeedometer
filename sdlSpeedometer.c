@@ -3118,7 +3118,7 @@ static int doDepth(sdl2_app *sdlApp)
         time_t ct;
 
         // Constants for instrument
-        const double minangle = 12;  // Scale start
+        const double minangle = 14;  // Scale start
         const double maxangle = 236; // Scale end
         const double maxsdepth = 10;
         int doBreak = 0;
