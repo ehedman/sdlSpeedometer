@@ -166,6 +166,8 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 <img src="https://hedmanshome.se/sdlspeedometer38.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer37.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer32.png" width=100%>
+- Victron Venus running in a docker and started from sdlSpeedometer
+<img src="https://hedmanshome.se/sdlspeedometer40.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer33.png" width=100%>
 - Legacy 3D style
 <img src="https://hedmanshome.se/sdlspeedometer20.png" width=100%>
