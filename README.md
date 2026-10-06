@@ -1,5 +1,5 @@
 # sdlSpeedometer
-README Sept-2026
+README Oct-2026
 
 The sdlSpeedometer application is a marine instrument solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments in a 3D gui style or by configuration, a modern flat gui style.
@@ -67,6 +67,9 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - sdlSpeedometer will enable the wayvnc VNC server if invoked with "-V" where default port is 5903 and no password.
 - For the wayvnc VNC server, certificates can optionally be generated (check the wayvnc file ~/.config/wayvnc/config for compliance):
 - openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /home/$USER/certs/labwc/tls.key -out /home/$USER/certs/labwc/tls.crt -subj "/C=SE/ST=None/L=None/O=None/CN=raspberrypi"
+
+### Notes on internationalization
+- US Customary type of units usage has been added
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
@@ -168,6 +171,7 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 <img src="https://hedmanshome.se/sdlspeedometer32.png" width=100%>
 - Victron Venus running in a docker and started from sdlSpeedometer
 <img src="https://hedmanshome.se/sdlspeedometer40.png" width=100%>
+- CAM (rtsp) Capture and HDMI Capture from any source but typically from a Navigator with HDMI out
 <img src="https://hedmanshome.se/sdlspeedometer33.png" width=100%>
 - Legacy 3D style
 <img src="https://hedmanshome.se/sdlspeedometer20.png" width=100%>
