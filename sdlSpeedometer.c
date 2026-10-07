@@ -3680,6 +3680,10 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
 
+    if (sdlApp->conf->style == 0) {
+        needleR.y -= 3;
+    }
+
     int boxItems[] = {86,136,186,236,286};
 
     double t_angle_a = 0;
@@ -3890,10 +3894,11 @@ static int doWind(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-        if (!(ct - cnmea.rsa_ts > S_TIMEOUT) && sdlApp->conf->style == 1) {
+        if (!(ct - cnmea.rsa_ts > S_TIMEOUT)) {
             double invRsa = cnmea.rsa * -1.0f;
+            int y=sdlApp->conf->style == 0? 227 : 230;
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleRudder, NULL, &needleR, invRsa, NULL, SDL_FLIP_NONE);
-            get_text_and_rect(sdlApp->renderer, 215, 230, 4, msg_rsa, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            get_text_and_rect(sdlApp->renderer, 215, y, 4, msg_rsa, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
