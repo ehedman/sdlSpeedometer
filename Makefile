@@ -40,7 +40,6 @@ install:
 	sudo install -m 0755 -g root -o root $(BIN) -D $(DEST)/bin/$(BIN)
 	sudo install -m 0755 -g root -o root spawnSubtask -D $(DEST)/bin/spawnSubtask
 	sudo install -m 0755 -g root -o root sdlSpeedometer-config -D $(DEST)/bin/sdlSpeedometer-config
-	sudo install -m 0755 -g root -o root sdlSpeedometer-reset -D $(DEST)/bin/sdlSpeedometer-reset
 	sudo install -m 0755 -g root -o root sdlSpeedometer-stat -D $(DEST)/bin/sdlSpeedometer-stat
 	sudo install -m 0755 -g root -o root sdlSpeedometer-browser -D $(DEST)/bin/sdlSpeedometer-browser
 	sudo install -m 0755 -g root -o root sdlSpeedometer-venus -D $(DEST)/bin/sdlSpeedometer-venus
