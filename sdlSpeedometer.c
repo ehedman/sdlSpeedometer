@@ -3640,7 +3640,7 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Texture* textBox;
     SDL_Texture* gaugeNeedleApp;
     SDL_Texture* gaugeNeedleTrue;
-    SDL_Texture* gaugeNeedleRudder = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rudder.png");
+    SDL_Texture* gaugeNeedleRudder;
     SDL_Texture* menuBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "menuBar.png");
     SDL_Texture* netStatBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "netStat.png");
     SDL_Texture* noNetStatbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "noNetStat.png");
@@ -3656,11 +3656,13 @@ static int doWind(sdl2_app *sdlApp)
         gaugeWind = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind.png");
         gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle.png");
         gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-black.png");
+        gaugeNeedleRudder = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rudder-l.png");
     } else {
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
         gaugeWind = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "wind-flat.png");
         gaugeNeedleApp = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wa.png");
         gaugeNeedleTrue = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "needle-wt.png");
+        gaugeNeedleRudder = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rudder.png");
     }
 
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
