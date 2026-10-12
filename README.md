@@ -16,6 +16,7 @@ The communication mechanism between this application with its GUI and data sourc
  - Data collected from a [BerryGPS-IMUv2](http://ozzmaker.com/new-products-berrygps-berrygps-imu) - GPS and 10DOF sensor for The Raspberry Pi - Accelerometer, Gyroscope, Magnetometer and Barometric/Altitude Sensor.
  - Data from an NMEA-0183 network server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
  - Alternatively data from an NMEA-2K (SeatalkNG) to NMEA-0183 USB dongle.
+- NMEA data saved by this application onto disk to be re-played later.
 
 This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if the Pi has its own battery backup.
 
@@ -46,7 +47,6 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - Raspberry Pi 4B/5 and a 8 inch touch display.
 - Optionaly a NMEA Network Server (kplex) to feed the  yacht's set of instrument data running either on the Pi or accessible in the network neighborhood.
 - Optionaly a NMEA2K (Raymarine seatalk ng) USB to NMEA-0183 converter can be added.
-- This application will also work flawlessly under Windows WSL (Windows Subsystem for Linux).
 
 ### System Software prerequisites
 - An updated Raspberry Pi OS Lite 32 or 64 bit to start with
@@ -70,6 +70,9 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### Notes on internationalization
 - US Customary type of units usage has been added
+
+### Notes on the built in TCP/IP Server
+- External net clients (read opencpn) can connect directly to this application and view a chart simultaneously as the instruments are on display i sdlS pedometer.
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)
@@ -102,7 +105,7 @@ The SDL2 packages needed are:
 - Executed from a ssh session from a host to the pi.
 - sudo systemctl stop sdlSpeedometer.service
 - ./sdlSPeedometer-config (Check the configuration - default values should do)
-- DISPLAY=:0:0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). labwc with xwayland service must be running.
+- WAYLAND_DISPLAY=wayland-0 ./sdlSpeedometer -i -g (-i,-g: do not use the BerryGPS hat). labwc with xwayland service must be running.
 - make install
 - systemclt restart sdlSpeedometer.service (will be enabled at boot time) or make start
 - Make sure that your user name property is enabled in /etc/sudoers.d
@@ -169,6 +172,8 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 <img src="https://hedmanshome.se/sdlspeedometer38.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer37.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer32.png" width=100%>
+- Read and Write NMEA files in real-time
+<img src="https://hedmanshome.se/sdlspeedometer41.png" width=100%>
 - Victron Venus running in a docker and started from sdlSpeedometer
 <img src="https://hedmanshome.se/sdlspeedometer40.png" width=100%>
 - CAM (rtsp) Capture and HDMI Capture from any source but typically from a Navigator with HDMI out
