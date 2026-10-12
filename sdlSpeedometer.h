@@ -42,6 +42,11 @@
 #define AUDIO_BUFFER_FRAMES 1024
 #define FRAME_SIZE 1024
 
+// R/W NMEA data
+#define RMAX_FILENAME 256
+#define RMAX_FILES 256
+#define RVISIBLE_FILES 5
+
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
 #define dmagXmax 2029
@@ -76,6 +81,8 @@ typedef struct {
     volatile int runVnc;
     volatile int runWrn;
     volatile int runTyd;
+    volatile int runPlb;
+    volatile int runTcp;
 	pid_t wayvncPid;
     int numThreads;
     short port;
@@ -110,6 +117,8 @@ typedef struct {
     char cam_url[200];
     char vid_device[60];
     SDL_mutex* nm_mutex;
+    SDL_mutex* tcp_mutex;
+    void *sdlApp;
 } configuration;
 
 enum sdlPages {
@@ -236,6 +245,10 @@ typedef struct {
     double  logDistT;   // Distance M total
     int     logtReset;  // Reset total log
     int     units;      // Metric or US Customary
+    int     rwMode;     // R/W playback file mode
+    FILE    *pbFile;    // The playback file
+    char    tcp_buff[NMBUFF];
+    configuration   *conf;
     // Misc
     double   declination;  // from NOAA
 #ifdef DIGIFLOW
