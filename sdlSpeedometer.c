@@ -63,8 +63,6 @@
 #define TRGPS       1.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
-#define MAX_SAVE_NMEA   100000   // Max amount of NMEA data saved.
-
 #define METRIC 0    // Metric units
 #define US 1        // US Customary units
 
@@ -168,10 +166,10 @@ static int configureDb(configuration *configParams)
                     }
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER)", -1, &res, &tail);
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER, rwfilez INTEGER)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0,0)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot,rwfilez) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0,0,10000)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
 printf("%s\n", buf);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
@@ -236,7 +234,7 @@ printf("%s\n", buf);
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot, units from config", -1, &res, &tail);
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot, units, rwfilez from config", -1, &res, &tail);
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
@@ -248,6 +246,7 @@ printf("%s\n", buf);
         strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
 		cnmea.logDistT =         		sqlite3_column_double(res, 8);
         cnmea.units =         		    sqlite3_column_double(res, 9);
+        configParams->rwfilez =         sqlite3_column_int(res, 10);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -379,7 +378,7 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 {
     uint8_t checksum;
     int i, cs;
-    int debug = 1;
+    int debug = 0;
 
     cs = checksum = 0;
 
@@ -574,13 +573,13 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         cnt+=sprintf(tsStr, "#%d\r\n", ticks)-2;
         strncat(nmeastr_p1, tsStr, sizeof(nmeastr_p1)-strlen(nmeastr_p1)-cnt);
         nwritten += fwrite(nmeastr_p1, sizeof(char), cnt,  cnmea.pbFile);
-        if (nwritten > MAX_SAVE_NMEA) {
+        if (nwritten >= cnmea.conf->rwfilez) {
             fclose(cnmea.pbFile);
             cnmea.rwMode=3;
             cnmea.pbFile = NULL;
             nwritten = 0;
             ticks = 0;
-            SDL_Log("Save nmea data has been stopped due to max size of %d bytes has been written", MAX_SAVE_NMEA);
+            SDL_Log("Save nmea data has been stopped due to max size of %d bytes has been written", cnmea.conf->rwfilez);
         }
     }
 
@@ -1833,8 +1832,13 @@ static int threadRunPlb(void *conf)
     char buffer[NMBUFF];
     Uint32 ticks_src = 0;
     Uint32 ticks_ref, ticks_start;
-
+    int csErrors = 0;
+    int lineCnt = 0;
     int runners[3];
+
+    configParams->numThreads++;
+
+    configParams->runPlbAlive=1;
 
     // Take down threads
     runners[0] = configParams->runSer;
@@ -1850,8 +1854,47 @@ static int threadRunPlb(void *conf)
 
     while(configParams->runPlb)
     {
+
+        if (configParams->jumpf == 1) {
+            for (int i=0; i < 10000; i++) {
+                if (fgets(buffer, sizeof(buffer), cnmea.pbFile) == NULL) {
+                    break;
+                }
+            }
+            configParams->jumpf = 0;
+            ticks_ref=20; ticks_src=0;
+            continue;
+        }
+
+        if (configParams->jumpf == -1) {
+            if (fseek( cnmea.pbFile, -400000, SEEK_CUR) != 0) {
+                fseek( cnmea.pbFile, 0, SEEK_SET);
+            } else {
+                int ch;
+                while ((ch = fgetc( cnmea.pbFile)) != EOF) {
+                    if (ch == '\n') {
+                        break;
+                    }
+                }
+            }
+            configParams->jumpf = 0;
+            ticks_ref=20; ticks_src=0;
+            continue;
+        }
+
         if (fgets(buffer, sizeof(buffer), cnmea.pbFile) != NULL) {
+            lineCnt++;
+
+            if (nmeaChecksum(buffer, NULL, strlen(buffer))) {
+                if (csErrors++ > 10 && lineCnt < 20) {
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Repeated checksum errors in recorded file. It does not appear to be a genuine NMEA-0183 file.");
+                    break;
+                }
+                continue;
+            }
+
             SDL_LockMutex(configParams->nm_mutex);
+
             doNmea(buffer, NULL, strlen(buffer), 0);
 
             char *sc_ptr = strchr(buffer, '#'); // Recorded NMEA with a ms timesamp added after the '#'
@@ -1880,9 +1923,14 @@ static int threadRunPlb(void *conf)
     configParams->runNet = runners[1];
     configParams->runWrn = runners[2];
 
+    // Re-initialize the system
     openSDL2(configParams, configParams->sdlApp, 0);
 
     SDL_Delay(2000);
+
+    configParams->numThreads--;
+
+    configParams->runPlbAlive=0;
 
     return 0;
 }
@@ -1939,9 +1987,8 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
         char action_char;
     } Key;
 
-    Key keys[68];
+    Key keys[60];
     int key_count = 0;
-    int stop_key = 0;
 
     int win_w, win_h;
     SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
@@ -1968,21 +2015,23 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
         }
     }
 
-   TTF_Font* fontMsg = TTF_OpenFont(sdlApp->fontPath, 16);
-
-    // Scroll variables for the file selector
-    int scroll_offset = 0;
-    SDL_Rect scroll_up_rect = { 670, 60, 40, 40 };
-    SDL_Rect scroll_down_rect = { 670, 110, 40, 40 };
-
+    TTF_Font* fontMsg = TTF_OpenFont(sdlApp->fontPath, 16);
     int rMargin = win_w-100;
 
+    // Scroll variables for the file selector
+    int scrl_offset = 0;
+    SDL_Rect scrl_up_rect = { rMargin-40, 60, 40, 40 };
+    SDL_Rect scrl_dn_rect = { rMargin-40, 110, 40, 40 };
+
+    // Action buttons
     SDL_Rect stop_rect = { rMargin-200, 180, 70, 40 };
     SDL_Rect dele_rect = { rMargin-120, 180, 70, 40 };
     SDL_Rect back_rect = { rMargin-56, 250, 70, 45 };
     SDL_Rect save_rect = { rMargin, 303, 70, 45 };
     SDL_Rect play_rect = { rMargin, 356, 70, 45 };
     SDL_Rect done_rect = { rMargin, 409, 70, 45 };
+    SDL_Rect jmpf_rect = { rMargin-110, 180, 40, 40 };
+    SDL_Rect jmpb_rect = { rMargin-60, 180, 40, 40 };
 
 
     SDL_Rect file_click_areas[RVISIBLE_FILES];
@@ -2104,15 +2153,6 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
 
         Key done        = { done_rect, "EXIT", '\n' };
         keys[key_count++] = done;
-
-        Key dele        = { dele_rect, "DELETE", '\n' };
-        keys[key_count++] = dele;
-
-        if (configParams->runPlb) {
-            Key stop = { stop_rect, "STOP", '\n' };
-            stop_key = key_count;
-            keys[key_count++] = stop;
-        }
     }
 
     int is_valid_char(int c) {
@@ -2125,10 +2165,21 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
 
     int running = 1;
     SDL_Event e;
-    SDL_Rect clicked = { 0, 0, 0, 0 };
+    SDL_Rect clicked_rect = { 0, 0, 0, 0 };
     int tMark = 0;
 
     while (running) {
+
+        if (configParams->runPlbAlive==0 && configParams->runPlb==1) // Thread self terminated
+        {
+            snprintf(statusMsg, sizeof(statusMsg), "Playback stopped due to a badly formatted NMEA-0183 file");
+            configParams->runPlb = 0;
+            cnmea.rwMode = 0;
+            fclose(cnmea.pbFile);
+            cnmea.pbFile = NULL;
+            memset(current_input, 0, sizeof(current_input));
+        }
+
         while (SDL_PollEvent(&e)) {
 
             SDL_Point p;
@@ -2162,13 +2213,13 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
                         char c = keys[i].action_char;
                         size_t len = strlen(current_input);
 
-                        clicked.x = keys[i].rect.x;
-                        clicked.y = keys[i].rect.y;
-                        clicked.w = keys[i].rect.w;
-                        clicked.h = keys[i].rect.h;
+                        clicked_rect.x = keys[i].rect.x;
+                        clicked_rect.y = keys[i].rect.y;
+                        clicked_rect.w = keys[i].rect.w;
+                        clicked_rect.h = keys[i].rect.h;
                         p = (SDL_Point){ mx, my };
 
-                        if (SDL_PointInRect(&p, &clicked)) {
+                        if (SDL_PointInRect(&p, &clicked_rect)) {
                             tMark = 10; // Highlight the clicked key
                         }
 
@@ -2189,30 +2240,45 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
                 }
 
                 // Clicking the scroll buttons
-                if (mx >= scroll_up_rect.x && mx <= scroll_up_rect.x + scroll_up_rect.w &&
-                    my >= scroll_up_rect.y && my <= scroll_up_rect.y + scroll_up_rect.h) {
-                    if (scroll_offset > 0) scroll_offset--;
+                if (mx >= scrl_up_rect.x && mx <= scrl_up_rect.x + scrl_up_rect.w &&
+                    my >= scrl_up_rect.y && my <= scrl_up_rect.y + scrl_up_rect.h) {
+                    if (scrl_offset > 0) scrl_offset--;
+                    clicked_rect = scrl_up_rect;
+                    tMark = 10;
                 }
-                if (mx >= scroll_down_rect.x && mx <= scroll_down_rect.x + scroll_down_rect.w &&
-                    my >= scroll_down_rect.y && my <= scroll_down_rect.y + scroll_down_rect.h) {
-                    if (scroll_offset < file_count - RVISIBLE_FILES) scroll_offset++;
+                if (mx >= scrl_dn_rect.x && mx <= scrl_dn_rect.x + scrl_dn_rect.w &&
+                    my >= scrl_dn_rect.y && my <= scrl_dn_rect.y + scrl_dn_rect.h) {
+                    if (scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
+                    clicked_rect = scrl_dn_rect;
+                    tMark = 10;
                 }
 
                 // Click on a file name in the list.
-                for (int i = 0; i < RVISIBLE_FILES && (i + scroll_offset) < file_count; i++) {
+                for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < file_count; i++) {
                     if (mx >= file_click_areas[i].x && mx <= file_click_areas[i].x + file_click_areas[i].w &&
                         my >= file_click_areas[i].y && my <= file_click_areas[i].y + file_click_areas[i].h) {
-                        strncpy(current_input, file_list[i + scroll_offset], RMAX_FILENAME);
+                        strncpy(current_input, file_list[i + scrl_offset], RMAX_FILENAME);
                     }
                 }
 
-                SDL_Point p;
                 p = (SDL_Point){ mx, my };
 
                 // We are done with this dialogue
                 if (SDL_PointInRect(&p, &done_rect)) {
                     running = 0;
                     break;
+                }
+
+                if (SDL_PointInRect(&p, &jmpf_rect)) {
+                    configParams->jumpf = 1;
+                    clicked_rect = jmpf_rect;
+                    tMark = 10;
+                }
+
+                if (SDL_PointInRect(&p, &jmpb_rect)) {
+                    configParams->jumpf = -1;
+                    clicked_rect = jmpb_rect;
+                    tMark = 10;
                 }
 
                 // Delete a file
@@ -2238,48 +2304,36 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
                 }
 
                 // Read a file
-                if (SDL_PointInRect(&p, &play_rect)) {
-                    if (cnmea.rwMode==0 && do_file("r", configParams)) {
-                        Key stop = { stop_rect, "STOP", '\n' };
-                        if (!stop_key) stop_key = key_count;
-                        keys[key_count++] = stop;
-                    }
+                if (SDL_PointInRect(&p, &play_rect) && cnmea.rwMode==0) {
+                    do_file("r", configParams);
                 }
 
                 // Save a file
-                if (SDL_PointInRect(&p, &save_rect)) {
-                    if (cnmea.rwMode==0 && do_file("w", configParams)) {
-                       Key stop = { stop_rect, "STOP", '\n' };
-                        if (!stop_key) stop_key = key_count;
-                        keys[key_count++] = stop;
-                    }
+                if (SDL_PointInRect(&p, &save_rect) && cnmea.rwMode==0) {
+                    do_file("w", configParams);
                 }
 
                 // Abort a file operation
-                if (SDL_PointInRect(&p, &stop_rect) && cnmea.pbFile != NULL && cnmea.rwMode && stop_key) {
+                if (SDL_PointInRect(&p, &stop_rect) && cnmea.pbFile != NULL && cnmea.rwMode) {
                     configParams->runPlb = 0;   // Terminate the thread
                     SDL_Delay(1000);
                     cnmea.rwMode = 0;
                     fclose(cnmea.pbFile);
                     cnmea.pbFile = NULL;
-                    stop_key = 0;
-                    --key_count;
                     memset(current_input, 0, sizeof(current_input));
                     snprintf(statusMsg, sizeof(statusMsg), "File operation stopped");
                 }
             } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wheel input
-                if (e.wheel.y > 0 && scroll_offset > 0) scroll_offset--;
-                else if (e.wheel.y < 0 && scroll_offset < file_count - RVISIBLE_FILES) scroll_offset++;
+                if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
+                else if (e.wheel.y < 0 && scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
             }
         }
 
         // Finish write data session. rwMode 3 is set from doNmea() due to EOF
         if (cnmea.rwMode==3) {
-            stop_key = 0;
-            --key_count;
             memset(current_input, 0, sizeof(current_input));
             cnmea.rwMode = 0;
-            snprintf(statusMsg, sizeof(statusMsg), "Recording stopped at limit %d bytes", MAX_SAVE_NMEA);
+            snprintf(statusMsg, sizeof(statusMsg), "Recording stopped at limit %d bytes", cnmea.conf->rwfilez);
         }
 
         if (sdlApp->conf->style == 0)
@@ -2296,7 +2350,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
         // Draw file selector
         draw_textc(sdlApp->renderer, fontMsg, statusMsg, 40, 20,(SDL_Color){240,255,240,255});
 
-        for (int i = 0; i < RVISIBLE_FILES && (i + scroll_offset) < file_count; i++)
+        for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < file_count; i++)
         {
             int item_y = 60 + (i * 22);
 
@@ -2310,19 +2364,49 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_SetRenderDrawColor(sdlApp->renderer, 45, 45, 45, 255);
             SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[i]);
             SDL_SetRenderDrawColor(sdlApp->renderer, 200, 200, 200, 255);
-            draw_text(sdlApp->renderer, file_list[i + scroll_offset], 55, item_y + 2, 2);
+            draw_text(sdlApp->renderer, file_list[i + scrl_offset], 55, item_y + 2, 2);
         }
 
         // Draw scroll buttons
         if (file_count >= RVISIBLE_FILES)
         {
             SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
-            SDL_RenderFillRect(sdlApp->renderer, &scroll_up_rect);
-            SDL_RenderFillRect(sdlApp->renderer, &scroll_down_rect);
+            SDL_RenderFillRect(sdlApp->renderer, &scrl_up_rect);
+            SDL_RenderFillRect(sdlApp->renderer, &scrl_dn_rect);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
-            draw_text(sdlApp->renderer, "UP", scroll_up_rect.x + 8, scroll_up_rect.y + 12, 1);
-            draw_text(sdlApp->renderer, "DN", scroll_down_rect.x + 8, scroll_down_rect.y + 12, 1);
+            draw_text(sdlApp->renderer, "UP", scrl_up_rect.x + 8, scrl_up_rect.y + 12, 1);
+            draw_text(sdlApp->renderer, "DN", scrl_dn_rect.x + 8, scrl_dn_rect.y + 12, 1);
         }
+
+        // Draw seek  buttons
+        if (cnmea.rwMode==1)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &jmpf_rect);
+            SDL_RenderFillRect(sdlApp->renderer, &jmpb_rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, "FF", jmpf_rect.x + 8, jmpf_rect.y + 12, 1);
+            draw_text(sdlApp->renderer, "FB", jmpb_rect.x + 8, jmpb_rect.y + 12, 1);
+        }
+
+        // Draw stop button
+        if (cnmea.rwMode)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &stop_rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, "STOP", stop_rect.x + 8, stop_rect.y + 12, 1);
+        }
+
+        // Draw delete button
+        if (strlen(current_input) && !cnmea.rwMode)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &dele_rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, "DELETE", dele_rect.x + 8, dele_rect.y + 12, 1);
+        }
+
         // -Draw input field
         SDL_SetRenderDrawColor(sdlApp->renderer, 50, 50, 50, 255);
         SDL_Rect input_box = { 50, 180, 400, 40 };
@@ -2345,7 +2429,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
         if (tMark-- > 0) {
             SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 100);
-            SDL_RenderFillRect(sdlApp->renderer, &clicked);
+            SDL_RenderFillRect(sdlApp->renderer, &clicked_rect);
         }
 
         SDL_RenderPresent(sdlApp->renderer);
@@ -7429,7 +7513,7 @@ static void init_av(configuration *configParams)
 
 int main(int argc, char *argv[])
 {
-    int c, t_wmax = 4;
+    int c, t_wmax = 20;
     configuration configParams;
     sdl2_app sdlApp;
     char buf[FILENAME_MAX];
@@ -7791,7 +7875,9 @@ int main(int argc, char *argv[])
 		SDL_Log("Taking down wayvnc");
 	}
 
-    // Terminate the threads
+    // Terminate the threads - 2 times since restart can happen in the time slice
+    configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = configParams.runPlb = configParams.runTcp = 0;
+    SDL_Delay(3000);
     configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = configParams.runPlb = configParams.runTcp = 0;
 
     // .. and let them close cleanly

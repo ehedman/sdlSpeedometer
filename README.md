@@ -16,7 +16,7 @@ The communication mechanism between this application with its GUI and data sourc
  - Data collected from a [BerryGPS-IMUv2](http://ozzmaker.com/new-products-berrygps-berrygps-imu) - GPS and 10DOF sensor for The Raspberry Pi - Accelerometer, Gyroscope, Magnetometer and Barometric/Altitude Sensor.
  - Data from an NMEA-0183 network server such as the open source [kplex](http://www.stripydog.com/kplex/) application to drive other instrument from the yacht's network.
  - Alternatively data from an NMEA-2K (SeatalkNG) to NMEA-0183 USB dongle.
-- NMEA data saved by this application onto disk to be re-played later.
+- NMEA data saved by this application (or another plane NMEA-0183 file) onto disk to be re-played later. Data saved by this application extends each NMEA sentence with a time stamp so that the re-play can be shown at the natural recorded speed.
 
 This instrument can work independently and always provide compass, heading, position, speed and roll even if all power fails on the yacht, if the Pi has its own battery backup.
 
@@ -73,6 +73,8 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### Notes on the built in TCP/IP Server
 - External net clients (read opencpn) can connect directly to this application and view a chart simultaneously as the instruments are on display i sdlS pedometer.
+- Add this to the command line "-t 10111" where 10111 is the port number to be used by the client.
+- One use case is to replay recorded NMEA data and watch opencpn and sdlSpeedometer at the same time and do Fast Forward/Fastbackward for smooth analyzis.
 
 ### System Software prerequisites for Xorg (deprecated)
 - sudo apt install xorg wmctrl xloadimage (not on a workstation)

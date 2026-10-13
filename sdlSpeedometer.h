@@ -75,14 +75,15 @@ typedef struct {
 } calibration;
 
 typedef struct {
-    volatile int runSer;
-    volatile int runi2c;
-    volatile int runNet;
-    volatile int runVnc;
-    volatile int runWrn;
-    volatile int runTyd;
-    volatile int runPlb;
-    volatile int runTcp;
+    int runSer;
+    int runi2c;
+    int runNet;
+    int runVnc;
+    int runWrn;
+    int runTyd;
+    int runPlb;
+    int runPlbAlive;
+    int runTcp;
 	pid_t wayvncPid;
     int numThreads;
     short port;
@@ -118,6 +119,8 @@ typedef struct {
     char vid_device[60];
     SDL_mutex* nm_mutex;
     SDL_mutex* tcp_mutex;
+    int rwfilez;
+    int jumpf;
     void *sdlApp;
 } configuration;
 
@@ -162,7 +165,7 @@ typedef struct {
 } calRunner;
 
 typedef struct {
-    volatile int run;
+    int run;
     int mute;
     int astat;
     char snd_card[60];

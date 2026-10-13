@@ -21,6 +21,8 @@ static int client_handler(void *ptr)
     collected_nmea *cnmea = data->cnmea;
     free(data);
 
+    cnmea->conf->numThreads++;
+
     SDL_Log("TCP Server: Attached to a new client");
 
     while (cnmea->conf->runTcp) {
@@ -38,6 +40,8 @@ static int client_handler(void *ptr)
 
     SDLNet_TCP_DelSocket(socket_set, client_sock);
     SDLNet_TCP_Close(client_sock);
+
+    cnmea->conf->numThreads--;
    
     return 0;
 }
@@ -74,11 +78,11 @@ int threadTcp_server(void *conf)
         return 1;
     }
 
+    cnmea->conf->numThreads++;
+
     SDLNet_TCP_AddSocket(socket_set, server_sock);
 
     SDL_Log("TCP Server: Running on port %d", cnmea->conf->runTcp);
-
-    cnmea->conf->numThreads++;
 
     while (cnmea->conf->runTcp) {
         client_sock = SDLNet_TCP_Accept(server_sock);
