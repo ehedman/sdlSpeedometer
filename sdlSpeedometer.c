@@ -1846,7 +1846,7 @@ static int threadRunPlb(void *conf)
     runners[2] = configParams->runWrn;
 
     configParams->runSer = configParams->runNet = configParams->runWrn = 0;
-    SDL_Delay(1000);
+    SDL_Delay(2000);
 
     SDL_Log("Starting up NMEA playback");
 
@@ -1855,7 +1855,7 @@ static int threadRunPlb(void *conf)
     while(configParams->runPlb)
     {
 
-        if (configParams->jumpf == 1) {
+        if (configParams->jumpf == 1) { // FF: Fast forward
             for (int i=0; i < 10000; i++) {
                 if (fgets(buffer, sizeof(buffer), cnmea.pbFile) == NULL) {
                     break;
@@ -1866,7 +1866,7 @@ static int threadRunPlb(void *conf)
             continue;
         }
 
-        if (configParams->jumpf == -1) {
+        if (configParams->jumpf == -1) { // FB: Fast rewind
             if (fseek( cnmea.pbFile, -400000, SEEK_CUR) != 0) {
                 fseek( cnmea.pbFile, 0, SEEK_SET);
             } else {
@@ -1883,11 +1883,12 @@ static int threadRunPlb(void *conf)
         }
 
         if (fgets(buffer, sizeof(buffer), cnmea.pbFile) != NULL) {
+
             lineCnt++;
 
             if (nmeaChecksum(buffer, NULL, strlen(buffer))) {
                 if (csErrors++ > 10 && lineCnt < 20) {
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Repeated checksum errors in recorded file. It does not appear to be a genuine NMEA-0183 file.");
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Repeated checksum errors in playback file. It does not appear to be a genuine NMEA-0183 file.");
                     break;
                 }
                 continue;
@@ -2082,10 +2083,11 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
         }
     }
 
-    int do_file(char *how, configuration *configParams) {
+    // Initilize r/w file operations
+    void do_file(char *how, configuration *configParams) {
 
         if (cnmea.rwMode && cnmea.pbFile != NULL) {
-            return cnmea.rwMode;
+            return;
         }
 
         size_t len = strlen(current_input);
@@ -2117,7 +2119,6 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
             }
             load_files();
         }
-        return cnmea.rwMode;
     }
 
     void init_keyboard() {
@@ -2165,19 +2166,28 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
 
     int running = 1;
     SDL_Event e;
-    SDL_Rect clicked_rect = { 0, 0, 0, 0 };
+    SDL_Rect clicked_rect = {0,0,0,0 };
     int tMark = 0;
 
     while (running) {
 
+        // Failed playback
         if (configParams->runPlbAlive==0 && configParams->runPlb==1) // Thread self terminated
         {
-            snprintf(statusMsg, sizeof(statusMsg), "Playback stopped due to a badly formatted NMEA-0183 file");
+            snprintf(statusMsg, sizeof(statusMsg), "Playback failed due to a badly formatted NMEA-0183 file");
             configParams->runPlb = 0;
             cnmea.rwMode = 0;
             fclose(cnmea.pbFile);
             cnmea.pbFile = NULL;
             memset(current_input, 0, sizeof(current_input));
+        }
+
+        // Finish the write data session. rwMode 3 is set from doNmea() due to a expired file size limit
+        // The write data session is running in separate thread
+        if (cnmea.rwMode==3) {
+            memset(current_input, 0, sizeof(current_input));
+            cnmea.rwMode = 0;
+            snprintf(statusMsg, sizeof(statusMsg), "Recording stopped at limit %d bytes", cnmea.conf->rwfilez);
         }
 
         while (SDL_PollEvent(&e)) {
@@ -2329,13 +2339,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
             }
         }
 
-        // Finish write data session. rwMode 3 is set from doNmea() due to EOF
-        if (cnmea.rwMode==3) {
-            memset(current_input, 0, sizeof(current_input));
-            cnmea.rwMode = 0;
-            snprintf(statusMsg, sizeof(statusMsg), "Recording stopped at limit %d bytes", cnmea.conf->rwfilez);
-        }
-
+        // Draw background
         if (sdlApp->conf->style == 0)
             SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
         else
@@ -2347,8 +2351,14 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
         }
 
+        // Draw status messages
+        SDL_Color col = {240,255,240,255};
+        if (strstr(statusMsg, "ailed") != NULL) {
+            col.r = 255; col.g=190; col.b=190;
+        }
+
         // Draw file selector
-        draw_textc(sdlApp->renderer, fontMsg, statusMsg, 40, 20,(SDL_Color){240,255,240,255});
+        draw_textc(sdlApp->renderer, fontMsg, statusMsg, 40, 20,col);
 
         for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < file_count; i++)
         {
@@ -2407,7 +2417,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
             draw_text(sdlApp->renderer, "DELETE", dele_rect.x + 8, dele_rect.y + 12, 1);
         }
 
-        // -Draw input field
+        // Draw input field
         SDL_SetRenderDrawColor(sdlApp->renderer, 50, 50, 50, 255);
         SDL_Rect input_box = { 50, 180, 400, 40 };
         SDL_RenderFillRect(sdlApp->renderer, &input_box);
@@ -2415,6 +2425,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
         SDL_RenderDrawRect(sdlApp->renderer, &input_box);
         // Draw filename
         draw_text(sdlApp->renderer, current_input, 58, 190, 2);
+
         // Draw virtual keyboard
         for (int i = 0; i < key_count; i++)
         {
@@ -2425,7 +2436,8 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
             draw_text(sdlApp->renderer, keys[i].label, keys[i].rect.x + 10, keys[i].rect.y + 15, 1);
         }
-        //  Highlight the current key
+
+        //  Highlight the current key just clicked
         if (tMark-- > 0) {
             SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 100);
@@ -3759,7 +3771,7 @@ static int doDepth(sdl2_app *sdlApp)
         gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100.png");
         gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200.png");
         gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd.png");
-        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
     } else {
         gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth-l.png");
         gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw-l.png");
@@ -3768,7 +3780,7 @@ static int doDepth(sdl2_app *sdlApp)
         gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100-l.png");
         gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200-l.png");
         gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd-l.png");
-        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
     }
 
     SDL_Texture* subTaskbar = NULL;
