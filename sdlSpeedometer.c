@@ -35,6 +35,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <dirent.h>
 #include <inttypes.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -110,6 +111,9 @@ static collected_nmea cnmea;
 
 static warnings warn;
 
+// Forward declaration
+static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit);
+
 static void logCallBack(char *userdata, int category, SDL_LogPriority priority, const char *message)
 {
     FILE *out = priority == SDL_LOG_PRIORITY_ERROR? stderr : stdout;
@@ -162,10 +166,10 @@ static int configureDb(configuration *configParams)
                     }
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER)", -1, &res, &tail);
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER, rwfilez INTEGER)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0,0)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot,rwfilez) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0,0,10000)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
 printf("%s\n", buf);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
@@ -230,7 +234,7 @@ printf("%s\n", buf);
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot, units from config", -1, &res, &tail);
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot, units, rwfilez from config", -1, &res, &tail);
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
@@ -242,6 +246,7 @@ printf("%s\n", buf);
         strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
 		cnmea.logDistT =         		sqlite3_column_double(res, 8);
         cnmea.units =         		    sqlite3_column_double(res, 9);
+        configParams->rwfilez =         sqlite3_column_int(res, 10);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -373,7 +378,7 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 {
     uint8_t checksum;
     int i, cs;
-    int debug = 1;
+    int debug = 0;
 
     cs = checksum = 0;
 
@@ -548,10 +553,40 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     time_t ts = time(NULL);    // Get a timestamp for this turn
     static time_t wlastTs, wlastDur, slastTs, slastDur;
     static int hasGPENV;
+    static size_t nwritten;
+    static Uint32 ticks, start_ticks;
 
     if (nmeaChecksum(nmeastr_p1, nmeastr_p2, cnt)) {
         SDL_Log("Checksum error in %s", nmeastr_p1);
         return;
+    }
+
+    if (ticks==0) {
+        start_ticks = (SDL_GetTicks()/100)-10;
+    }
+
+    if (cnmea.pbFile != NULL && cnmea.rwMode == 2) {
+
+        ticks = (SDL_GetTicks()/100)-start_ticks;
+
+        char tsStr[80];
+        cnt+=sprintf(tsStr, "#%d\r\n", ticks)-2;
+        strncat(nmeastr_p1, tsStr, sizeof(nmeastr_p1)-strlen(nmeastr_p1)-cnt);
+        nwritten += fwrite(nmeastr_p1, sizeof(char), cnt,  cnmea.pbFile);
+        if (nwritten >= cnmea.conf->rwfilez) {
+            fclose(cnmea.pbFile);
+            cnmea.rwMode=3;
+            cnmea.pbFile = NULL;
+            nwritten = 0;
+            ticks = 0;
+            SDL_Log("Save nmea data has been stopped due to max size of %d bytes has been written", cnmea.conf->rwfilez);
+        }
+    }
+
+    if(cnmea.conf->runTcp != 0) {
+        SDL_LockMutex(cnmea.conf->tcp_mutex);
+        memcpy(cnmea.tcp_buff, nmeastr_p1, cnt);
+        SDL_UnlockMutex(cnmea.conf->tcp_mutex);
     }
 
     if (!wlastDur) wlastDur=ts;
@@ -1763,9 +1798,8 @@ static int threadWarn(void *conf)
     return 0;
 }
 
-/*
- * Check re-emerging power on console event
- */
+
+// Check re-emerging power on console event
 static int checkConsole(SDL_Event e, sdl2_app *sdlApp)
 {
     char cmd[80] = {'\0'};
@@ -1791,6 +1825,634 @@ static int checkConsole(SDL_Event e, sdl2_app *sdlApp)
     return 0;
 }
 
+// Thread to feed NMEA data from recorded file
+static int threadRunPlb(void *conf)
+{
+    configuration *configParams = conf;
+    char buffer[NMBUFF];
+    Uint32 ticks_src = 0;
+    Uint32 ticks_ref, ticks_start;
+    int csErrors = 0;
+    int lineCnt = 0;
+    int runners[3];
+
+    configParams->numThreads++;
+
+    configParams->runPlbAlive=1;
+
+    // Take down threads
+    runners[0] = configParams->runSer;
+    runners[1] = configParams->runNet;
+    runners[2] = configParams->runWrn;
+
+    configParams->runSer = configParams->runNet = configParams->runWrn = 0;
+    SDL_Delay(2000);
+
+    SDL_Log("Starting up NMEA playback");
+
+    ticks_start = SDL_GetTicks()/100;
+
+    while(configParams->runPlb)
+    {
+
+        if (configParams->jumpf == 1) { // FF: Fast forward
+            for (int i=0; i < 10000; i++) {
+                if (fgets(buffer, sizeof(buffer), cnmea.pbFile) == NULL) {
+                    break;
+                }
+            }
+            configParams->jumpf = 0;
+            ticks_ref=20; ticks_src=0;
+            continue;
+        }
+
+        if (configParams->jumpf == -1) { // FB: Fast rewind
+            if (fseek( cnmea.pbFile, -400000, SEEK_CUR) != 0) {
+                fseek( cnmea.pbFile, 0, SEEK_SET);
+            } else {
+                int ch;
+                while ((ch = fgetc( cnmea.pbFile)) != EOF) {
+                    if (ch == '\n') {
+                        break;
+                    }
+                }
+            }
+            configParams->jumpf = 0;
+            ticks_ref=20; ticks_src=0;
+            continue;
+        }
+
+        if (fgets(buffer, sizeof(buffer), cnmea.pbFile) != NULL) {
+
+            lineCnt++;
+
+            if (nmeaChecksum(buffer, NULL, strlen(buffer))) {
+                if (csErrors++ > 10 && lineCnt < 20) {
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Repeated checksum errors in playback file. It does not appear to be a genuine NMEA-0183 file.");
+                    break;
+                }
+                continue;
+            }
+
+            SDL_LockMutex(configParams->nm_mutex);
+
+            doNmea(buffer, NULL, strlen(buffer), 0);
+
+            char *sc_ptr = strchr(buffer, '#'); // Recorded NMEA with a ms timesamp added after the '#'
+            if (sc_ptr != NULL) {
+                ticks_ref = (SDL_GetTicks()/100) - ticks_start;
+                char *n_ptr = sc_ptr + 1;
+                ticks_src=atoi(n_ptr);
+            }
+
+            SDL_UnlockMutex(configParams->nm_mutex);
+            if (ticks_src) {
+                SDL_Delay(abs(ticks_ref-ticks_src));    // Sync to source time stamp
+                //printf("del=%d tiks_ref=%d, ticks=%d\n", abs(ticks_ref-ticks_src),ticks_ref, ticks_src );
+            } else SDL_Delay(20);
+        }
+        if (feof(cnmea.pbFile)) {
+            rewind(cnmea.pbFile);
+            ticks_start = SDL_GetTicks()/100;
+        }
+    }
+
+    SDL_Log("Stopping NMEA playback");
+
+    // Restore runner's original run status
+    configParams->runSer = runners[0];
+    configParams->runNet = runners[1];
+    configParams->runWrn = runners[2];
+
+    // Re-initialize the system
+    openSDL2(configParams, configParams->sdlApp, 0);
+
+    SDL_Delay(2000);
+
+    configParams->numThreads--;
+
+    configParams->runPlbAlive=0;
+
+    return 0;
+}
+
+// R/W NMEA files
+static void doRecord(sdl2_app *sdlApp, configuration *configParams)
+{
+
+    SDL_Thread *threadPLB = NULL;
+    static char current_input[RMAX_FILENAME];
+    char file_list[RMAX_FILES][RMAX_FILENAME];
+    static char statusMsg[200];
+    int file_count = 0;
+
+    if (!cnmea.rwMode) {
+        memset(current_input, 0, sizeof(current_input));
+        strcpy(statusMsg, "EXISTING FILES (CLICK TO SELECT):");
+    }
+
+    // Embedded 8x8 bitmap font for A-Z, 0-9, period, underscore, hyphen
+    const unsigned char font8x8[256][8] = {
+        ['A']={0x18,0x24,0x42,0x42,0x7E,0x42,0x42,0x42}, ['B']={0x7C,0x42,0x42,0x7C,0x42,0x42,0x42,0x7C},
+        ['C']={0x3C,0x42,0x40,0x40,0x40,0x40,0x42,0x3C}, ['D']={0x78,0x44,0x42,0x42,0x42,0x42,0x44,0x78},
+        ['E']={0x7E,0x40,0x40,0x78,0x40,0x40,0x40,0x7E}, ['F']={0x7E,0x40,0x40,0x78,0x40,0x40,0x40,0x40},
+        ['G']={0x3C,0x42,0x40,0x40,0x4E,0x42,0x42,0x3C}, ['H']={0x42,0x42,0x42,0x7E,0x42,0x42,0x42,0x42},
+        ['I']={0x3E,0x08,0x08,0x08,0x08,0x08,0x08,0x3E}, ['J']={0x1F,0x04,0x04,0x04,0x04,0x04,0x44,0x38},
+        ['K']={0x42,0x44,0x48,0x70,0x48,0x44,0x42,0x42}, ['L']={0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x7E},
+        ['M']={0x42,0x66,0x5A,0x42,0x42,0x42,0x42,0x42}, ['N']={0x42,0x62,0x52,0x4A,0x46,0x42,0x42,0x42},
+        ['O']={0x3C,0x42,0x42,0x42,0x42,0x42,0x42,0x3C}, ['P']={0x7C,0x42,0x42,0x7C,0x40,0x40,0x40,0x40},
+        ['Q']={0x3C,0x42,0x42,0x42,0x42,0x4A,0x44,0x3A}, ['R']={0x7C,0x42,0x42,0x7C,0x48,0x44,0x42,0x42},
+        ['S']={0x3C,0x42,0x40,0x3C,0x02,0x02,0x42,0x3C}, ['T']={0x7E,0x08,0x08,0x08,0x08,0x08,0x08,0x08},
+        ['U']={0x42,0x42,0x42,0x42,0x42,0x42,0x42,0x3C}, ['V']={0x42,0x42,0x42,0x42,0x42,0x24,0x24,0x18},
+        ['W']={0x42,0x42,0x42,0x42,0x4A,0x5A,0x66,0x42}, ['X']={0x42,0x42,0x24,0x18,0x18,0x24,0x42,0x42},
+        ['Y']={0x42,0x42,0x24,0x18,0x08,0x08,0x08,0x08}, ['Z']={0x7E,0x02,0x04,0x08,0x10,0x20,0x40,0x7E},
+        ['1']={0x10,0x30,0x10,0x10,0x10,0x10,0x10,0x38}, ['2']={0x3C,0x42,0x02,0x3C,0x40,0x40,0x42,0x7E},
+        ['3']={0x3C,0x42,0x02,0x3C,0x02,0x02,0x42,0x3C}, ['4']={0x08,0x18,0x28,0x48,0x7E,0x08,0x08,0x08},
+        ['5']={0x7E,0x40,0x40,0x7C,0x02,0x02,0x42,0x3C}, ['6']={0x3C,0x40,0x40,0x7C,0x42,0x42,0x42,0x3C},
+        ['7']={0x7E,0x02,0x04,0x08,0x10,0x20,0x20,0x20}, ['8']={0x3C,0x42,0x42,0x3C,0x42,0x42,0x42,0x3C},
+        ['9']={0x3C,0x42,0x42,0x3E,0x02,0x02,0x42,0x3C}, ['0']={0x3C,0x42,0x46,0x4A,0x52,0x62,0x42,0x3C},
+        ['.']={0x00,0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, ['_']={0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x7E},
+        ['-']={0x00,0x00,0x00,0x3E,0x00,0x00,0x00,0x00}, [':']={0x00,0x0C,0x0C,0x00,0x00,0x0C,0x0C,0x00}
+    };
+
+    const char* qwerty[] = {
+        "1234567890",
+        "QWERTYUIOP",
+        "ASDFGHJKL.",
+        "ZXCVBNM-_"
+    };
+
+    typedef struct {
+        SDL_Rect rect;
+        char label[8];
+        char action_char;
+    } Key;
+
+    Key keys[60];
+    int key_count = 0;
+
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
+    char uploadPath[RMAX_FILENAME];
+    char filePath[RMAX_FILENAME];
+    char *home = getenv("HOME");
+
+    if (home == NULL) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not find the $HOME folder: %s", SDL_GetError());
+        return;
+    }
+
+    snprintf(uploadPath, sizeof(uploadPath), "%s/.upload", home);
+
+    // Create the directory with permissions (0755 = rwxr-xr-x)
+    if (mkdir(uploadPath, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) == 0) {
+        SDL_Log("Folder %s created", uploadPath);
+    } else {
+        // If the mapping already exists (EEXIST), we simply proceed; otherwise, we report an error.
+        if (errno != EEXIST) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not create the %s folder: %s", uploadPath, SDL_GetError());
+            return;
+        }
+    }
+
+    TTF_Font* fontMsg = TTF_OpenFont(sdlApp->fontPath, 16);
+    int rMargin = win_w-100;
+
+    // Scroll variables for the file selector
+    int scrl_offset = 0;
+    SDL_Rect scrl_up_rect = { rMargin-40, 60, 40, 40 };
+    SDL_Rect scrl_dn_rect = { rMargin-40, 110, 40, 40 };
+
+    // Action buttons
+    SDL_Rect stop_rect = { rMargin-200, 180, 70, 40 };
+    SDL_Rect dele_rect = { rMargin-120, 180, 70, 40 };
+    SDL_Rect back_rect = { rMargin-56, 250, 70, 45 };
+    SDL_Rect save_rect = { rMargin, 303, 70, 45 };
+    SDL_Rect play_rect = { rMargin, 356, 70, 45 };
+    SDL_Rect done_rect = { rMargin, 409, 70, 45 };
+    SDL_Rect jmpf_rect = { rMargin-110, 180, 40, 40 };
+    SDL_Rect jmpb_rect = { rMargin-60, 180, 40, 40 };
+
+
+    SDL_Rect file_click_areas[RVISIBLE_FILES];
+
+    void draw_textc(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y, SDL_Color c)
+    {
+        if (!strlen(txt))
+            return;
+
+        SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
+        SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
+
+        SDL_Rect d={x,y,s->w,s->h};
+
+        SDL_RenderCopy(r,t,NULL,&d);
+
+        SDL_FreeSurface(s);
+        SDL_DestroyTexture(t);
+    }
+
+    void draw_text(SDL_Renderer* renderer, const char* text, int x, int y, int scale) {
+        for (int i = 0; text[i] != '\0'; i++) {
+            char c = text[i];
+            if (c >= 'a' && c <= 'z') c -= 32;
+            for (int row = 0; row < 8; row++) {
+                for (int col = 0; col < 8; col++) {
+                    if ((font8x8[(int)c][row] >> (7 - col)) & 1) {
+                        SDL_Rect pixel = { x + (i * 8 * scale) + (col * scale), y + (row * scale), scale, scale };
+                        SDL_RenderFillRect(sdlApp->renderer, &pixel);
+                    }
+                }
+            }
+        }
+    }
+
+    void load_files() {
+        DIR *d = opendir(uploadPath);
+        struct dirent *dir;
+        file_count = 0;
+        if (d) {
+            while ((dir = readdir(d)) != NULL && file_count < RMAX_FILES) {
+                if (dir->d_name[0] != '.') {
+                    strncpy(file_list[file_count], dir->d_name, RMAX_FILENAME);
+                    file_count++;
+                }
+            }
+            closedir(d);
+        }
+    }
+
+    // Initilize r/w file operations
+    void do_file(char *how, configuration *configParams) {
+
+        if (cnmea.rwMode && cnmea.pbFile != NULL) {
+            return;
+        }
+
+        size_t len = strlen(current_input);
+        if (len > 0) {
+
+            cnmea.rwMode = how[0] == 'r'? 1 : 2;
+            snprintf(filePath, sizeof(filePath), "%s/%s", uploadPath, current_input);
+
+            cnmea.pbFile = fopen(filePath, how);
+            if (cnmea.pbFile != NULL) {
+                if (cnmea.rwMode == 1) {    // Read
+                    configParams->runPlb = 1;
+                    threadPLB = SDL_CreateThread(threadRunPlb, "threadPLB", configParams);
+                    if (NULL == threadPLB) {
+                        configParams->runPlb = 0;
+                        cnmea.rwMode = 0;
+                        snprintf(statusMsg, sizeof(statusMsg), "SDL_CreateThread threadPLB failed: %s", SDL_GetError());
+                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", statusMsg);
+                    } else {
+                        SDL_DetachThread(threadPLB);
+                    }
+                }
+                snprintf(statusMsg, sizeof(statusMsg), "Running NMEA file: %s(%c)", filePath, how[0]);
+            } else {
+                snprintf(statusMsg, sizeof(statusMsg), "Open %s (%s) failed: %s", filePath, how, SDL_GetError());
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, statusMsg);
+                cnmea.rwMode = 0;
+                configParams->runPlb = 0;
+            }
+            load_files();
+        }
+    }
+
+    void init_keyboard() {
+        int start_y = back_rect.y;
+        int key_w = back_rect.w-20;
+        int key_h = back_rect.h;
+        int gap = 8;
+        key_count = 0;
+
+        for (int row = 0; row < 4; row++) {
+            int start_x = 50 + (row * 15);
+            int len = strlen(qwerty[row]);
+            for (int col = 0; col < len; col++) {
+                Key k;
+                k.rect.x = start_x + col * (key_w + gap);
+                k.rect.y = start_y + row * (key_h + gap);
+                k.rect.w = key_w;
+                k.rect.h = key_h;
+                k.action_char = qwerty[row][col];
+                sprintf(k.label, "%c", k.action_char);
+                keys[key_count++] = k;
+            }
+        }
+
+        Key backspace   = { back_rect, "BACK", '\b' };
+        keys[key_count++] = backspace;
+
+        Key enter       = { save_rect, "SAVE", '\n' };
+        keys[key_count++] = enter;
+
+        Key play        = { play_rect, "PLAY", '\n' };
+        keys[key_count++] = play;
+
+        Key done        = { done_rect, "EXIT", '\n' };
+        keys[key_count++] = done;
+    }
+
+    int is_valid_char(int c) {
+        return isalnum(c) || c == '-' || c == '_' || c == '.';
+    }
+
+    load_files();
+    init_keyboard();
+    SDL_StartTextInput(); // Start SDL text input for physical keyboards
+
+    int running = 1;
+    SDL_Event e;
+    SDL_Rect clicked_rect = {0,0,0,0 };
+    int tMark = 0;
+
+    while (running) {
+
+        // Failed playback
+        if (configParams->runPlbAlive==0 && configParams->runPlb==1) // Thread self terminated
+        {
+            snprintf(statusMsg, sizeof(statusMsg), "Playback failed due to a badly formatted NMEA-0183 file");
+            configParams->runPlb = 0;
+            cnmea.rwMode = 0;
+            fclose(cnmea.pbFile);
+            cnmea.pbFile = NULL;
+            memset(current_input, 0, sizeof(current_input));
+        }
+
+        // Finish the write data session. rwMode 3 is set from doNmea() due to a expired file size limit
+        // The write data session is running in separate thread
+        if (cnmea.rwMode==3) {
+            memset(current_input, 0, sizeof(current_input));
+            cnmea.rwMode = 0;
+            snprintf(statusMsg, sizeof(statusMsg), "Recording stopped at limit %d bytes", cnmea.conf->rwfilez);
+        }
+
+        while (SDL_PollEvent(&e)) {
+
+            SDL_Point p;
+
+            if (e.type == SDL_QUIT) {
+                running = 0;
+                break;
+            } else if (e.type == SDL_KEYDOWN) {   // Use physical keyboard
+                if (e.key.keysym.sym == SDLK_BACKSPACE) {
+                    size_t len = strlen(current_input);
+                    if (len > 0) current_input[len - 1] = '\0';
+                }
+            } else if (e.type == SDL_TEXTINPUT) {
+                size_t len = strlen(current_input);
+                // Allow only safe characters for filenames
+                char c = e.text.text[0];
+                if (len < RMAX_FILENAME - 1 && ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || 
+                    (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) {
+                    strcat(current_input, e.text.text);
+                }
+            } else if (e.type == SDL_MOUSEBUTTONDOWN)
+            {   // Handle mouse clicks
+                int mx = e.button.x;
+                int my = e.button.y;
+
+                // Virtual keyboard click
+                for (int i = 0; i < key_count; i++) {
+                    if (mx >= keys[i].rect.x && mx <= keys[i].rect.x + keys[i].rect.w &&
+                        my >= keys[i].rect.y && my <= keys[i].rect.y + keys[i].rect.h)
+                    {
+                        char c = keys[i].action_char;
+                        size_t len = strlen(current_input);
+
+                        clicked_rect.x = keys[i].rect.x;
+                        clicked_rect.y = keys[i].rect.y;
+                        clicked_rect.w = keys[i].rect.w;
+                        clicked_rect.h = keys[i].rect.h;
+                        p = (SDL_Point){ mx, my };
+
+                        if (SDL_PointInRect(&p, &clicked_rect)) {
+                            tMark = 10; // Highlight the clicked key
+                        }
+
+                        if (c == '\b') {
+                            if (len > 0) current_input[len - 1] = '\0';
+                        } else {
+                            if (len < RMAX_FILENAME - 1)
+                            {
+                                if (is_valid_char(c))
+                                {
+                                    current_input[len] = tolower(c);
+                                    current_input[len + 1] = '\0';
+                                }
+
+                            }
+                        }
+                    }
+                }
+
+                // Clicking the scroll buttons
+                if (mx >= scrl_up_rect.x && mx <= scrl_up_rect.x + scrl_up_rect.w &&
+                    my >= scrl_up_rect.y && my <= scrl_up_rect.y + scrl_up_rect.h) {
+                    if (scrl_offset > 0) scrl_offset--;
+                    clicked_rect = scrl_up_rect;
+                    tMark = 10;
+                }
+                if (mx >= scrl_dn_rect.x && mx <= scrl_dn_rect.x + scrl_dn_rect.w &&
+                    my >= scrl_dn_rect.y && my <= scrl_dn_rect.y + scrl_dn_rect.h) {
+                    if (scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
+                    clicked_rect = scrl_dn_rect;
+                    tMark = 10;
+                }
+
+                // Click on a file name in the list.
+                for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < file_count; i++) {
+                    if (mx >= file_click_areas[i].x && mx <= file_click_areas[i].x + file_click_areas[i].w &&
+                        my >= file_click_areas[i].y && my <= file_click_areas[i].y + file_click_areas[i].h) {
+                        strncpy(current_input, file_list[i + scrl_offset], RMAX_FILENAME);
+                    }
+                }
+
+                p = (SDL_Point){ mx, my };
+
+                // We are done with this dialogue
+                if (SDL_PointInRect(&p, &done_rect)) {
+                    running = 0;
+                    break;
+                }
+
+                if (SDL_PointInRect(&p, &jmpf_rect)) {
+                    configParams->jumpf = 1;
+                    clicked_rect = jmpf_rect;
+                    tMark = 10;
+                }
+
+                if (SDL_PointInRect(&p, &jmpb_rect)) {
+                    configParams->jumpf = -1;
+                    clicked_rect = jmpb_rect;
+                    tMark = 10;
+                }
+
+                // Delete a file
+                if (SDL_PointInRect(&p, &dele_rect) && strlen(current_input) && !cnmea.rwMode)
+                {
+                    snprintf(filePath, sizeof(filePath), "%s/%s", uploadPath, current_input);
+                    memset(current_input, 0, sizeof(current_input));
+                    struct stat stats;
+                    if (!stat(filePath, &stats))
+                    {
+                        if (unlink(filePath)) {
+                            snprintf(statusMsg, sizeof(statusMsg), "Failed to remove %s: %s", filePath, SDL_GetError());
+                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", statusMsg);
+                        } else {
+                            snprintf(statusMsg, sizeof(statusMsg), "File %s successfully removed", filePath);
+                            SDL_Log("%s", statusMsg);
+                            load_files();
+                        }
+                    } else {
+                        snprintf(statusMsg, sizeof(statusMsg), "Failed to access %s: %s", filePath, SDL_GetError());
+                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "%s", statusMsg);
+                    }
+                }
+
+                // Read a file
+                if (SDL_PointInRect(&p, &play_rect) && cnmea.rwMode==0) {
+                    do_file("r", configParams);
+                }
+
+                // Save a file
+                if (SDL_PointInRect(&p, &save_rect) && cnmea.rwMode==0) {
+                    do_file("w", configParams);
+                }
+
+                // Abort a file operation
+                if (SDL_PointInRect(&p, &stop_rect) && cnmea.pbFile != NULL && cnmea.rwMode) {
+                    configParams->runPlb = 0;   // Terminate the thread
+                    SDL_Delay(1000);
+                    cnmea.rwMode = 0;
+                    fclose(cnmea.pbFile);
+                    cnmea.pbFile = NULL;
+                    memset(current_input, 0, sizeof(current_input));
+                    snprintf(statusMsg, sizeof(statusMsg), "File operation stopped");
+                }
+            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wheel input
+                if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
+                else if (e.wheel.y < 0 && scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
+            }
+        }
+
+        // Draw background
+        if (sdlApp->conf->style == 0)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+        SDL_RenderClear(sdlApp->renderer);
+
+        if (sdlApp->conf->style == 0) {
+            SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+        }
+
+        // Draw status messages
+        SDL_Color col = {240,255,240,255};
+        if (strstr(statusMsg, "ailed") != NULL) {
+            col.r = 255; col.g=190; col.b=190;
+        }
+
+        // Draw file selector
+        draw_textc(sdlApp->renderer, fontMsg, statusMsg, 40, 20,col);
+
+        for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < file_count; i++)
+        {
+            int item_y = 60 + (i * 22);
+
+            // Save clickable area for the file
+            file_click_areas[i].x = 50;
+            file_click_areas[i].y = item_y;
+            file_click_areas[i].w = 600;
+            file_click_areas[i].h = 20;
+
+            // Highlight the row faintly to indicate that it is interactive.
+            SDL_SetRenderDrawColor(sdlApp->renderer, 45, 45, 45, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[i]);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 200, 200, 200, 255);
+            draw_text(sdlApp->renderer, file_list[i + scrl_offset], 55, item_y + 2, 2);
+        }
+
+        // Draw scroll buttons
+        if (file_count >= RVISIBLE_FILES)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &scrl_up_rect);
+            SDL_RenderFillRect(sdlApp->renderer, &scrl_dn_rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, "UP", scrl_up_rect.x + 8, scrl_up_rect.y + 12, 1);
+            draw_text(sdlApp->renderer, "DN", scrl_dn_rect.x + 8, scrl_dn_rect.y + 12, 1);
+        }
+
+        // Draw seek  buttons
+        if (cnmea.rwMode==1)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &jmpf_rect);
+            SDL_RenderFillRect(sdlApp->renderer, &jmpb_rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, "FF", jmpf_rect.x + 8, jmpf_rect.y + 12, 1);
+            draw_text(sdlApp->renderer, "FB", jmpb_rect.x + 8, jmpb_rect.y + 12, 1);
+        }
+
+        // Draw stop button
+        if (cnmea.rwMode)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &stop_rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, "STOP", stop_rect.x + 8, stop_rect.y + 12, 1);
+        }
+
+        // Draw delete button
+        if (strlen(current_input) && !cnmea.rwMode)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &dele_rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, "DELETE", dele_rect.x + 8, dele_rect.y + 12, 1);
+        }
+
+        // Draw input field
+        SDL_SetRenderDrawColor(sdlApp->renderer, 50, 50, 50, 255);
+        SDL_Rect input_box = { 50, 180, 400, 40 };
+        SDL_RenderFillRect(sdlApp->renderer, &input_box);
+        SDL_SetRenderDrawColor(sdlApp->renderer, 0, 255, 0, 255);
+        SDL_RenderDrawRect(sdlApp->renderer, &input_box);
+        // Draw filename
+        draw_text(sdlApp->renderer, current_input, 58, 190, 2);
+
+        // Draw virtual keyboard
+        for (int i = 0; i < key_count; i++)
+        {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 70, 70, 70, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &keys[i].rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 150, 150, 150, 255);
+            SDL_RenderDrawRect(sdlApp->renderer, &keys[i].rect);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            draw_text(sdlApp->renderer, keys[i].label, keys[i].rect.x + 10, keys[i].rect.y + 15, 1);
+        }
+
+        //  Highlight the current key just clicked
+        if (tMark-- > 0) {
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 100);
+            SDL_RenderFillRect(sdlApp->renderer, &clicked_rect);
+        }
+
+        SDL_RenderPresent(sdlApp->renderer);
+    }
+
+    TTF_CloseFont(fontMsg);
+    SDL_StopTextInput();
+
+    return;
+}
+
 // Present the compass with heading ant heel
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -1812,6 +2474,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
     SDL_Texture* rsaBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rsaBar.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
+    SDL_Texture* recordBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "record.png");
 
     SDL_Texture* calBar = NULL;
 
@@ -1841,6 +2504,9 @@ static int doCompass(sdl2_app *sdlApp)
         calBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "cal.png"); 
     }
 
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
     SDL_Rect menuBarR       = {400,400,393,50};
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
@@ -1857,6 +2523,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect rsaRbarR       = {600,370,146,15};
     SDL_Rect rsaMbarR       = {590,370,18,18};
     SDL_Rect rsaIbarR       = {452,370,292,15};
+    SDL_Rect recordbarR     = {win_w/2,20,30,30};
 
     if (sdlApp->conf->style == 1) {
         compassR.x=29;compassR.y=28;compassR.w=420;compassR.h=420;
@@ -1885,10 +2552,11 @@ static int doCompass(sdl2_app *sdlApp)
     int dragging = 0;
     int hideBrBar = 30;
 
-    int win_w, win_h;
-    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+    SDL_SetTextureBlendMode(recordBar, SDL_BLENDMODE_BLEND);
 
     double m2f=cnmea.units==METRIC? 1 : 3.28084;
+
+    int eSkip = 1;
 
     while (1) {
         int boxItem = 0;
@@ -1910,6 +2578,9 @@ static int doCompass(sdl2_app *sdlApp)
         ct = time(NULL);    // Get a timestamp for this turn
         
         while (SDL_PollEvent(&e)) {
+
+            if (--eSkip > 0)
+                continue;
 
             static int last_ct;
 
@@ -1970,6 +2641,13 @@ static int doCompass(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &slider)) {
                     dragging = 1;
                 }
+
+                if (SDL_PointInRect(&p, &recordbarR)) {
+                    doRecord(sdlApp, sdlApp->conf);
+                    hideBrBar=0;
+                    eSkip = 2;  // inadvertent double-click
+                    break;
+                }
             }
         }
 
@@ -2025,6 +2703,7 @@ static int doCompass(sdl2_app *sdlApp)
         // RMC - Recommended minimum specific GPS/Transit data
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
             sprintf(msg_sog, "SOG: %.1f", cnmea.sog);
+
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
@@ -2139,6 +2818,24 @@ static int doCompass(sdl2_app *sdlApp)
             }
         }
 
+        if (cnmea.pbFile != NULL && cnmea.rwMode) {
+            // Get the number of milliseconds since the program started
+            Uint32 ticks = SDL_GetTicks();
+
+            // Divide by 1,000 to get seconds.
+            // By using modulo (% 2), we know whether we are on an even or odd second.
+            if ((ticks / 1000) % 2 == 0) {
+                // Jämn sekund: Visa bilden helt synlig (Alfa = 255)
+                SDL_SetTextureAlphaMod(recordBar, 255);
+            } else {
+                // Odd second: Make the image completely invisible (Alpha = 0)
+                // Set to 50 to "dim" instead of disappearing completely)
+                SDL_SetTextureAlphaMod(recordBar, 50);
+            }
+        } else SDL_SetTextureAlphaMod(recordBar, 255);
+
+        SDL_RenderCopyEx(sdlApp->renderer, recordBar, NULL, &recordbarR, 0, NULL, SDL_FLIP_NONE);
+
         if (sdlApp->conf->i2cFile != 0) {
             SDL_RenderCopyEx(sdlApp->renderer, calBar, NULL, &calbarR, 0, NULL, SDL_FLIP_NONE);
         }
@@ -2246,6 +2943,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(menuBar);
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);
+    SDL_DestroyTexture(recordBar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(rsaBar);
@@ -3073,7 +3771,7 @@ static int doDepth(sdl2_app *sdlApp)
         gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100.png");
         gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200.png");
         gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd.png");
-        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
     } else {
         gaugeDepth = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depth-l.png");
         gaugeDepthW = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthw-l.png");
@@ -3082,7 +3780,7 @@ static int doDepth(sdl2_app *sdlApp)
         gaugeDepthx100 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx100-l.png");
         gaugeDepthx200 = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthx200-l.png");
         gaugeDud = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "depthUd-l.png");
-        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox-flat.png");
+        textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");
     }
 
     SDL_Texture* subTaskbar = NULL;
@@ -6616,7 +7314,7 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
 // Give up all resources in favor of a subtask execution.
 static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 {
-    int runners[3];
+    int runners[3] = {0,0,0};
     int t_wmax = 3;
     int status, i=0;
     char *args[20];
@@ -6635,20 +7333,24 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         args[++i] = strtok(NULL, " ");
 
     // Take down threads
-    runners[0] = configParams->runSer;
-    runners[1] = configParams->runNet;
-    runners[2] = configParams->runWrn;
-    configParams->runSer = configParams->runNet = configParams->runWrn = 0;
+    if (!configParams->runTcp)
+    {
+        runners[0] = configParams->runSer;
+        runners[1] = configParams->runNet;
+        runners[2] = configParams->runWrn;
+        configParams->runSer = configParams->runNet = configParams->runWrn = 0;
 
-    while(configParams->numThreads && t_wmax--) {
-        SDL_Delay(350*configParams->numThreads);
-        if ((configParams->numThreads - configParams->runi2c) !=0) {
-            SDL_Log("Taking down threads #%d remains", configParams->numThreads - configParams->runi2c);
+
+        while(configParams->numThreads && t_wmax--) {
+            SDL_Delay(350*configParams->numThreads);
+            if ((configParams->numThreads - configParams->runi2c) !=0) {
+                SDL_Log("Taking down threads #%d remains", configParams->numThreads - configParams->runi2c);
+            }
         }
-    }
 
-    if (configParams->numThreads - configParams->runi2c) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d linger.", configParams->numThreads - configParams->runi2c);
+        if (configParams->numThreads - configParams->runi2c) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d linger.", configParams->numThreads - configParams->runi2c);
+        }
     }
 
     SDL_HideWindow(sdlApp->window);
@@ -6669,12 +7371,15 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
 
     configParams->subTaskPID = 0;
 
-    // Restore runner's original run status
-    configParams->runSer = runners[0];
-    configParams->runNet = runners[1];
-    configParams->runWrn = runners[2];
+    if (!configParams->runTcp)
+    {
+        // Restore runner's original run status
+        configParams->runSer = runners[0];
+        configParams->runNet = runners[1];
+        configParams->runWrn = runners[2];
 
-    status = openSDL2(configParams, sdlApp, 0);
+        status = openSDL2(configParams, sdlApp, 0);
+    }
 
     SDL_ShowWindow(sdlApp->window);    // Forcing the window forward
     SDL_RaiseWindow(sdlApp->window);   // Puts focus
@@ -6820,7 +7525,7 @@ static void init_av(configuration *configParams)
 
 int main(int argc, char *argv[])
 {
-    int c, t_wmax = 4;
+    int c, t_wmax = 20;
     configuration configParams;
     sdl2_app sdlApp;
     char buf[FILENAME_MAX];
@@ -6831,6 +7536,9 @@ int main(int argc, char *argv[])
     memset(&sdlApp, 0, sizeof(sdlApp));
     memset(&configParams, 0, sizeof(configParams));
     sdlApp.conf = &configParams;
+    cnmea.conf = &configParams;
+
+    configParams.sdlApp = &sdlApp;
 
     cnmea.wsAccRdy = cnmea.wsAccIndx = cnmea.wsAccDur = 0;
     memset(cnmea.wsAcc, 0, sizeof(cnmea.wsAcc));
@@ -6856,7 +7564,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    while ((c = getopt (argc, argv, "cC:hlrv:ginwVpPs:z:")) != -1)
+    while ((c = getopt (argc, argv, "cC:hlrv:ginwVpPs:t:z:")) != -1)
     {
         switch (c)
             {
@@ -6875,7 +7583,7 @@ int main(int argc, char *argv[])
                 break;
             case 'w':   configParams.useWm  = 1;    // Use private WM
                 break;
-            case 'V':   configParams.runVnc = 1;    // Enable VNC server
+            case 'V':   configParams.runVnc = 1;    // Enable (wayvnc) VNC server
                 break;
             case 'v':   configParams.doFokusCheck = atoi(optarg);   // Run under VNC port #
                 break;
@@ -6885,6 +7593,8 @@ int main(int argc, char *argv[])
                 break;
             case 's':   strncpy(configParams.ssize, optarg, sizeof(configParams.ssize));    // Screen size w/h
                 break;
+            case 't':   configParams.runTcp = atoi(optarg);   // Enable TCP nmea Server @ portn
+                break;
             case 'z':   configParams.scale = atof(optarg);    // Scale the screen
                 break;
             case 'r':
@@ -6893,9 +7603,10 @@ int main(int argc, char *argv[])
                 break;
             case 'h':
             default:
-                fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -v -w -z -s -r (revision)\n", basename(argv[0]));
+                fprintf(stderr, "Usage: %s -l -c -C -g -i -n -p -P -V -v -w -z -s -t -r (revision)\n", basename(argv[0]));
                 fprintf(stderr, "       Where: -l use syslog : -c Create database only: -P show cursor : -g Disable Serial : -i Disable i2c : -p Play warnings\n");
-                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -v Run under VNC port : -C (port>1024) Remote config : -z Scale factor : -s Window size w/h\n");
+                fprintf(stderr, "              -n Disabe NMEA Net : -w use WM : -V Enable VNC Server : -v Run under VNC port : -C (port>1024) Remote config\n");
+                fprintf(stderr, "              -z Scale factor : -s Window size w/h : -t Enable TCP Server\n");
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -7109,6 +7820,26 @@ int main(int argc, char *argv[])
     if (openSDL2(&configParams, &sdlApp, 1))
         exit(EXIT_FAILURE);
 
+    SDL_Thread *threadTCPs = NULL;
+    int threadTcp_server(void *conf);
+
+    if (configParams.runTcp != 0) {
+
+        threadTCPs = SDL_CreateThread(threadTcp_server, "threadTCPs", &cnmea);
+
+        if (NULL == threadTCPs) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateThread threadTCPs failed: %s", SDL_GetError());
+            configParams.runTcp = 0;
+        } else {
+            if ((configParams.tcp_mutex = SDL_CreateMutex()) == NULL) {
+                configParams.runTcp = 0;
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex tcp_mutex failed: %s", SDL_GetError());
+            } else {
+                SDL_DetachThread(threadTCPs);
+            }
+        }
+    }
+
     (void)checkSubtask(&sdlApp, &configParams);
 
     while(1)
@@ -7147,13 +7878,19 @@ int main(int argc, char *argv[])
             break;
     }
 
+    if (cnmea.pbFile != NULL) {
+        fclose(cnmea.pbFile);
+    }
+
 	if (configParams.wayvncPid > 0 && kill(configParams.wayvncPid, 0) == 0) {
 		kill(configParams.wayvncPid, SIGTERM);
 		SDL_Log("Taking down wayvnc");
 	}
 
-    // Terminate the threads
-    configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = 0;
+    // Terminate the threads - 2 times since restart can happen in the time slice
+    configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = configParams.runPlb = configParams.runTcp = 0;
+    SDL_Delay(3000);
+    configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = configParams.runPlb = configParams.runTcp = 0;
 
     // .. and let them close cleanly
     while(configParams.numThreads && t_wmax--) {
