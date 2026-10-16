@@ -263,10 +263,12 @@ int i2cinit(int bus)
     return file;
 }
 
+static double pitch;
+
 double i2cReadHdm(int file, calibration *calib)
 {
 
-    static double accXnorm,accYnorm,pitch,roll,magXcomp,magYcomp;
+    static double accXnorm,accYnorm,roll,magXcomp,magYcomp;
     static int magRaw[3];
     static int accRaw[3];
     static int oldXMagRawValue;
@@ -358,6 +360,11 @@ double i2cReadHdm(int file, calibration *calib)
 
     return roundf(heading);
 
+}
+
+double i2cReadPitch(void)
+{
+    return pitch;
 }
 
 double i2cReadRoll(int file, int dt, calibration *calib)

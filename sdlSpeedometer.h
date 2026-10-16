@@ -7,6 +7,11 @@
 #endif
 #include <alsa/asoundlib.h>
 
+#define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
+#define METRIC 0    // Metric units
+#define US 1        // US Customary units
+#define TIMEDATFMT  "%x - %H:%M %Z"
+
 // Dendent on project  https://github.com/ehedman/flowSensor
 //#define DIGIFLOW
 
@@ -140,6 +145,7 @@ enum sdlPages {
 typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
+    SDL_GLContext ctx;
     char *fontPath;
     char *subAppsCmd[VIDPAGE][VIDPAGE];
     char *subAppsIco[VIDPAGE][VIDPAGE];
@@ -182,6 +188,7 @@ typedef struct {
 
 extern int i2cinit(int bus);
 extern double i2cReadHdm(int file, calibration *calib);
+extern double i2cReadPitch(void);
 extern double i2cReadRoll(int file, int dt, calibration *calib);
 extern void i2creadMAG(int  m[], int file);
 
@@ -198,6 +205,7 @@ typedef struct {
     int     sogAccRdy;  // Acc indx full
     int     sogAccDur;  // Round trip duration
     double  heel;       // Vessel heel (non NMEA)
+    double  pitch;      // Vessel pitch (non NMEA)
     time_t  heel_i2cts; // Heel timestamp
     double  stw;        // Speed of vessel relative to the water (Knots)
     time_t  stw_ts;     // STW Timestamp

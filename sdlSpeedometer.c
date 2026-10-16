@@ -57,14 +57,8 @@
 #define DEF_NMEA_PORT   10110
 #define DEF_VNC_PORT    5903
 
-#define TIMEDATFMT  "%x - %H:%M %Z"
-
-#define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
 #define TRGPS       1.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
-
-#define METRIC 0    // Metric units
-#define US 1        // US Customary units
 
 #define DEFAULT_SCREEN_SIZE     "800x480"   // Default screen size
 #define DEFAULT_SCREEN_SCALE    1.0
@@ -107,9 +101,9 @@ static int useSyslog = 0;
 
 static SDL_Texture* Background_Tx;
 
-static collected_nmea cnmea;
+collected_nmea cnmea;
 
-static warnings warn;
+warnings warn;
 
 // Forward declaration
 static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit);
@@ -1175,6 +1169,7 @@ static int i2cCollector(void *conf)
 
         cnmea.heel_i2cts = ct;
         cnmea.heel = i2cReadRoll(configParams->i2cFile, dt, &calib);
+        cnmea.pitch = i2cReadPitch();
 
         // Take over if no NMEA
         if (ct - cnmea.hdg_ts > S_TIMEOUT) {
@@ -1689,7 +1684,7 @@ static void setUTCtime(void)
 }
 
 // Make sure instruments take shortest route over the 0 - 360 scale
-inline static double rotate(double angle, int res)
+double rotate(double angle, int res)
 {
     double nR = angle;
     static double rot;
@@ -2453,6 +2448,8 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
     return;
 }
 
+int doCog3d(sdl2_app *sdlApp, configuration *configParams);
+
 // Present the compass with heading ant heel
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -2475,6 +2472,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* rsaBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rsaBar.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
     SDL_Texture* recordBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "record.png");
+    SDL_Texture* i3dBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "3d.png");
 
     SDL_Texture* calBar = NULL;
 
@@ -2524,6 +2522,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect rsaMbarR       = {590,370,18,18};
     SDL_Rect rsaIbarR       = {452,370,292,15};
     SDL_Rect recordbarR     = {win_w/2,20,30,30};
+    SDL_Rect i3dbarR        = {(win_w/2)+50,20,33,33};
 
     if (sdlApp->conf->style == 1) {
         compassR.x=29;compassR.y=28;compassR.w=420;compassR.h=420;
@@ -2644,6 +2643,12 @@ static int doCompass(sdl2_app *sdlApp)
 
                 if (SDL_PointInRect(&p, &recordbarR)) {
                     doRecord(sdlApp, sdlApp->conf);
+                    hideBrBar=0;
+                    eSkip = 2;  // inadvertent double-click
+                    break;
+                }
+                if (SDL_PointInRect(&p, &i3dbarR)) {
+                    doCog3d(sdlApp, sdlApp->conf);
                     hideBrBar=0;
                     eSkip = 2;  // inadvertent double-click
                     break;
@@ -2835,6 +2840,7 @@ static int doCompass(sdl2_app *sdlApp)
         } else SDL_SetTextureAlphaMod(recordBar, 255);
 
         SDL_RenderCopyEx(sdlApp->renderer, recordBar, NULL, &recordbarR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, i3dBar, NULL, &i3dbarR, 0, NULL, SDL_FLIP_NONE);
 
         if (sdlApp->conf->i2cFile != 0) {
             SDL_RenderCopyEx(sdlApp->renderer, calBar, NULL, &calbarR, 0, NULL, SDL_FLIP_NONE);
@@ -2944,6 +2950,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(recordBar);
+    SDL_DestroyTexture(i3dBar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(rsaBar);
@@ -7215,6 +7222,18 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         else
             flags = SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS;
 
+        if (1) {
+            flags = flags | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI; 
+         
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_ES);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,2);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,0);
+            SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
+            SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,24);
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS,1);
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES,4);
+        }
+
         if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
                 0, 0, // Pos x/y
                 configParams->window_w, configParams->window_h,
@@ -7230,13 +7249,11 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
         }
 
-
-        sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+       sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
         SDL_RenderSetScale(sdlApp->renderer, configParams->scale, configParams->scale);
 
         TTF_Init();
-
     }
 
     if (doInit) {
