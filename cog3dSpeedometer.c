@@ -2,6 +2,22 @@
  * SDL2 + OpenGL ES 2.0 3D marine compass
  */
 
+/*
+ *  If you want to fine-tune the size yourself, you can find the adjustments in build_compass():
+ *  // Degree Texts:
+ *   add_dial_text(buf, p.x, p.y, p.z, 0.110f, text_angle);
+ *
+ *   // Cardinal directions:
+ *   add_dial_text(cardinal[i], p.x, p.y, p.z, 0.120f, text_angle);
+ *
+ *   // The decorative center circle is controlled by:
+ *   const float hubR = 0.19f;
+ *
+ *   // Increase the value for a larger circle. The color is set here:
+ *   tri(center, p, q, 0.30f, 0.025f, 0.055f);
+ *
+ */
+
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengles2.h>
@@ -93,7 +109,7 @@ static const char *text_fs_src =
     "precision mediump float; varying vec2 vUV; uniform sampler2D uTex;"
     "void main(){ vec4 c=texture2D(uTex,vUV); gl_FragColor=c; }";
 
-static void push_text_quad(float cx,float cy,float z,float w,float h,int char_index) {
+static void push_text_quad(float cx,float cy,float z,float w,float h,int char_index,float angle_deg) {
     if(text_vert_count + 6 > MAX_TEXT_VERTS) return;
     float u0=(float)(char_index*atlas_cell_w)/(float)(sizeof(atlas_chars)-1)/(float)(1); /* overwritten below */
     (void)u0;
@@ -108,6 +124,15 @@ static void push_text_quad(float cx,float cy,float z,float w,float h,int char_in
         {x0,y1,z,u_left,v_top},{x0,y0,z,u_left,v_bottom},{x1,y0,z,u_right,v_bottom},
         {x0,y1,z,u_left,v_top},{x1,y0,z,u_right,v_bottom},{x1,y1,z,u_right,v_top}
     };
+    /* Rotate each glyph in the compass dial's own XY plane. This makes
+       the label baseline tangent to the dial, hence perpendicular to its
+       radial degree tick. The complete label remains attached to the rose. */
+    float a=angle_deg*PI_F/180.0f, cs=cosf(a), sn=sinf(a);
+    for(int i=0;i<6;i++) {
+        float dx=q[i].x-cx, dy=q[i].y-cy;
+        q[i].x=cx+dx*cs-dy*sn;
+        q[i].y=cy+dx*sn+dy*cs;
+    }
     memcpy(&text_verts[text_vert_count],q,sizeof(q)); text_vert_count+=6;
 }
 
@@ -116,13 +141,22 @@ static int atlas_index(char ch) {
     return p ? (int)(p-atlas_chars) : -1;
 }
 
-static void add_dial_text(const char *str,float cx,float cy,float z,float height) {
+static void add_dial_text(const char *str,float cx,float cy,float z,float height,float angle_deg) {
     float charw=height*0.62f;
     float total=(float)strlen(str)*charw;
     float x=cx-total*0.5f;
+    float a=angle_deg*PI_F/180.0f, cs=cosf(a), sn=sinf(a);
     for(size_t i=0;i<strlen(str);i++) {
         int idx=atlas_index(str[i]);
-        if(idx>=0) push_text_quad(x+charw*0.5f+(float)i*charw,cy,z,charw,height,idx);
+        if(idx>=0) {
+            /* Rotate the character's position around the label anchor too,
+               so multi-digit labels rotate as a single word, not in place. */
+            float gx=x+charw*0.5f+(float)i*charw;
+            float dx=gx-cx;
+            float rx=cx+dx*cs;
+            float ry=cy+dx*sn;
+            push_text_quad(rx,ry,z,charw,height,idx,angle_deg);
+        }
     }
 }
 
@@ -238,11 +272,25 @@ static void build_compass(void) {
         }
     }
 
+    /* Decorative central red disk, slightly darker than the rose surface. */
+    {
+        const float hubR = 0.19f;
+        const float hubZ = topZ + domeH + 0.014f;
+        V3 center = v3(0.0f, 0.0f, hubZ);
+        for (int i=0; i<N; i++) {
+            float a = 2.0f*PI_F*(float)i/(float)N;
+            float b = 2.0f*PI_F*(float)(i+1)/(float)N;
+            V3 p = polar(hubR, a, hubZ);
+            V3 q = polar(hubR, b, hubZ);
+            tri(center, p, q, 0.30f, 0.025f, 0.055f);
+        }
+    }
+
     /* Tick marks follow the domed surface. North is toward +Y. */
     for(int deg=0;deg<360;deg+=5) {
         float a=deg*PI_F/180.0f;
         float inner=0.78f, outer=0.91f;
-        float cr=0.96f, cg=0.84f, cb=0.73f;
+        float cr=0.96f, cg=0.84f, cb=0.43f;
         if(deg%30==0) { inner=0.66f; outer=0.90f; }
         else if(deg%10==0) inner=0.73f;
         /* Give the north index a distinctive shape/color so rotation is easy
@@ -254,31 +302,39 @@ static void build_compass(void) {
         line3(polar(r0,a,z0),polar(r1,a,z1),cr,cg,cb);
     }
 
-    /* True font glyphs are rendered from a high-resolution texture atlas. */
+    /* Small, plain degree labels directly on the red compass surface. */
     text_vert_count=0;
     for(int deg=0;deg<360;deg+=30) {
-        float a=deg*PI_F/180.0f, rr=0.56f;
-        V3 p=polar(rr,a,topZ+domeH*(1-(rr/redR)*(rr/redR))+0.012f);
-        char buf[4]; snprintf(buf,sizeof(buf),"%d",deg);
-        add_dial_text(buf,p.x,p.y,p.z,0.125f);
+        float a=deg*PI_F/180.0f, rr=0.62f;
+        V3 p=polar(rr,a,topZ+domeH*(1-(rr/redR)*(rr/redR))+0.010f);
+        char buf[4];
+        snprintf(buf,sizeof(buf),"%d",deg);
+        /* Keep each label's position attached to the rose, but keep the
+           glyphs readable on screen as heading rotates the rose. The baseline
+           is tangent to the dial and is flipped by 180 degrees when needed. */
+        float screen_angle = -(float)deg - render_heading_deg;
+        while (screen_angle > 90.0f) screen_angle -= 180.0f;
+        while (screen_angle < -90.0f) screen_angle += 180.0f;
+        float text_angle = screen_angle + render_heading_deg;
+        add_dial_text(buf,p.x,p.y,p.z,0.110f,text_angle);
     }
 
-    const char card[]={'N','E','S','W'};
-    const int angles[]={0,90,180,270};
-    for(int i=0;i<4;i++) {
-        float a=angles[i]*PI_F/180.0f, rr=0.37f;
-        V3 p=polar(rr,a,topZ+domeH*(1-(rr/redR)*(rr/redR))+0.016f);
-        char label[2]={card[i],0};
-        add_dial_text(label,p.x,p.y,p.z,0.14f);
+    /* Cardinal directions on the inner ring. Their positions rotate with the
+       rose; their letters remain upright for the chart-table viewing angle. */
+    const char *cardinal[] = {"N", "E", "S", "W"};
+    const int cardinal_deg[] = {0, 90, 180, 270};
+    for (int i=0; i<4; i++) {
+        int deg = cardinal_deg[i];
+        float a = (float)deg * PI_F / 180.0f;
+        float rr = 0.39f;
+        V3 p = polar(rr, a, topZ+domeH*(1-(rr/redR)*(rr/redR))+0.012f);
+        float screen_angle = -(float)deg - render_heading_deg;
+        while (screen_angle > 90.0f) screen_angle -= 180.0f;
+        while (screen_angle < -90.0f) screen_angle += 180.0f;
+        float text_angle = screen_angle + render_heading_deg;
+        add_dial_text(cardinal[i], p.x, p.y, p.z, 0.130f, text_angle);
     }
 
-    /* Central hub and small stylized pointer. */
-    for(int i=0;i<N;i++) {
-        float a=2*PI_F*i/N,b=2*PI_F*(i+1)/N;
-        V3 c=v3(0,0,topZ+domeH+0.016f);
-        V3 p=polar(0.09f,a,c.z),q=polar(0.09f,b,c.z);
-        tri(c,p,q,0.70f,0.09f,0.13f);
-    }
 }
 
 static const char *vs_src =
@@ -292,7 +348,7 @@ static const char *fs_src =
 static GLuint compile_shader(GLenum type,const char *src) {
     GLuint s=glCreateShader(type); glShaderSource(s,1,&src,NULL); glCompileShader(s);
     GLint ok=0; glGetShaderiv(s,GL_COMPILE_STATUS,&ok);
-    if(!ok){
+    if(!ok) {
         char log[2048];
         glGetShaderInfoLog(s,sizeof(log),NULL,log);
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Shader error:  %s" ,log);
@@ -308,7 +364,7 @@ static int init_gl(void) {
     glBindAttribLocation(program,0,"aPos"); glBindAttribLocation(program,1,"aCol");
     glLinkProgram(program); glDeleteShader(vs); glDeleteShader(fs);
     GLint ok=0;glGetProgramiv(program,GL_LINK_STATUS,&ok);
-    if(!ok){
+    if(!ok) {
         char log[2048];
         glGetProgramInfoLog(program,sizeof(log),NULL,log);
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Link error: %s" ,log);
@@ -366,8 +422,6 @@ void compass3d_set_view(float tilt_degrees, float distance) {
 void compass3d_set_scale(float scale) {
     compass_scale = fmaxf(0.25f, fminf(3.0f, scale));
 }
-
-#if 1
 
 void compass3d_render(double heading_degrees, double heel_degrees, double pitch_degrees, int x, int y, int width, int height)
 {
@@ -492,66 +546,6 @@ void compass3d_render(double heading_degrees, double heel_degrees, double pitch_
                old_viewport[2], old_viewport[3]);
 }
 
-#else
-void compass3d_render(double heading_degrees, double heel_degrees, int x, int y, int width, int height) {
-    if (!renderer_initialized || width <= 0 || height <= 0) return;
-    render_heading_deg = (float)heading_degrees;
-    render_heel_deg = (float)heel_degrees;
-    win_w = width; win_h = height;
-
-    GLint old_viewport[4];
-    glGetIntegerv(GL_VIEWPORT, old_viewport);
-    glViewport(x, y, width, height);
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(x, y, width, height);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glDisable(GL_SCISSOR_TEST);
-
-    build_compass();
-    glBindBuffer(GL_ARRAY_BUFFER,vbo);
-    glBufferData(GL_ARRAY_BUFFER,(GLsizeiptr)(vert_count*sizeof(Vertex)),verts,GL_DYNAMIC_DRAW);
-    glUseProgram(program);
-    glEnableVertexAttribArray((GLuint)attr_pos); glEnableVertexAttribArray((GLuint)attr_col);
-    glVertexAttribPointer((GLuint)attr_pos,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),(void*)offsetof(Vertex,x));
-    glVertexAttribPointer((GLuint)attr_col,4,GL_FLOAT,GL_FALSE,sizeof(Vertex),(void*)offsetof(Vertex,r));
-
-    float proj[16],view[16],rx[16],ry[16],rz[16],model[16],tmp[16],mvp[16];
-    float aspect=(float)width/(float)height;
-    perspective(proj,38.0f,aspect,0.1f,30.0f);
-    float tilt=camera_tilt_deg;
-    V3 eye=v3(0.0f,-camera_distance*cosf((90.0f-tilt)*PI_F/180.0f),
-                  camera_distance*sinf((90.0f-tilt)*PI_F/180.0f));
-    look_at(view,eye,v3(0,0,0),v3(0,0,1));
-    rotate_x(rx,render_heel_deg);
-    rotate_y(ry,0.0f);
-    rotate_z(rz,-render_heading_deg);
-    float scale_m[16]; mat_identity(scale_m);
-    scale_m[0]=scale_m[5]=scale_m[10]=compass_scale;
-    /* Apply heading and heel rotations to the complete compass model. */
-    mat_mul(tmp,rz,scale_m);
-    mat_mul(model,rx,tmp);
-    mat_mul(tmp,view,model);
-    mat_mul(mvp,proj,tmp);
-    glUniformMatrix4fv(uni_mvp,1,GL_FALSE,mvp);
-    glDrawArrays(GL_TRIANGLES,0,vert_count);
-
-    if(text_vert_count>0) {
-        glUseProgram(text_program);
-        glBindBuffer(GL_ARRAY_BUFFER,text_vbo);
-        glBufferData(GL_ARRAY_BUFFER,(GLsizeiptr)(text_vert_count*sizeof(TextVertex)),text_verts,GL_DYNAMIC_DRAW);
-        glEnableVertexAttribArray(0); glEnableVertexAttribArray(1);
-        glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(TextVertex),(void*)offsetof(TextVertex,x));
-        glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,sizeof(TextVertex),(void*)offsetof(TextVertex,u));
-        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,text_texture);
-        glUniform1i(text_uni_tex,0); glUniformMatrix4fv(text_uni_mvp,1,GL_FALSE,mvp);
-        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-        glDrawArrays(GL_TRIANGLES,0,text_vert_count);
-        glDisable(GL_BLEND);
-    }
-    glViewport(old_viewport[0],old_viewport[1],old_viewport[2],old_viewport[3]);
-}
-#endif
-
 void compass3d_shutdown(void) {
     if (vbo) glDeleteBuffers(1,&vbo);
     if (text_vbo) glDeleteBuffers(1,&text_vbo);
@@ -571,7 +565,7 @@ const char* vertex_shader_source =
     "varying vec2 v_texCoord;\n"
     "uniform vec2 u_resolution;\n" // Window width and height in pixels
     "void main() {\n"
-    // Konvertera från pixlar (0 till vidd/höjd) till OpenGL-koordinater (-1.0 till 1.0)
+    // Convert from pixels (0 to width/height) to OpenGL coordinates (-1.0 to 1.0)
     "   vec2 zeroToOne = position.xy / u_resolution;\n"
     "   vec2 zeroToTwo = zeroToOne * 2.0;\n"
     "   vec2 clipSpace = zeroToTwo - 1.0;\n"
@@ -622,6 +616,7 @@ GLuint create_text_texture(TTF_Font* font, const char* text, SDL_Color color, in
                  GL_RGBA, GL_UNSIGNED_BYTE, surface->pixels);
 
     SDL_FreeSurface(surface);
+
     return texture_id;
 }
 
@@ -635,10 +630,10 @@ typedef struct {
 } TextShader;
 
 void draw_text_gles2(TextShader shader, GLuint texture_id, float x, float y, float width, float height, float screen_width, float screen_height) {
-    // 1. Restore any VBO buffers from the compass
+    // Restore any VBO buffers from the compass
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    // 2. Enable shader and texture
+    // Enable shader and texture
     glUseProgram(shader.program);
     glUniform2f(shader.resolution_loc, screen_width, screen_height);
 
@@ -646,12 +641,11 @@ void draw_text_gles2(TextShader shader, GLuint texture_id, float x, float y, flo
     glBindTexture(GL_TEXTURE_2D, texture_id);
     glUniform1i(shader.texture_loc, 0);
 
-    // 3. Enable transparency (Important for TTF text)
+    // Enable transparency (Important for TTF text)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_DEPTH_TEST);
 
-    // 4. KORRIGERAT: Separate arrays for position and texture coordinates
     float positions[] = {
         x,         y,
         x + width, y,
@@ -666,18 +660,18 @@ void draw_text_gles2(TextShader shader, GLuint texture_id, float x, float y, flo
         1.0f, 1.0f
     };
 
-    // 5. Send positions (2 floats per corner)
+    // Send positions (2 floats per corner)
     glEnableVertexAttribArray(shader.position_loc);
     glVertexAttribPointer(shader.position_loc, 2, GL_FLOAT, GL_FALSE, 0, positions);
 
-    // 6. Send texture coordinates (2 floats per vertex from their own array)
+    // Send texture coordinates (2 floats per vertex from their own array)
     glEnableVertexAttribArray(shader.texCoord_loc);
     glVertexAttribPointer(shader.texCoord_loc, 2, GL_FLOAT, GL_FALSE, 0, texCoords);
 
-    // 7.Draw the quadrilateral
+    // Draw the quadrilateral
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    // 8. Clean things up so we don’t collide with the compass in the next frame.
+    // Clean things up so we don’t collide with the compass in the next frame.
     glDisableVertexAttribArray(shader.position_loc);
     glDisableVertexAttribArray(shader.texCoord_loc);
     glDisable(GL_BLEND);
@@ -733,8 +727,13 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         SDL_DestroyWindow(win);
         return 1;
     }
-    SDL_GL_SetSwapInterval(-1);
-    if(!compass3d_init()){SDL_GL_DeleteContext(ctx);return 1;}
+
+    SDL_GL_SetSwapInterval(0);
+
+    if(!compass3d_init()) {
+        SDL_GL_DeleteContext(ctx);
+        return 1;
+    }
 
     float view_tilt=62.0f, distance=3.0f;
     int running=1;
@@ -743,20 +742,25 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 32);
 
     double heading=0.0;
-    double heel=0.0;
     double t_heel = 0;
     double t_angle = 0;
+    double t_pitch = 0;
+    double heel= 0;
     double angle = 0;
-    double pitch = 0.0;
+    double pitch = 0;
+    const double pScaleOffset=0.3;
     int res = 1;
-    double dynUpd;
     double m2f=cnmea.units==METRIC? 1 : 3.28084;
 
-    SDL_Rect exitBarR = {680,420,90,30};
+    SDL_Rect exitBarR = {680,438,90,30};
 
     int w,h;
     SDL_GL_GetDrawableSize(win,&w,&h);
+
     int y_tilt=h/2;
+
+    SDL_Event e;
+    int eType = 0;
 
     while(running) {
 
@@ -766,19 +770,19 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         static char msg_stw[40] = { "STW: -" };
         static char msg_dbt[40] = { "DBT: -" };
         static char msg_mtw[40] = { "WND: -" };
-        static char msg_rll[40] = { "RLL: -" };
+        static char msg_rol[40] = { "ROL: -" };
+        static char msg_ptc[40] = { "PTC: -" };
         static char msg_tod[40] = { "TOD: -" };
 
         time_t ct = time(NULL);    // Get a timestamp for this turn
+
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-        SDL_Event e;
         while(SDL_PollEvent(&e)) {
-            if(e.type==SDL_QUIT) running=0;
-            else if(e.type==SDL_KEYDOWN) switch(e.key.keysym.sym) {
-                case SDLK_q: heel-=2.0; break;
-                case SDLK_e: heel+=2.0; break;
-                default: break;
+
+            if(e.type==SDL_QUIT) {
+                running=0;
+                eType=e.type;
             } else if (e.type == SDL_MOUSEMOTION ) {
                 if (e.motion.x > (w/2)-50 && e.motion.x < (w/2)+50 ) {
                     if (y_tilt < e.motion.y)
@@ -821,7 +825,7 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
         // COG - Course over ground
         if (!(ct - cnmea.cog_ts > S_TIMEOUT))
-            sprintf(msg_cog, "COG: %.0f", cnmea.cog);
+            sprintf(msg_cog, "COG: %.0f%s", cnmea.cog, "\u00B0");
 
         // VHW - Water speed
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
@@ -848,20 +852,24 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
         // Magnetic or Net Heel
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rll, "%.0f", fabs(heel=cnmea.heel));
+            sprintf(msg_rol, "ROL: %.0f%s", fabs(heel=cnmea.heel), "\u00B0");
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
             cnmea.heel_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rll, "%.0f", fabs(heel=cnmea.heel));
+            sprintf(msg_rol, "ROL: %.0f%s", fabs(heel=cnmea.heel), "\u00B0");
         }
-           
-        // Calculate clinoMeter movement
+
+        pitch = (cnmea.pitch);
+        sprintf(msg_ptc, "PTC: %.0f%s", fabs(pitch), "\u00B0");
+ 
+        // Calculate pitch and heel movement
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
             if (heel > t_heel) t_heel += 0.8 * (fabsf(heel -t_heel) / 10);
             else if (heel < t_heel) t_heel -= 0.8 * (fabsf(heel -t_heel) / 10);
+
+            if (pitch > t_pitch) t_pitch += 0.8 * (fabsf(pitch -t_pitch) / 10);
+            else if (pitch < t_pitch) t_pitch -= 0.8 * (fabsf(pitch -t_pitch) / 10);
         }
 
-
-        // 3. Skapa en NY textur för just denna frame baserat på den nya strängen
         SDL_Color coln = {240, 255, 240, 255};
         SDL_Color colw = {255, 0, 0, 255};
 
@@ -870,52 +878,75 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         int wi = 0;
         int hi = 0;
 
-        GLuint dtxtid_hdg = create_text_texture(fontLarge, msg_hdg, coln, &wi, &hi);
-        GLuint dtxtid_cog = create_text_texture(fontLarge, msg_cog, coln, &wi, &hi);
-        GLuint dtxtid_stw = create_text_texture(fontLarge, msg_stw, coln, &wi, &hi);
-        GLuint dtxtid_dbt = create_text_texture(fontLarge, msg_dbt, dcol, &wi, &hi);
-        GLuint dtxtid_mtw = create_text_texture(fontLarge, msg_mtw, coln, &wi, &hi);
-        GLuint dtxtid_tod = create_text_texture(fontLarge, msg_tod, coln, &wi, &hi);
-        GLuint dtxtid_xit = create_text_texture(fontLarge, "DONE",  coln, &wi, &hi);
-
-        
+        // Create a NEW texture for this specific frame based on the new strings.
+        // This is order-sensitive.
+        int nTxt=9;
+        GLuint garr[nTxt];
+        int garrIndx = 0;
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_hdg, coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_cog, coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_sog, coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_stw, coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_dbt, dcol, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_mtw, coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_tod, coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, "DONE",  coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_rol, coln, &wi, &hi);
+        garr[garrIndx++] = create_text_texture(fontLarge, msg_ptc, coln, &wi, &hi);
+  
 
         glViewport(0,0,w,h);
         glClearColor(0.025f,0.028f,0.035f,1.0f);      
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-        compass3d_set_view(view_tilt,distance);
 
-        pitch = (cnmea.pitch*100)+8.2;
+        // Set view - mixed with pitch
+        compass3d_set_view(view_tilt, distance);
 
-        compass3d_render(heading, pitch, t_heel,0,0,w,h); 
-        if (dtxtid_hdg != 0)
+        // Draw the compass
+        compass3d_render(heading, t_pitch, t_heel-pScaleOffset,0,0,w,h); 
+
+        // Validate GLuints
+        int passed = 1;
+        for (int i=0; i < nTxt; i++) {
+            if (garr[i] == 0) {
+                passed = 0;
+                break;
+            }
+        }
+
+        // This is order-sensitive.
+        if (passed)
         {
             int wil=180; int hil=38;
             int wis=180; int his=30;
+            garrIndx=0;
 
-            draw_text_gles2(text_shader, dtxtid_hdg, (w/2)-90, 20.0f, (float)wil, (float)hil, (float)w, (float)h);
-            draw_text_gles2(text_shader, dtxtid_cog, 30.0f, 30.0f, (float)wil, (float)hil, (float)w, (float)h);
-            draw_text_gles2(text_shader, dtxtid_stw, 30.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], (w/2)-90, 20.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 30.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 98.0f, (float)wil, (float)hil, (float)w, (float)h);
 
-            draw_text_gles2(text_shader, dtxtid_dbt, 580.0f, 30.0f, (float)wil, (float)hil, (float)w, (float)h);
-            draw_text_gles2(text_shader, dtxtid_mtw, 580.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
-            draw_text_gles2(text_shader, dtxtid_tod, 30.0f, 420.0f, (float)wis, (float)his, (float)w, (float)h);
-            draw_text_gles2(text_shader, dtxtid_xit, exitBarR.x, exitBarR.y, (float)wis-100, (float)his, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 30.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 438.0f, (float)wis, (float)his, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], exitBarR.x, exitBarR.y, (float)wis-100, (float)his, (float)w, (float)h);
+
+            draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 396.0f, (float)wil-50, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f+50, 396.0f,(float)wil-50, (float)hil, (float)w, (float)h);
+
+            for (int i=0; i < garrIndx; i++) {
+                glDeleteTextures(1, &garr[i]);
+            }
         }
 
         SDL_GL_SwapWindow(win);
-#if 0
-        // Reduce CPU load if only short scale movements
-        dynUpd = (1/fabsf(angle -t_angle))*200;
-        dynUpd = dynUpd > 200? 200:dynUpd;
 
-        SDL_Delay(30+(int)dynUpd);
-#endif
+        SDL_Delay(50);
     }
 
     compass3d_shutdown();
     SDL_GL_DeleteContext(ctx);
     TTF_CloseFont(fontLarge);
 
-    return 0;
+    return  eType;
 }
