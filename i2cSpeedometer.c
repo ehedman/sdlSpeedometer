@@ -263,10 +263,12 @@ int i2cinit(int bus)
     return file;
 }
 
+static double pitch;
+
 double i2cReadHdm(int file, calibration *calib)
 {
 
-    static double accXnorm,accYnorm,pitch,roll,magXcomp,magYcomp;
+    static double accXnorm,accYnorm,roll,magXcomp,magYcomp;
     static int magRaw[3];
     static int accRaw[3];
     static int oldXMagRawValue;
@@ -360,6 +362,33 @@ double i2cReadHdm(int file, calibration *calib)
 
 }
 
+double i2cReadPitch(void)
+{
+    return pitch;
+}
+
+
+// The lower the ALPHA, the more stable (but slower) the meter becomes.
+// 0.05 to 0.15 is usually perfect for marine instruments.
+#define ALFA 0.08f 
+
+// Threshold for when we consider the boat to be perfectly level (in degrees)
+#define DEAD_ZONE 0.5f 
+
+float filterRoll(float rawData) {
+    static double filtered_roll = 0.0f;
+    
+    // Low-pass filter: attenuates the rapid flicker (-1 to +1)
+    filtered_roll = (ALFA * rawData) + ((1.0f - ALFA) * filtered_roll);
+    
+    // Zeroing: if the damped value is close to zero, force it to 0
+    if (fabsf(filtered_roll) < DEAD_ZONE) {
+        return 0.0f;
+    }
+    
+    return filtered_roll;
+}
+
 double i2cReadRoll(int file, int dt, calibration *calib)
 {
     //Each (dt) loop should be at least 20ms.
@@ -425,6 +454,6 @@ double i2cReadRoll(int file, int dt, calibration *calib)
 
     //printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n",gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
 
-    return roundf(AccXangle+calib->roffset);
+    return(filterRoll(AccXangle));
 }
 

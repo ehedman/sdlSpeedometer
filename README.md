@@ -88,7 +88,7 @@ The SDL2 packages needed are:
 - sudo apt install libcurl4-gnutls-dev i2c-tools libi2c-dev sqlite3 libsqlite3-dev libpng-dev
 - sudo apt install libtiff5-dev libjpeg-dev libfreetype6-dev libts-dev libinput-dev
 - sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev 
-- sudo apt install libswresample-dev ffmpeg v4l-utils
+- sudo apt install libswresample-dev ffmpeg v4l-utils libgles2-mesa-dev
 
 ### External applications to be launched from sdlSpeedometer
 - sudo apt install xygrib-maps xygrib
@@ -168,6 +168,8 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 ### Screenshots
 - Modern Flat GUI style examples
 <img src="https://hedmanshome.se/sdlspeedometer29.png" width=100%>
+-- 3D Compass page in OpenGL. All axis are moving live
+<img src="https://hedmanshome.se/sdlspeedometer42.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer30.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer39.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer35.png" width=100%>

@@ -57,14 +57,8 @@
 #define DEF_NMEA_PORT   10110
 #define DEF_VNC_PORT    5903
 
-#define TIMEDATFMT  "%x - %H:%M %Z"
-
-#define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
 #define TRGPS       1.5     // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
-
-#define METRIC 0    // Metric units
-#define US 1        // US Customary units
 
 #define DEFAULT_SCREEN_SIZE     "800x480"   // Default screen size
 #define DEFAULT_SCREEN_SCALE    1.0
@@ -107,9 +101,9 @@ static int useSyslog = 0;
 
 static SDL_Texture* Background_Tx;
 
-static collected_nmea cnmea;
+collected_nmea cnmea;
 
-static warnings warn;
+warnings warn;
 
 // Forward declaration
 static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit);
@@ -170,13 +164,12 @@ static int configureDb(configuration *configParams)
                     sqlite3_step(res);
 
                     sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot,rwfilez) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0,0,10000)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
-printf("%s\n", buf);
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL), pOffset REAL", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0)", \
+                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0)", \
                         dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
@@ -826,7 +819,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
         double heel = 0.0;
         if (!(ts - cnmea.heel_i2cts > S_TIMEOUT)) {
-            heel = (double)cnmea.heel;
+            heel = cnmea.heel;
         }
           
         if (!strncmp(getf(2, nmeastr_p1),"R",1) && isKnots) {
@@ -885,7 +878,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
         double heel = 0.0;
         if (!(ts - cnmea.heel_i2cts > S_TIMEOUT)) {
-            heel = (double)cnmea.heel;
+            heel = cnmea.heel;
         }
 
         if (NMPARSE(nmeastr_p1, "VWR")) {
@@ -997,13 +990,44 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
     }
 
-    // HEEL - Wessel heel:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*4A
+    // HEEL - Wessel heel and pitch:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*hh or  $IIXDR,A,-001.5,D,PITCH,A,003.2,D,ROLL*hh
     if (NMPARSE(nmeastr_p1, "XDR")) {
-        char *type = getf(4, nmeastr_p1);
-        if (strcmp(type, "HEEL") && strcmp(type, "ROLL"))
-            return;
-        cnmea.heel=atof(getf(2, nmeastr_p1));
-        cnmea.xdr_ts = ts;
+        int i = 1;
+        char *measure_type;
+        char *id_str;
+        double value = 0;
+
+        // Loop through the sentence as long as there are quadruplets (4 fields per sensor)
+        while (1) {
+            measure_type = getf(i,     nmeastr_p1); // E.g. "A" for angle
+            value = atof(getf(i + 1, nmeastr_p1));  // E.g. "10.5");
+
+            // Field i+2 is the unit, e.g., "D" for degrees (can be omitted here)
+           id_str       = getf(i + 3, nmeastr_p1); // T.ex. "ROLL" eller "PTCH"
+
+            // If we have reached the end of the sentence or the fields are empty, break the loop.
+            if (!id_str || *id_str == '\0' || !measure_type || *measure_type == '\0') {
+                break;
+            }
+
+            // Check whether it is ROLL / HEEL
+            if (strcmp(id_str, "ROLL") == 0 || strcmp(id_str, "HEEL") == 0) {
+                cnmea.heel = value;
+                cnmea.heel += cnmea.calib->roffset;
+                cnmea.xdr_ts = ts;
+            }
+            // Check if it is PITCH / PITCH
+            else if (strcmp(id_str, "PITCH") == 0 || strcmp(id_str, "PTCH") == 0) {
+                cnmea.pitch = value;
+                if (cnmea.calib) {
+                    cnmea.pitch += cnmea.calib->poffset; // Om du har en pitch-offset inställd
+                }
+                cnmea.xdr_ts = ts;
+            }
+
+            // Move on to the next quadruple (the next 4 fields)
+            i += 4;
+        }
         return;
     }
 }
@@ -1075,7 +1099,7 @@ static int i2cCollector(void *conf)
 
     int retry = 0;
     int bus = 1;
-    const int dt=260;
+    const int dt=26;
     int rval;
     int connOk = 1;
     int update = dt;
@@ -1083,6 +1107,7 @@ static int i2cCollector(void *conf)
     const char *tail;
     sqlite3_stmt *res;
     calibration calib;
+    
     struct stat sb;
     FILE *fd;
 
@@ -1104,7 +1129,7 @@ static int i2cCollector(void *conf)
         SDL_Delay(dt);
 
         if (configParams->conn && connOk) {
-            if (update++ > dt / 10) {
+            if (update++ > dt+30 / 10) {
                 if (!stat(SQLCONFIG, &sb)) {
                     SDL_Delay(600);
                     char sqlbuf[150];
@@ -1130,7 +1155,7 @@ static int i2cCollector(void *conf)
                 }
 
                 if (doUpdate) {
-                    rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset from calib", -1, &res, &tail);        
+                    rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset from calib", -1, &res, &tail);        
                     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
                         // See: BerryIMU/compass_tutorial03_calibration
                         calib.magXmax = sqlite3_column_int(res, 0);
@@ -1142,6 +1167,7 @@ static int i2cCollector(void *conf)
                         calib.declval = sqlite3_column_double(res, 6);
                         calib.coffset = sqlite3_column_int(res, 7);
                         calib.roffset = sqlite3_column_double(res, 8);
+                        calib.poffset = sqlite3_column_double(res, 9);
                     } else {
                         if (connOk) {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to look up calibration data - using defults : %s", \
@@ -1155,9 +1181,11 @@ static int i2cCollector(void *conf)
                         calib.magYmin = dmagYmin;
                         calib.magZmin = dmagZmin;
                         calib.declval = ddeclval;
-                        calib.coffset = calib.roffset = 0;
+                        calib.coffset = calib.roffset = calib.poffset = 0;
                     }
                     sqlite3_finalize(res);
+                    configParams->calib->roffset = calib.roffset;
+                    configParams->calib->poffset = calib.poffset;
                     doUpdate = 0;
                 }
                 update = 0;
@@ -1175,6 +1203,9 @@ static int i2cCollector(void *conf)
 
         cnmea.heel_i2cts = ct;
         cnmea.heel = i2cReadRoll(configParams->i2cFile, dt, &calib);
+        cnmea.heel += cnmea.calib->roffset;
+        cnmea.pitch = i2cReadPitch()*100 + PSENSERR;
+        cnmea.pitch += cnmea.calib->poffset;
 
         // Take over if no NMEA
         if (ct - cnmea.hdg_ts > S_TIMEOUT) {
@@ -1689,7 +1720,7 @@ static void setUTCtime(void)
 }
 
 // Make sure instruments take shortest route over the 0 - 360 scale
-inline static double rotate(double angle, int res)
+double rotate(double angle, int res)
 {
     double nR = angle;
     static double rot;
@@ -1937,7 +1968,7 @@ static int threadRunPlb(void *conf)
 }
 
 // R/W NMEA files
-static void doRecord(sdl2_app *sdlApp, configuration *configParams)
+static int doRecord(sdl2_app *sdlApp, configuration *configParams)
 {
 
     SDL_Thread *threadPLB = NULL;
@@ -1945,6 +1976,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
     char file_list[RMAX_FILES][RMAX_FILENAME];
     static char statusMsg[200];
     int file_count = 0;
+    int eType = 0;
 
     if (!cnmea.rwMode) {
         memset(current_input, 0, sizeof(current_input));
@@ -2000,7 +2032,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
 
     if (home == NULL) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not find the $HOME folder: %s", SDL_GetError());
-        return;
+        return 0;
     }
 
     snprintf(uploadPath, sizeof(uploadPath), "%s/.upload", home);
@@ -2012,7 +2044,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
         // If the mapping already exists (EEXIST), we simply proceed; otherwise, we report an error.
         if (errno != EEXIST) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not create the %s folder: %s", uploadPath, SDL_GetError());
-            return;
+            return 0;
         }
     }
 
@@ -2195,6 +2227,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_Point p;
 
             if (e.type == SDL_QUIT) {
+                eType=e.type;
                 running = 0;
                 break;
             } else if (e.type == SDL_KEYDOWN) {   // Use physical keyboard
@@ -2450,7 +2483,7 @@ static void doRecord(sdl2_app *sdlApp, configuration *configParams)
     TTF_CloseFont(fontMsg);
     SDL_StopTextInput();
 
-    return;
+    return eType;
 }
 
 // Present the compass with heading ant heel
@@ -2475,6 +2508,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Texture* rsaBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "rsaBar.png");
     SDL_Texture* clinoMeter = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "clinometer.png");
     SDL_Texture* recordBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "record.png");
+    SDL_Texture* i3dBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "3d.png");
 
     SDL_Texture* calBar = NULL;
 
@@ -2524,6 +2558,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect rsaMbarR       = {590,370,18,18};
     SDL_Rect rsaIbarR       = {452,370,292,15};
     SDL_Rect recordbarR     = {win_w/2,20,30,30};
+    SDL_Rect i3dbarR        = {(win_w/2)+50,20,33,33};
 
     if (sdlApp->conf->style == 1) {
         compassR.x=29;compassR.y=28;compassR.w=420;compassR.h=420;
@@ -2643,7 +2678,19 @@ static int doCompass(sdl2_app *sdlApp)
                 }
 
                 if (SDL_PointInRect(&p, &recordbarR)) {
-                    doRecord(sdlApp, sdlApp->conf);
+                    if ((e.type=doRecord(sdlApp, sdlApp->conf))== SDL_QUIT) {
+                        doBreak = 1;
+                        break;
+                    }
+                    hideBrBar=0;
+                    eSkip = 2;  // inadvertent double-click
+                    break;
+                }
+                if (SDL_PointInRect(&p, &i3dbarR)) {
+                    if ((e.type=doCog3d(sdlApp, sdlApp->conf))== SDL_QUIT) {
+                        doBreak = 1;
+                        break;
+                    }
                     hideBrBar=0;
                     eSkip = 2;  // inadvertent double-click
                     break;
@@ -2835,6 +2882,7 @@ static int doCompass(sdl2_app *sdlApp)
         } else SDL_SetTextureAlphaMod(recordBar, 255);
 
         SDL_RenderCopyEx(sdlApp->renderer, recordBar, NULL, &recordbarR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, i3dBar, NULL, &i3dbarR, 0, NULL, SDL_FLIP_NONE);
 
         if (sdlApp->conf->i2cFile != 0) {
             SDL_RenderCopyEx(sdlApp->renderer, calBar, NULL, &calbarR, 0, NULL, SDL_FLIP_NONE);
@@ -2944,6 +2992,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(netStatBar);
     SDL_DestroyTexture(noNetStatbar);
     SDL_DestroyTexture(recordBar);
+    SDL_DestroyTexture(i3dBar);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(rsaBar);
@@ -7215,6 +7264,18 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         else
             flags = SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS;
 
+        if (1) {
+            flags = flags | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI; 
+         
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_ES);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,2);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,0);
+            SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
+            SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,24);
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS,1);
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES,4);
+        }
+
         if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
                 0, 0, // Pos x/y
                 configParams->window_w, configParams->window_h,
@@ -7230,13 +7291,11 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
             SDL_SetWindowBordered( sdlApp->window, SDL_FALSE );
         }
 
-
-        sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+       sdlApp->renderer = SDL_CreateRenderer(sdlApp->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
         SDL_RenderSetScale(sdlApp->renderer, configParams->scale, configParams->scale);
 
         TTF_Init();
-
     }
 
     if (doInit) {
@@ -7526,7 +7585,8 @@ static void init_av(configuration *configParams)
 int main(int argc, char *argv[])
 {
     int c, t_wmax = 20;
-    configuration configParams;
+    static configuration configParams;
+    static calibration   calibParams;
     sdl2_app sdlApp;
     char buf[FILENAME_MAX];
     struct stat stats;
@@ -7535,8 +7595,11 @@ int main(int argc, char *argv[])
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
     memset(&configParams, 0, sizeof(configParams));
+    memset(&calibParams, 0, sizeof(calibParams));
     sdlApp.conf = &configParams;
-    cnmea.conf = &configParams;
+    cnmea.conf =  &configParams;
+    cnmea.calib = &calibParams;
+    configParams.calib = &calibParams;
 
     configParams.sdlApp = &sdlApp;
 

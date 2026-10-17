@@ -1,4 +1,4 @@
-SRCS=sdlSpeedometer.c i2cSpeedometer.c tcp-server.c
+SRCS=sdlSpeedometer.c i2cSpeedometer.c cog3dSpeedometer.c tcpsdSpeedometer.c
 HDRS=sdlSpeedometer.h LSM9DS0.h
 BIN=sdlSpeedometer
 CC=gcc
@@ -20,7 +20,7 @@ ifeq ($(shell test -e $(GETC) && echo -n yes),yes)
 CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
 endif
 
-LDFLAGS+=-lX11 -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lSDL2_gfx -lm
+LDFLAGS+=-lX11 -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lSDL2_gfx -lGLESv2 -lm
 LDFLAGS+=-lasound -lavformat -lavcodec -lavutil -lswresample
 
 RED=\033[1;31m

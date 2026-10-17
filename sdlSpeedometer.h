@@ -7,6 +7,11 @@
 #endif
 #include <alsa/asoundlib.h>
 
+#define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
+#define METRIC 0    // Metric units
+#define US 1        // US Customary units
+#define TIMEDATFMT  "%x - %H:%M %Z"
+
 // Dendent on project  https://github.com/ehedman/flowSensor
 //#define DIGIFLOW
 
@@ -56,6 +61,7 @@
 #define dmagYmin -1066
 #define dmagZmin -1338
 #define ddeclval 0.13
+#define PSENSERR 8
 
 #define RFB_TOUCH 1
 
@@ -71,6 +77,7 @@ typedef struct {
     double declval;
     int coffset;
     double roffset;
+    double poffset;
     double depthw;
 } calibration;
 
@@ -121,6 +128,7 @@ typedef struct {
     SDL_mutex* tcp_mutex;
     int rwfilez;
     int jumpf;
+    calibration *calib;
     void *sdlApp;
 } configuration;
 
@@ -140,6 +148,7 @@ enum sdlPages {
 typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
+    SDL_GLContext ctx;
     char *fontPath;
     char *subAppsCmd[VIDPAGE][VIDPAGE];
     char *subAppsIco[VIDPAGE][VIDPAGE];
@@ -182,8 +191,10 @@ typedef struct {
 
 extern int i2cinit(int bus);
 extern double i2cReadHdm(int file, calibration *calib);
+extern double i2cReadPitch(void);
 extern double i2cReadRoll(int file, int dt, calibration *calib);
 extern void i2creadMAG(int  m[], int file);
+extern int doCog3d(sdl2_app *sdlApp, configuration *configParams);
 
 typedef struct {
     // Dynamic data from NMEA server
@@ -198,6 +209,7 @@ typedef struct {
     int     sogAccRdy;  // Acc indx full
     int     sogAccDur;  // Round trip duration
     double  heel;       // Vessel heel (non NMEA)
+    double  pitch;      // Vessel pitch (non NMEA)
     time_t  heel_i2cts; // Heel timestamp
     double  stw;        // Speed of vessel relative to the water (Knots)
     time_t  stw_ts;     // STW Timestamp
@@ -252,6 +264,7 @@ typedef struct {
     FILE    *pbFile;    // The playback file
     char    tcp_buff[NMBUFF];
     configuration   *conf;
+    calibration     *calib;
     // Misc
     double   declination;  // from NOAA
 #ifdef DIGIFLOW
