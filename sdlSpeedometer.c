@@ -519,19 +519,19 @@ static double nmea2dd(const char *coordinates, const char *direction, char type)
     
     double raw_val = atof(coordinates);
 
-    // 1. Split NMEA DDMM.MMMM into Degrees and Minutes
+    // Split NMEA DDMM.MMMM into Degrees and Minutes
     int degrees = (int)(raw_val / 100.0);
     double minutes = raw_val - (degrees * 100.0);
 
-    // 2. Calculate decimal degrees
+    // Calculate decimal degrees
     double dd = degrees + (minutes / 60.0);
 
-    // 3. Apply Southern/Western hemisphere (becomes minus)
+    // Apply Southern/Western hemisphere (becomes minus)
     if (direction != NULL && (*direction == 'S' || *direction == 'W')) {
         dd = -dd;
     }
 
-    // 4. Validation based on type ('L' = Latitude, 'O' = Longitude)
+    // Validation based on type ('L' = Latitude, 'O' = Longitude)
     if (type == 'L') {
         if (fabs(dd) > MAX_LATITUDE) return NAN;
     } else if (type == 'O') {
@@ -613,21 +613,21 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             // Calculate the trip log
             clock_gettime(CLOCK_MONOTONIC, &ct);
 
-            // 1. Calculate the time difference (delta t) in seconds since the last loop.
+            // Calculate the time difference (delta t) in seconds since the last loop.
             double current_time = ct.tv_sec + (ct.tv_nsec / 1000000000.0);
             double delta_time_seconds = current_time - cnmea.logStart;
             cnmea.logStart = current_time;
 
-            // 2. Convert seconds to hours (since knots are nautical miles per hour)
+            // Convert seconds to hours (since knots are nautical miles per hour)
             double delta_time_hours = delta_time_seconds / 3600.0;
 
-            // 3. Calculate distance for this range and add to total 
+            // Calculate distance for this range and add to total 
             // Distance = Speed * Time
             double interval_distance = cnmea.sog * delta_time_hours;
             cnmea.logDist += interval_distance;
             cnmea.logDistT += interval_distance;
 
-            // 4. Update total nmtot in config row periodically
+            // Update total nmtot in config row periodically
             if (difftime(ts, lastCt) > 10.0) {
 				configuration configParams;
 				const char *tail;
@@ -1020,7 +1020,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             else if (strcmp(id_str, "PITCH") == 0 || strcmp(id_str, "PTCH") == 0) {
                 cnmea.pitch = value;
                 if (cnmea.calib) {
-                    cnmea.pitch += cnmea.calib->poffset; // Om du har en pitch-offset inställd
+                    cnmea.pitch += cnmea.calib->poffset;
                 }
                 cnmea.xdr_ts = ts;
             }
@@ -1736,7 +1736,7 @@ double rotate(double angle, int res)
     return(rot);
 }
 
-inline static double rotate_a(double angle, int res)
+double rotate_a(double angle, int res)
 {
     double nR = angle;
     static double rot;
@@ -2556,7 +2556,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect rsaLbarR       = {454,370,146,15};
     SDL_Rect rsaRbarR       = {600,370,146,15};
     SDL_Rect rsaMbarR       = {590,370,18,18};
-    SDL_Rect rsaIbarR       = {452,370,292,15};
+    SDL_Rect rsaIbarR       = {458,370,292,15};
     SDL_Rect recordbarR     = {win_w/2,20,30,30};
     SDL_Rect i3dbarR        = {(win_w/2)+50,20,33,33};
 
@@ -2760,7 +2760,7 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
-        // RSA - Rudder angle
+        // RUD - Rudder angle
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
             sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
 
@@ -2770,18 +2770,20 @@ static int doCompass(sdl2_app *sdlApp)
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
      
-        angle_a = cnmea.vwra; // 0-180
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0)) {
+            angle_a = cnmea.vwra; // 0-180
 
-        if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
-        angle_a += offset;
+            if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
+            angle_a += offset;
+
+            angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
+
+            // Run red wind arrow with smooth acceleration
+            if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
+            else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+        }
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
-
-        angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
-
-        // Run red wind arrow with smooth acceleration
-        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
-        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
 
         if (sdlApp->conf->style == 0)
             SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
@@ -2900,7 +2902,7 @@ static int doCompass(sdl2_app *sdlApp)
             int x = rsaRbarR.x-15+(int)(cnmea.rsa*4);
 
             SDL_Rect rsa = {rsaLbarR.x-30,rsaLbarR.y,0,0};
-            get_text_and_rect(sdlApp->renderer, rsaLbarR.x-30, rsaLbarR.y, 0, "RA:", fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsa, BLACK);
+            get_text_and_rect(sdlApp->renderer, rsaLbarR.x-30, rsaLbarR.y, 0, "RUD", fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsa, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsa);
 
             SDL_RenderCopyEx(sdlApp->renderer, rsaBar, NULL, &rsaIbarR, 0, NULL, SDL_FLIP_NONE);
@@ -3493,18 +3495,18 @@ static int doGps(sdl2_app *sdlApp)
         // Replacement for SDL_RenderDrawLine that supports arbitrary thickness
         void SDL_RenderDrawLineThick(SDL_Renderer* renderer, double x1, double y1, double x2, double y2, double thickness)
         {
-            // 1. Calculate the angle and direction of the line
+            // Calculate the angle and direction of the line
             double dx = x2 - x1;
             double dy = y2 - y1;
             double length = sqrtf(dx * dx + dy * dy);
 
             if (length == 0.0f) return; // Avoid division by zero
 
-            // 2. Calculate a normal vector (90 degrees to the line) with length thickness / 2
+            // Calculate a normal vector (90 degrees to the line) with length thickness / 2
             double nx = -dy / length * (thickness / 2.0f);
             double ny = dx / length * (thickness / 2.0f);
 
-            // 3. Create the 4 corners for the rectangle that forms the thick line
+            // Create the 4 corners for the rectangle that forms the thick line
             SDL_Vertex vertices[4];
 
             // Get the current color the renderer is set to
@@ -3523,7 +3525,7 @@ static int doGps(sdl2_app *sdlApp)
             // Indices to connect the vertices into 2 triangles (0-1-2 and 1-2-3)
             int indices[6] = { 0, 1, 2, 1, 2, 3 };
 
-            // 4. Draw the thick line on the screen (hardware-accelerated)
+            // Draw the thick line on the screen (hardware-accelerated)
             SDL_RenderGeometry(renderer, NULL, vertices, 4, indices, 6);
         }
 
@@ -3574,7 +3576,7 @@ static int doGps(sdl2_app *sdlApp)
 	        if (max_speed < 1.0) max_speed = 1.0; // Avoid division by zero
 	        double scale = (radius * 0.85) / max_speed;
 
-	        //--- 1. PROJECT THE VECTORS ONTO SCREEN COORDINATES ---
+	        //--- PROJECT THE VECTORS ONTO SCREEN COORDINATES ---
 	        // Remember: 0° North is straight up (-Y in SDL), East is right (+X).
 
 	        // Water vector (HDG & STW) – Starts at the center
@@ -3632,7 +3634,7 @@ static int doGps(sdl2_app *sdlApp)
             return vec;
         }
 
-        // 1. Vector calculation
+        // Vector calculation
         Vector2D v_water  = nav_to_vector(cnmea.hdg, cnmea.stw);
         Vector2D v_ground = nav_to_vector(cnmea.cog, cnmea.sog);
 
@@ -3640,19 +3642,19 @@ static int doGps(sdl2_app *sdlApp)
         v_drift.x = v_ground.x - v_water.x;
         v_drift.y = v_ground.y - v_water.y;
 
-        // 2. Calculate SET and DRIFT
+        // Calculate SET and DRIFT
         double dft = sqrt(v_drift.x * v_drift.x + v_drift.y * v_drift.y);
         double set = to_degrees(atan2(v_drift.x, v_drift.y));
         set = normalize_degrees(set);
 
-        // 1. Calculate the difference between where we are going (COG) and where we are pointing (HDG)
+        // Calculate the difference between where we are going (COG) and where we are pointing (HDG)
         double leeway = cnmea.cog - cnmea.hdg;
 
-        // 2. Normalize the angle to the range -180 to +180 degrees
+        // Normalize the angle to the range -180 to +180 degrees
         while (leeway > 180.0)  leeway -= 360.0;
         while (leeway < -180.0) leeway += 360.0;
 
-        // 3. If the difference is too small, we display 0° (no drift)
+        // If the difference is too small, we display 0° (no drift)
         if (fabs(leeway) < 0.5) {
             sprintf(msg_crx, "CRX: 0%s", "\u00B0 CMG");
         } else {
@@ -5945,7 +5947,7 @@ static int threadAudio(void *ptr)
 
     SDL_Log("A/V PCM Device: %s named %s", doRun->snd_card_dev, dnames[dnm]);
 
-    // 1. Open device
+    // Open device
     if (snd_pcm_open(&capture_handle, doRun->snd_card_dev, SND_PCM_STREAM_CAPTURE, 0) != 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "snd_pcm_open audio source failed on %s: %s", doRun->snd_card_dev, SDL_GetError());
         SDL_Log("Format ~/.asoundrc to define the default capture PCM audio card");
@@ -5954,7 +5956,7 @@ static int threadAudio(void *ptr)
 
     snprintf(doRun->snd_card_dev, sizeof(doRun->snd_card_dev), "plug%s", doRun->snd_card);
 
-    // 2. Open Speaker (Output) - "default" works usually best
+    // Open Speaker (Output) - "default" works usually best
     if (snd_pcm_open(&playback_handle, doRun->snd_card_dev, SND_PCM_STREAM_PLAYBACK, 0) != 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "snd_pcm_open audio device %s failed. Trying defaut %s", doRun->snd_card_dev, SDL_GetError());
         if (snd_pcm_open(&playback_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) != 0) {
@@ -5964,7 +5966,7 @@ static int threadAudio(void *ptr)
         }
     }
 
-    // 3. Configure both of them (must have the same settings!)
+    // Configure both of them (must have the same settings!)
     unsigned int rate = 48000;
     snd_pcm_set_params(capture_handle,  SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 2, rate, 1, 200000);
     snd_pcm_set_params(playback_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 2, rate, 1, 200000);
