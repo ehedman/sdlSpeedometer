@@ -7,27 +7,21 @@ extern "C" {
 
 /* Call after SDL video initialization and after creating/making current an
  * SDL OpenGL ES 2.0 context. Returns 1 on success, 0 on failure. */
-int compass3d_init(void);
+static int compass3d_init(void);
 
 /* Draws the compass into the specified OpenGL viewport rectangle.
  * x/y/width/height are OpenGL viewport coordinates (origin at bottom-left).
  * Does not clear the whole window and does not swap the SDL window. */
-#if 1
-void compass3d_render(double heading_degrees, double heel_degrees, double pitch,
+static void compass3d_render(double heading_degrees, double heel_degrees, double pitch,
                       int x, int y, int width, int height);
-#else
-void compass3d_render(double heading_degrees, double heel_degrees,
-                      int x, int y, int width, int height);
-#endif
 
 /* Camera angle from horizontal and camera distance. Suggested defaults: 62, 4.2. */
-void compass3d_set_view(float tilt_degrees, float distance);
-
-/* Uniformly scales the compass model. Suggested default: 1.0. */
-void compass3d_set_scale(float scale);
+static void compass3d_set_view(float tilt_degrees, float distance);
 
 /* Call before destroying the OpenGL context. */
-void compass3d_shutdown(void);
+static void compass3d_shutdown(void);
+
+static void compass3d_set_rudder_angle(float degrees);
 
 #ifdef __cplusplus
 }

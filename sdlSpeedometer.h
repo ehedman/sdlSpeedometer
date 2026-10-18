@@ -210,7 +210,7 @@ typedef struct {
     int     sogAccDur;  // Round trip duration
     double  heel;       // Vessel heel (non NMEA)
     double  pitch;      // Vessel pitch (non NMEA)
-    time_t  heel_i2cts; // Heel timestamp
+    time_t  heel_i2cts; // Heel and pitch timestamp
     double  stw;        // Speed of vessel relative to the water (Knots)
     time_t  stw_ts;     // STW Timestamp
     double  dbt;        // Depth in meters
