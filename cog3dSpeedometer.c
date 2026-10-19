@@ -759,9 +759,6 @@ static TextShader init_text_shader() {
     return ts;
 }
 
-extern collected_nmea cnmea;
-extern warnings warn;
-
 // Helper function for finding the shortest path (-180 to 180 degrees)
 static double shortest_angle_difference(double target, double current)
 {
@@ -780,6 +777,8 @@ static double shortest_angle_difference(double target, double current)
     return diff;
 }
 
+static int angleLoad;
+
 // Main function that updates the angle using analog inertia (LERP) and a dead zone
 static double update_angle(double current, double target, double interpolation_factor)
 {
@@ -791,13 +790,20 @@ static double update_angle(double current, double target, double interpolation_f
 
     // Calculate the shortest rotation path
     double diff = shortest_angle_difference(target, current);
-    
+
+    if (diff>  0.1) {
+        double newdiff = (diff * - 1.0) * 100;
+        if (fabs(newdiff) < 50) {
+        angleLoad += (int)fabs(newdiff);
+        } else angleLoad = 0;
+    }
     // Dead zone: If the pointer is extremely close to the target, "lock" it in place immediately.
     // This prevents microscopic fluttering and keeps it from becoming sluggish indefinitely.
     if (fabs(diff) < 0.01) {
         // Normalize the target angle to [0, 360) before returning it
         target = fmod(target, 360.0);
         if (target < 0.0) target += 360.0;
+
         return target; 
     }
     
@@ -812,6 +818,9 @@ static double update_angle(double current, double target, double interpolation_f
     
     return new_angle;
 }
+
+extern collected_nmea cnmea;
+extern warnings warn;
 
 // Main entry
 int doCog3d(sdl2_app *sdlApp, configuration *configParams)
@@ -841,9 +850,14 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
     TextShader text_shader = init_text_shader();
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 32);
 
-    double heading=0.0;
+    double heading = 0.0;
     double heel= 0;
     double rsaAngle = 0;
+    double angle_cw = 0;
+    double angle_cc = 0;
+    double angle_ch = 0;
+    double angle_cp = 0;
+
     const double pScaleOffset=0.3;
     double m2f=cnmea.units==METRIC? 1 : 3.28084;
 
@@ -868,10 +882,6 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         char msg_tod[40] = { "TOD: -" };
         char msg_rsa[40] = { "RUD: -" };
         int doWind = 0;
-        double angle_cw;
-        double angle_cc;
-        double angle_ch;
-        double angle_cp;
 
         time_t ct = time(NULL);    // Get a timestamp for this turn
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -929,6 +939,7 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         angle_cc = update_angle(angle_cc, cnmea.hdg, 0.2);    
         heading=360-angle_cc;
 
+
         // COG - Course over ground
         if (!(ct - cnmea.cog_ts > S_TIMEOUT))
             sprintf(msg_cog, "COG: %.0f", cnmea.cog);
@@ -947,10 +958,10 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
         // Magnetic or Net Heel
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rol, "ROL: %.0f", fabs(heel=cnmea.heel));
+            sprintf(msg_rol, "ROL: %.0f", fabs(cnmea.heel));
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
             cnmea.heel_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rol, "ROL: %.0f", fabs(heel=cnmea.heel));
+            sprintf(msg_rol, "ROL: %.0f", fabs(cnmea.heel));
         }
 
         // RUD - Rudder angle
@@ -959,14 +970,14 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             rsaAngle = cnmea.rsa;
             rsaAngle += 180;            // The needle towards the south
             rsaAngle = 360 - rsaAngle;  // Mirror the needle motion
-            rsaAngle -= heading;        // Neutralize the angles of the compass rose
+            rsaAngle -= heading;        // Normalize the angles towards the compass rose
         } else rsaAngle=180-heading;    // Go south
  
         // Calculate pitch and heel movement
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
         {
-            angle_ch = update_angle(angle_ch, fabs(heel), 0.2);
-            angle_cp = update_angle(angle_cp, fabs(cnmea.pitch), 0.3);
+            angle_ch = update_angle(angle_ch, cnmea.heel, 0.2);
+            angle_cp = update_angle(angle_cp, cnmea.pitch, 0.3);
             sprintf(msg_ptc, "PTC: %.0f", fabs(cnmea.pitch));
         } else {angle_ch=angle_cp=0;}
  
@@ -974,10 +985,11 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
         {
             doWind = 1;
+
             double angle_a = cnmea.vwra;   // 0-180
             if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
             angle_a -= 360;
-            angle_a += cnmea.hdg;    // Neutralize the angles of the compass rose
+            angle_a += cnmea.hdg;    // Normalize the angles towards the compass rose
 
             angle_cw = update_angle(angle_cw, angle_a, 0.1);
         }
@@ -1062,7 +1074,10 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
         SDL_GL_SwapWindow(win);
 
-        SDL_Delay(50);
+        //printf("angleLoad=%d\n", angleLoad);
+        // Shorten delay if lots of movement
+        SDL_Delay(90-angleLoad);
+        angleLoad = 0;
     }
 
     compass3d_shutdown();

@@ -96,14 +96,12 @@ typedef struct {
     short port;
     char server[100];
     int useWm;
-    SDL_Surface* vncPixelBuffer;
     double scale;
     char ssize[50];
     int style;
     double br_percent;
     int window_w;
     int window_h;
-    int vncClients;
     int vncPort;
     int doFokusCheck;
     char tty[40];

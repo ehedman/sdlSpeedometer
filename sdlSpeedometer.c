@@ -1720,7 +1720,7 @@ static void setUTCtime(void)
 }
 
 // Make sure instruments take shortest route over the 0 - 360 scale
-double rotate(double angle, int res)
+static double rotate(double angle, int res)
 {
     double nR = angle;
     static double rot;
@@ -1736,7 +1736,7 @@ double rotate(double angle, int res)
     return(rot);
 }
 
-double rotate_a(double angle, int res)
+static double rotate_a(double angle, int res)
 {
     double nR = angle;
     static double rot;
