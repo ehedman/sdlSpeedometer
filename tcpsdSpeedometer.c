@@ -28,6 +28,7 @@ static int client_handler(void *ptr)
     while (cnmea->conf->runTcp) {
         // SDLNet_TCP_Send returns the number of bytes sent. If <= 0, the client has disconnected.
         SDL_LockMutex(cnmea->conf->tcp_mutex);
+        strncat(cnmea->tcp_buff, "\r\n", NMBUFF);
         int bytes_sent = SDLNet_TCP_Send(client_sock, cnmea->tcp_buff, strlen(cnmea->tcp_buff));
         SDL_UnlockMutex(cnmea->conf->tcp_mutex);
         

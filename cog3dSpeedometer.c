@@ -1089,8 +1089,8 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         // Calculate pitch and heel movement
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
         {
-            angle_ch = update_angle(angle_ch, cnmea.heel, 0.2);
-            angle_cp = update_angle(angle_cp, cnmea.pitch, 0.3);
+            angle_ch = update_angle(angle_ch, cnmea.heel * -1.0, 0.2);
+            angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0, 0.3);
             sprintf(msg_ptc, "PTC: %.0f", fabs(cnmea.pitch));
         } else {angle_ch=angle_cp=0;}
  
@@ -1199,9 +1199,9 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         SDL_GL_SwapWindow(win);
 
         // Shorten delay if lots of movement
-        int delay = 90 - angleLoad;
+        int delay = 70 - angleLoad;
         if (delay < 0)  delay = 50;
-        if (delay > 90) delay = 90;
+        if (delay > 70) delay = 70;
 
         SDL_Delay((Uint32)delay);
         angleLoad = 0;

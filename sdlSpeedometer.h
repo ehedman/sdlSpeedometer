@@ -79,6 +79,8 @@ typedef struct {
     double roffset;
     double poffset;
     double depthw;
+    int heelo;
+    int pitcho;
 } calibration;
 
 typedef struct {

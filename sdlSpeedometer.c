@@ -167,9 +167,9 @@ static int configureDb(configuration *configParams)
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL), pOffset REAL", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL), pOffset REAL, heelo INTEGER, pitcho INTEGER", -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0)", \
+                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0,0,0)", \
                         dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
@@ -215,7 +215,7 @@ static int configureDb(configuration *configParams)
     }
 
     // Check revision of database
-    rval = sqlite3_prepare_v2(conn, "select rev from config", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select rev from config", -1, &res, &tail);
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         char *ptr;
         if(strcmp((ptr=(char*)sqlite3_column_text(res, 0)), SWREV)) {
@@ -245,7 +245,7 @@ static int configureDb(configuration *configParams)
     }
 
     // Fetch warnings
-    rval = sqlite3_prepare_v2(conn, "select depthw, draftw, lowvoltw,highcurrw from warnings", -1, &res, &tail);        
+    rval = sqlite3_prepare_v2(conn, "select depthw, draftw, lowvoltw,highcurrw from warnings", -1, &res, &tail);
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         warn.depthw    = sqlite3_column_double(res, 0);
         warn.draftw    = sqlite3_column_double(res, 1);
@@ -257,7 +257,7 @@ static int configureDb(configuration *configParams)
 
     bval = SQLITE_BUSY;
     
-    while(bval == SQLITE_BUSY) { // make sure ! busy ! db locked 
+    while(bval == SQLITE_BUSY) { // make sure ! busy ! db locked
         bval = SQLITE_OK;
         sqlite3_stmt * res = sqlite3_next_stmt(conn, NULL);
         if (res != NULL) {
@@ -818,9 +818,9 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
 
         double heel = 0.0;
-        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT)) {
+        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT)))
             heel = cnmea.heel;
-        }
+
           
         if (!strncmp(getf(2, nmeastr_p1),"R",1) && isKnots) {
             cnmea.vwra=atof(getf(1, nmeastr_p1));
@@ -877,7 +877,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
 
         double heel = 0.0;
-        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT)) {
+        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT))) {
             heel = cnmea.heel;
         }
 
@@ -1014,14 +1014,17 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             if (strcmp(id_str, "ROLL") == 0 || strcmp(id_str, "HEEL") == 0) {
                 cnmea.heel = value;
                 cnmea.heel += cnmea.calib->roffset;
+                if (cnmea.calib->heelo == 0) {
+                    cnmea.heel *= -1.0;
+                }
                 cnmea.xdr_ts = ts;
             }
             // Check if it is PITCH / PITCH
             else if (strcmp(id_str, "PITCH") == 0 || strcmp(id_str, "PTCH") == 0) {
                 cnmea.pitch = value;
-                if (cnmea.calib) {
-                    cnmea.pitch += cnmea.calib->poffset;
-                }
+                cnmea.pitch += cnmea.calib->poffset;
+                if (cnmea.calib->pitcho == 0)
+                    cnmea.pitch *= -1.0;
                 cnmea.xdr_ts = ts;
             }
 
@@ -1155,7 +1158,7 @@ static int i2cCollector(void *conf)
                 }
 
                 if (doUpdate) {
-                    rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset from calib", -1, &res, &tail);        
+                    rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset,heelo,pitcho from calib", -1, &res, &tail);
                     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
                         // See: BerryIMU/compass_tutorial03_calibration
                         calib.magXmax = sqlite3_column_int(res, 0);
@@ -1168,6 +1171,8 @@ static int i2cCollector(void *conf)
                         calib.coffset = sqlite3_column_int(res, 7);
                         calib.roffset = sqlite3_column_double(res, 8);
                         calib.poffset = sqlite3_column_double(res, 9);
+                        calib.heelo = sqlite3_column_int(res, 10);
+                        calib.pitcho = sqlite3_column_int(res, 11);
                     } else {
                         if (connOk) {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to look up calibration data - using defults : %s", \
@@ -1184,8 +1189,7 @@ static int i2cCollector(void *conf)
                         calib.coffset = calib.roffset = calib.poffset = 0;
                     }
                     sqlite3_finalize(res);
-                    configParams->calib->roffset = calib.roffset;
-                    configParams->calib->poffset = calib.poffset;
+                    memcpy(configParams->calib, &calib, sizeof(calibration));
                     doUpdate = 0;
                 }
                 update = 0;
@@ -1204,8 +1208,14 @@ static int i2cCollector(void *conf)
         cnmea.heel_i2cts = ct;
         cnmea.heel = i2cReadRoll(configParams->i2cFile, dt, &calib);
         cnmea.heel += cnmea.calib->roffset;
+        if (cnmea.calib->heelo == 0) {
+            cnmea.heel *= -1.0;
+        }
+
         cnmea.pitch = i2cReadPitch()*100 + PSENSERR;
         cnmea.pitch += cnmea.calib->poffset;
+        if (cnmea.calib->pitcho == 0)
+            cnmea.pitch *= -1.0;
 
         // Take over if no NMEA
         if (ct - cnmea.hdg_ts > S_TIMEOUT) {
@@ -2741,10 +2751,10 @@ static int doCompass(sdl2_app *sdlApp)
             sprintf(msg_rll, "%.0f", fabs(heel=cnmea.heel));
         }
 
-        // Calculate clinoMeter movement
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
-            if (heel > t_heel) t_heel += 0.8 * (fabsf(heel -t_heel) / 10);
-            else if (heel < t_heel) t_heel -= 0.8 * (fabsf(heel -t_heel) / 10);
+        // Calculate clinoMeter heel movement
+        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
+            if (heel > t_heel) t_heel += 0.8 * (fabsf(heel -t_heel) / 4);
+            else if (heel < t_heel) t_heel -= 0.8 * (fabsf(heel -t_heel) / 4);
         }
 
         // RMC - Recommended minimum specific GPS/Transit data
@@ -2766,7 +2776,7 @@ static int doCompass(sdl2_app *sdlApp)
 
         angle = rotate(roundf(cnmea.hdg), res); res=0;
 
-        // Run needle and heel with smooth acceleration
+        // Run the compass rose
         if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
         else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
      
@@ -2778,7 +2788,7 @@ static int doCompass(sdl2_app *sdlApp)
 
             angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
 
-            // Run red wind arrow with smooth acceleration
+            // Run red wind arrow
             if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
             else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
         }
@@ -2800,7 +2810,7 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderCopyEx(sdlApp->renderer, windScale, NULL, &windScaleR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT))
+        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)))
             SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_heel, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
@@ -2816,7 +2826,7 @@ static int doCompass(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 200, 200, 5, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
+        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
             get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontHeel, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
