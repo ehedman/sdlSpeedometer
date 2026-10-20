@@ -965,7 +965,6 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
     int doBrn = init_overlay();
 
     double heading = 0.0;
-    double heel= 0;
     double rsaAngle = 0;
     double angle_cw = 0;
     double angle_cc = 0;
@@ -1005,10 +1004,6 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             if(e.type==SDL_QUIT) {
                 running=0;
                 eType=e.type;
-            } else if(e.type==SDL_KEYDOWN) switch(e.key.keysym.sym) {
-                case SDLK_q: heel-=2.0; break;
-                case SDLK_e: heel+=2.0; break;
-                default: break;
             } else if (e.type == SDL_MOUSEMOTION ) {
                 if (e.motion.x > (w/2)-50 && e.motion.x < (w/2)+50 ) {
                     if (y_tilt < e.motion.y)
@@ -1089,7 +1084,7 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         // Calculate pitch and heel movement
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
         {
-            angle_ch = update_angle(angle_ch, cnmea.heel * -1.0, 0.2);
+            angle_ch = update_angle(angle_ch, cnmea.heel * -1.0, 0.2);  // Switch sign to match 2D COG page
             angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0, 0.3);
             sprintf(msg_ptc, "PTC: %.0f", fabs(cnmea.pitch));
         } else {angle_ch=angle_cp=0;}

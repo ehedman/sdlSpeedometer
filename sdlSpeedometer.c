@@ -442,8 +442,8 @@ static double trueWindAngle(double boatSpeed,
 {
     const double DEG_TO_RAD = M_PI / 180.0;
     const double RAD_TO_DEG = 180.0 / M_PI;
-
     const double awaRad = apparentWindDirection * DEG_TO_RAD;
+    heelAngle *= -1.0;  // To match this system
     const double heelRad = heelAngle * DEG_TO_RAD;
 
     /*
