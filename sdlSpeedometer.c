@@ -125,7 +125,7 @@ static int configureDb(configuration *configParams)
     sqlite3 *conn;
     sqlite3_stmt *res;
     const char *tail;
-    char buf[250];
+    char buf[300];
     int rval = 0;
     int bval = 0;
     struct stat sb;
@@ -159,22 +159,31 @@ static int configureDb(configuration *configParams)
                             return 1;
                     }
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY, \
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER, style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER, rwfilez INTEGER)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY,\
+                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER,\
+                        style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER, rwfilez INTEGER);)", -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,tty,baud,server,port,vncport,style,audiodev,camurl,nmtot,rwfilez) VALUES ('%s','%s',9600,'%s',%d,%d,1,'%s','%s',0.0,0,10000)", SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT, "hw:0,0","rtsp://cam:campw@cam-ip/stream");
+                    sprintf(buf, "INSERT INTO config (rev,\
+                        tty,baud,server,port,vncport,style,audiodev,camurl,nmtot,units,rwfilez) \
+                        VALUES ('%s','%s',9600,'%s',%d,%d,0,'%s','%s', 0.0, 0,10000)",\
+                        SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT,"hw:0,0","rtsp://cam:campw@cam-ip/stream");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY, magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER, magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL), pOffset REAL, heelo INTEGER, pitcho INTEGER", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY,\
+                        magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER,\
+                        magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL, pOffset REAL, heelo INTEGER, pitcho INTEGER);)", -1, &res, &tail);
+
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset) VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0,0,0)", \
-                        dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
+                    sprintf(buf, "INSERT INTO calib (\
+                        magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset, heelo, pitcho) \
+                         VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0,0,0)", dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, depthw REAL, draftw REAL, lowvoltw REAL, highcurrw REAL)", -1, &res, &tail);
+                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, \
+                        depthw REAL, draftw REAL, lowvoltw REAL, highcurrw REAL)", -1, &res, &tail);
                     sqlite3_step(res);
                     sprintf(buf, "INSERT INTO warnings (depthw, draftw, lowvoltw, highcurrw) VALUES(5.0, 2.1, 11.7, 9.0)");
                     sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
