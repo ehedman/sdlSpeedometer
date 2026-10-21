@@ -61,7 +61,6 @@
 #define dmagYmin -1066
 #define dmagZmin -1338
 #define ddeclval 0.13
-#define PSENSERR 8
 
 #define RFB_TOUCH 1
 
@@ -79,6 +78,8 @@ typedef struct {
     double roffset;
     double poffset;
     double depthw;
+    int heelo;
+    int pitcho;
 } calibration;
 
 typedef struct {
@@ -96,14 +97,12 @@ typedef struct {
     short port;
     char server[100];
     int useWm;
-    SDL_Surface* vncPixelBuffer;
     double scale;
     char ssize[50];
     int style;
     double br_percent;
     int window_w;
     int window_h;
-    int vncClients;
     int vncPort;
     int doFokusCheck;
     char tty[40];
@@ -191,7 +190,7 @@ typedef struct {
 
 extern int i2cinit(int bus);
 extern double i2cReadHdm(int file, calibration *calib);
-extern double i2cReadPitch(void);
+extern double i2cReadPitch(calibration *calib);
 extern double i2cReadRoll(int file, int dt, calibration *calib);
 extern void i2creadMAG(int  m[], int file);
 extern int doCog3d(sdl2_app *sdlApp, configuration *configParams);

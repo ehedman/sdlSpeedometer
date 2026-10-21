@@ -240,7 +240,7 @@ Enter the URL to an RTSP Camera
 
 do_set_compass_offset() {
     whiptail --msgbox "\
-Enter the manual compass offset, Max -10 to + 10 degrees
+Enter the manual compass offset, Max -10 to 10 degrees
 " 20 70 1
 
   CURRENT_COMPASSOFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT cOffset FROM calib;')
@@ -252,7 +252,7 @@ Enter the manual compass offset, Max -10 to + 10 degrees
 
 do_set_compass_heel_offset() {
     whiptail --msgbox "\
-Enter the manual compass heel offset, Max -4 to + 4 degrees.
+Enter the manual compass heel offset, Max -10 to 10 degrees.
 " 20 70 1
 
   CURRENT_COMPASS_ROLL_OFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT rOffset FROM calib;')
@@ -260,17 +260,37 @@ Enter the manual compass heel offset, Max -4 to + 4 degrees.
   if [ -n "$NEW_COMPASS_ROLL_OFFSET" ]; then
     echo "UPDATE calib SET rOffset = '$NEW_COMPASS_ROLL_OFFSET' WHERE Id=1;" >> "$SQLFILE"
   fi
+
+  CURRENT_HEEL_O=$(sqlite3 $SPEEDOMETER_DB 'SELECT heelo FROM calib;')
+  NEW_HEEL_O=$(whiptail --menu "Choose heel sensor orientation. Current is $CURRENT_HEEL_O" 20 60 10 \
+    "0" "Reverse SB - BB" \
+    "1" "Reverse BB - SB" \
+      3>&1 1>&2 2>&3)
+
+  if [ -n "$NEW_HEEL_O" ]; then
+    echo "UPDATE calib SET heelo = '$NEW_HEEL_O' WHERE Id=1;" >> "$SQLFILE"
+  fi
 }
 
 do_set_compass_pitch_offset() {
     whiptail --msgbox "\
-Enter the manual compass pitch offset, Max -4 to + 4 degrees.
+Enter the manual compass pitch offset, Max -10 to 10 degrees.
 " 20 70 1
 
   CURRENT_COMPASS_PITCH_OFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT pOffset FROM calib;')
   NEW_COMPASS_PITCH_OFFSET=$(whiptail --inputbox "Please the compass pitch offset" 20 60 -- "$CURRENT_COMPASS_PITCH_OFFSET" 3>&1 1>&2 2>&3)
   if [ -n "$NEW_COMPASS_PITCH_OFFSET" ]; then
     echo "UPDATE calib SET pOffset = '$NEW_COMPASS_PITCH_OFFSET' WHERE Id=1;" >> "$SQLFILE"
+  fi
+
+  CURRENT_PITCH_O=$(sqlite3 $SPEEDOMETER_DB 'SELECT pitcho FROM calib;')
+  NEW_PITCH_O=$(whiptail --menu "Choose pitch sensor orientation. Current is $CURRENT_PITCH_O" 20 60 10 \
+    "0" "Reverse B - S" \
+    "1" "Reverse S - B" \
+      3>&1 1>&2 2>&3)
+
+  if [ -n "$NEW_PITCH_O" ]; then
+    echo "UPDATE calib SET pitcho = '$NEW_PITCH_O' WHERE Id=1;" >> "$SQLFILE"
   fi
 }
 
@@ -425,41 +445,6 @@ list_wlan_interfaces() {
   done
 }
 
-get_wifi_country() {
-   grep country= /etc/wpa_supplicant/wpa_supplicant.conf | cut -d "=" -f 2
-}
-
-do_wifi_country() {
-  IFACE="$(list_wlan_interfaces | head -n 1)"
-  if [ -z "$IFACE" ]; then
-    whiptail --msgbox "No wireless interface found" 20 60
-    return 1
-  fi
-
-  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
-    whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
-    return 1
-  fi
-
-  oIFS="$IFS"
-  IFS="/"
-  value=$(tail -n +26 /usr/share/zoneinfo/iso3166.tab | tr '\t' '/' | tr '\n' '/')
-  COUNTRY=$(whiptail --menu "Select the country in which the Pi is to be used" 20 60 10 "${value}" 3>&1 1>&2 2>&3)
-  IFS=$oIFS
-
-  if [ $? -eq 0 ];then
-    wpa_cli -i "$IFACE" set country "$COUNTRY"
-    if ! iw reg set "$COUNTRY" 2> /dev/null; then
-        ASK_TO_REBOOT=1
-    fi
-    if [ -f /run/wifi-country-unset ] && hash rfkill 2> /dev/null; then
-        rfkill unblock wifi
-    fi
-    whiptail --msgbox "Wi-fi country set to $COUNTRY" 20 60 1
-    wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
-  fi
-}
-
 do_raspi_config() {
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -492,7 +477,7 @@ do_config_menu() {
     "7 Units" "Enter Units Style" \
     "8 Limits" "Enter record file size limit" \
     "9 Application  1" "Enter External Application for page COG" \
-    "10 Application  2" "Enter External Application for page SOG" \
+    "10 Application 2" "Enter External Application for page SOG" \
     "11 Application 3" "Enter External Application for page DPT" \
     "12 Application 4" "Enter External Application for page WND" \
     "13 Application 5" "Enter External Application for page GPS" \

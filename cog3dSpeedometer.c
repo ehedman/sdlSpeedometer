@@ -166,7 +166,7 @@ static void add_dial_text(const char *str,float cx,float cy,float z,float height
 
 static int init_textures(void) {
     if(TTF_Init()!=0) {
-         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D TTF_Init: %s" ,TTF_GetError());
+         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: TTF_Init: %s" ,TTF_GetError());
         return 1;
     }
 
@@ -181,14 +181,14 @@ static int init_textures(void) {
 
     if(!font) {
         // Install fonts-dejavu-core
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Could not open a system TTF font: %s" ,TTF_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: Could not open a system TTF font: %s" ,TTF_GetError());
         return 0;
     }
 
     SDL_Surface *atlas=SDL_CreateRGBSurfaceWithFormat(0,(int)strlen(atlas_chars)*atlas_cell_w,atlas_cell_h,32,SDL_PIXELFORMAT_RGBA32);
 
     if(!atlas) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D SDL_CreateRGBSurface: %s" ,TTF_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: SDL_CreateRGBSurface: %s" ,TTF_GetError());
         return 0;
     }
 
@@ -221,7 +221,7 @@ static int init_textures(void) {
     if(!ok) {
         char log[1024];
         glGetProgramInfoLog(text_program,sizeof(log),NULL,log);
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Text shader link error: %s" ,log);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: Text shader link error: %s" ,log);
         return 0;
     }
 
@@ -409,7 +409,7 @@ static GLuint compile_shader(GLenum type,const char *src) {
     if(!ok){
         char log[2048];
         glGetShaderInfoLog(s,sizeof(log),NULL,log);
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Shader error:  %s" ,log);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: Shader error:  %s" ,log);
         return 0;
     }
     return s;
@@ -425,7 +425,7 @@ static int init_gl(void) {
     if(!ok){
         char log[2048];
         glGetProgramInfoLog(program,sizeof(log),NULL,log);
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Link error: %s" ,log);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: Link error: %s" ,log);
         return 0;
     }
     attr_pos=glGetAttribLocation(program,"aPos"); attr_col=glGetAttribLocation(program,"aCol"); uni_mvp=glGetUniformLocation(program,"uMVP");
@@ -461,7 +461,7 @@ static void look_at(float m[16],V3 eye,V3 center,V3 up){
 static int compass3d_init(void) {
     if (renderer_initialized) return 1;
     if (!TTF_WasInit() && TTF_Init()!=0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D TTF_Init: %s" ,TTF_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: TTF_Init: %s" ,TTF_GetError());
         return 0;
     }
     if (!init_gl() || !init_textures()) {
@@ -619,7 +619,7 @@ static const char* vertex_shader_source =
     "varying vec2 v_texCoord;\n"
     "uniform vec2 u_resolution;\n" // Window width and height in pixels
     "void main() {\n"
-    // Konvertera från pixlar (0 till vidd/höjd) till OpenGL-koordinater (-1.0 till 1.0)
+    // Convert from pixels (0 to width/height) to OpenGL coordinates (-1.0 to 1.0)
     "   vec2 zeroToOne = position.xy / u_resolution;\n"
     "   vec2 zeroToTwo = zeroToOne * 2.0;\n"
     "   vec2 clipSpace = zeroToTwo - 1.0;\n"
@@ -638,7 +638,7 @@ static const char* fragment_shader_source =
 static GLuint create_text_texture(TTF_Font* font, const char* text, SDL_Color color, int* width, int* height) {
     SDL_Surface* initial_surface = TTF_RenderUTF8_Blended(font, text, color);
     if (!initial_surface) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Could not render text:  %s" ,TTF_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: Could not render text:  %s" ,TTF_GetError());
         return 0;
     }
 
@@ -647,7 +647,7 @@ static GLuint create_text_texture(TTF_Font* font, const char* text, SDL_Color co
     SDL_FreeSurface(initial_surface);
     
     if (!surface) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D Could not convert pixel format:  %s" ,TTF_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: Could not convert pixel format:  %s" ,TTF_GetError());
         return 0;
     }
 
@@ -759,9 +759,171 @@ static TextShader init_text_shader() {
     return ts;
 }
 
+// Brightness control
+static GLuint overlay_program = 0;
+static GLint overlay_alpha_loc = -1;
+
+static const char *overlay_vs =
+    "attribute vec2 aPos;\n"
+    "void main() {\n"
+    "    gl_Position = vec4(aPos, 0.0, 1.0);\n"
+    "}\n";
+
+static const char *overlay_fs =
+    "precision mediump float;\n"
+    "uniform float uAlpha;\n"
+    "void main() {\n"
+    "    gl_FragColor = vec4(0.0, 0.0, 0.0, uAlpha);\n"
+    "}\n";
+
+static void draw_black_overlay(float alpha)
+{
+    if (alpha <= 0.0f)
+        return;
+
+    if (alpha > 1.0f)
+        alpha = 1.0f;
+
+    const GLfloat vertices[] = {
+        -1.0f, -1.0f,
+         1.0f, -1.0f,
+        -1.0f,  1.0f,
+         1.0f,  1.0f
+    };
+
+    GLboolean depth_was_enabled = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean blend_was_enabled = glIsEnabled(GL_BLEND);
+
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(overlay_program);
+
+    glUniform1f(overlay_alpha_loc, alpha);
+
+    GLint pos_loc = glGetAttribLocation(overlay_program, "aPos");
+    glEnableVertexAttribArray(pos_loc);
+    glVertexAttribPointer(
+        pos_loc, 2, GL_FLOAT, GL_FALSE, 0, vertices
+    );
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glDisableVertexAttribArray(pos_loc);
+
+    if (!blend_was_enabled)
+        glDisable(GL_BLEND);
+
+    if (depth_was_enabled)
+        glEnable(GL_DEPTH_TEST);
+
+    glUseProgram(0);
+}
+
+// initialization of the overlay shader for brightness control
+static int init_overlay(void)
+{
+    GLuint vs = compile_shader(GL_VERTEX_SHADER, overlay_vs);
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, overlay_fs);
+
+    if (!vs || !fs)
+        return 0;
+
+    overlay_program = glCreateProgram();
+    glAttachShader(overlay_program, vs);
+    glAttachShader(overlay_program, fs);
+
+    glBindAttribLocation(overlay_program, 0, "aPos");
+    glLinkProgram(overlay_program);
+
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    GLint ok = GL_FALSE;
+    glGetProgramiv(overlay_program, GL_LINK_STATUS, &ok);
+
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(overlay_program, sizeof(log), NULL, log);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: Overlay shader link error: %s", log);
+        glDeleteProgram(overlay_program);
+        overlay_program = 0;
+        return 0;
+    }
+
+    overlay_alpha_loc =
+        glGetUniformLocation(overlay_program, "uAlpha");
+
+    return overlay_alpha_loc >= 0;
+}
+
+// Helper function for finding the shortest path (-180 to 180 degrees)
+static double shortest_angle_difference(double target, double current)
+{
+    double diff = target - current;
+    
+    // Normalize the difference to the interval (-360, 360) and shift it to [0, 360)
+    diff = fmod(diff, 360.0);
+    
+    // Convert to the range [-180, 180]
+    if (diff > 180.0) {
+        diff -= 360.0;
+    } else if (diff < -180.0) {
+        diff += 360.0;
+    }
+    
+    return diff;
+}
+
+static int angleLoad;
+
+// Main function that updates the angle using analog inertia (LERP) and a dead zone
+static double update_angle(double current, double target, double interpolation_factor)
+{
+    /*
+     * Interpolation_factor = 0.05; Reacts slowly, filtering out significant jitter.
+     * interpolation_factor = 0.20; Responsive pointer: Reacts quickly and snappily,
+     * yet still decelerates smoothly as it reaches the target, thanks to LERP mathematics.
+     */
+
+    // Calculate the shortest rotation path
+    double diff = shortest_angle_difference(target, current);
+
+    if (fabs(diff) > 0.1) {
+        double newdiff = fabs(diff) * 100.0;
+
+        if (newdiff < 50.0) {
+            angleLoad += (int)newdiff;
+        } else {
+            angleLoad = 0;
+        }
+    }
+
+    // Dead zone: If the pointer is extremely close to the target, "lock" it in place immediately.
+    // This prevents microscopic fluttering and keeps it from becoming sluggish indefinitely.
+    if (fabs(diff) < 0.01) {
+        // Normalize the target angle to [0, 360) before returning it
+        target = fmod(target, 360.0);
+        if (target < 0.0) target += 360.0;
+
+        return target; 
+    }
+    
+    // Calculate the next step using smooth deceleration (LERP)
+    double new_angle = current + (diff * interpolation_factor);
+    
+    // Keep the resulting angle strictly between 0 and 360 degrees.
+    new_angle = fmod(new_angle, 360.0);
+    if (new_angle < 0.0) {
+        new_angle += 360.0;
+    }
+    
+    return new_angle;
+}
+
 extern collected_nmea cnmea;
 extern warnings warn;
-extern double rotate(double angle, int res);
 
 // Main entry
 int doCog3d(sdl2_app *sdlApp, configuration *configParams)
@@ -776,14 +938,22 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
     SDL_Window *win = sdlApp->window;
 
-    SDL_GLContext ctx=SDL_GL_CreateContext(win);
-    if(!ctx){
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D SDL_GL_CreateContext: %s", SDL_GetError());
+    SDL_GLContext ctx = SDL_GL_CreateContext(win);
+    if (!ctx)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: SDL_GL_CreateContext: %s", SDL_GetError());
         SDL_DestroyWindow(win);
         return 1;
     }
-    SDL_GL_SetSwapInterval(-1);
-    if(!compass3d_init()){SDL_GL_DeleteContext(ctx);return 1;}
+
+    if (SDL_GL_SetSwapInterval(1) < 0) {
+       SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: VSync could not be enabled: %s", SDL_GetError());
+    }
+
+    if (!compass3d_init()) {
+        SDL_GL_DeleteContext(ctx);
+        return 1;
+    }
 
     float view_tilt=62.0f, distance=3.0f;
     int running=1;
@@ -791,27 +961,26 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
     TextShader text_shader = init_text_shader();
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 32);
 
-    double heading=0.0;
-    double t_heel = 0;
-    double t_angle = 0;
-    double t_pitch = 0;
-    double heel= 0;
-    double angle = 0;
-    double pitch = 0;
-    double t_angle_a = 0;
-    double angle_a = 0;
+    // Non fatal
+    int doBrn = init_overlay();
+
+    double heading = 0.0;
     double rsaAngle = 0;
+    double angle_cw = 0;
+    double angle_cc = 0;
+    double angle_ch = 0;
+    double angle_cp = 0;
+
     const double pScaleOffset=0.3;
-    int res = 1;
     double m2f=cnmea.units==METRIC? 1 : 3.28084;
 
-    SDL_Rect exitBarR = {680,438,90,30};
+    int eType = 0;
 
     int w,h;
     SDL_GL_GetDrawableSize(win,&w,&h);
     int y_tilt=h/2;
 
-    int eType = 0;
+    SDL_Rect exitBarR = {680,438,90,30};
 
     while(running) {
 
@@ -835,10 +1004,6 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             if(e.type==SDL_QUIT) {
                 running=0;
                 eType=e.type;
-            } else if(e.type==SDL_KEYDOWN) switch(e.key.keysym.sym) {
-                case SDLK_q: heel-=2.0; break;
-                case SDLK_e: heel+=2.0; break;
-                default: break;
             } else if (e.type == SDL_MOUSEMOTION ) {
                 if (e.motion.x > (w/2)-50 && e.motion.x < (w/2)+50 ) {
                     if (y_tilt < e.motion.y)
@@ -879,6 +1044,10 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             sprintf(msg_hdg, "HDG: %.0f%s", cnmea.hdg, "\u00B0");
         }
 
+        // Run the compass rose with smooth acceleration and handle 0/360 transitions
+        angle_cc = update_angle(angle_cc, cnmea.hdg, 0.2);    
+        heading=360-angle_cc;
+
         // COG - Course over ground
         if (!(ct - cnmea.cog_ts > S_TIMEOUT))
             sprintf(msg_cog, "COG: %.0f", cnmea.cog);
@@ -895,21 +1064,12 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
 
-        // Make sure instruments take shortest route over the 0 - 360 scale
-        angle = rotate(roundf(cnmea.hdg), res); res=0;
-
-        // Run the compass rose with smooth acceleration
-        if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
-        else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
-     
-        heading=360-t_angle;
-
         // Magnetic or Net Heel
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rol, "ROL: %.0f", fabs(heel=cnmea.heel));
+            sprintf(msg_rol, "ROL: %.0f", fabs(cnmea.heel));
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
             cnmea.heel_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rol, "ROL: %.0f", fabs(heel=cnmea.heel));
+            sprintf(msg_rol, "ROL: %.0f", fabs(cnmea.heel));
         }
 
         // RUD - Rudder angle
@@ -918,34 +1078,28 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             rsaAngle = cnmea.rsa;
             rsaAngle += 180;            // The needle towards the south
             rsaAngle = 360 - rsaAngle;  // Mirror the needle motion
-            rsaAngle -= heading;        // Neutralize the angles of the compass rose
+            rsaAngle -= heading;        // Normalize the angles towards the compass rose
         } else rsaAngle=180-heading;    // Go south
  
         // Calculate pitch and heel movement
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
         {
-            pitch = (cnmea.pitch);
-            sprintf(msg_ptc, "PTC: %.0f", fabs(pitch));
-
-            if (heel > t_heel) t_heel += 0.8 * (fabsf(heel -t_heel) / 10);
-            else if (heel < t_heel) t_heel -= 0.8 * (fabsf(heel -t_heel) / 10);
-
-            if (pitch > t_pitch) t_pitch += 0.8 * (fabsf(pitch -t_pitch) / 10);
-            else if (pitch < t_pitch) t_pitch -= 0.8 * (fabsf(pitch -t_pitch) / 10);
-        } else pitch = 0;
-
-        // Run red wind arrow
+            angle_ch = update_angle(angle_ch, cnmea.heel * -1.0, 0.2);  // Switch sign to match 2D COG page
+            angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0, 0.3);
+            sprintf(msg_ptc, "PTC: %.0f", fabs(cnmea.pitch));
+        } else {angle_ch=angle_cp=0;}
+ 
+        // Run red wind icon
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
         {
             doWind = 1;
-            angle_a = cnmea.vwra; // 0-180
+
+            double angle_a = cnmea.vwra;    // 0-180
             if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
             angle_a -= 360;
-            angle_a += t_angle;     // Neutralize the angles of the compass rose
+            angle_a += cnmea.hdg;           // Normalize the angles towards the compass rose
 
-            // Run red wind arrow with smooth acceleration
-            if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
-            else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+            angle_cw = update_angle(angle_cw, angle_a, 0.1);
         }
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
@@ -961,7 +1115,7 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
         // Create a NEW texture for this specific frame based on the new strings.
         // This is order-sensitive.
-        int nTxt=9;
+        int nTxt=11;
         GLuint garr[nTxt];
         int garrIndx = 0;
         garr[garrIndx++] = create_text_texture(fontLarge, msg_hdg, coln, &wi, &hi);
@@ -984,10 +1138,10 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         compass3d_set_view(view_tilt,distance);
 
         // Draw the compass
-        compass3d_render(heading, t_pitch, t_heel-pScaleOffset,0,0,w,h);
+        compass3d_render(heading, angle_cp, angle_ch-pScaleOffset,0,0,w,h);
 
         // Draw the wind icon
-        compass3d_set_wind_angle(t_angle_a, doWind);
+        compass3d_set_wind_angle(angle_cw, doWind);
 
         // Draw the rudder angle
         compass3d_set_rudder_angle(rsaAngle);
@@ -1026,9 +1180,26 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             }
         }
 
+        // Set brightness. Controlled from the doCompass() function (COG-page)
+        if (sdlApp->conf->br_percent < 1.0f && doBrn)
+        {
+            float alpha = 1.0f - sdlApp->conf->br_percent;
+
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            draw_black_overlay(alpha);  // Covers the entire viewport
+            glDisable(GL_BLEND);
+        }
+
         SDL_GL_SwapWindow(win);
 
-        SDL_Delay(50);
+        // Shorten delay if lots of movement
+        int delay = 70 - angleLoad;
+        if (delay < 0)  delay = 50;
+        if (delay > 70) delay = 70;
+
+        SDL_Delay((Uint32)delay);
+        angleLoad = 0;
     }
 
     compass3d_shutdown();
