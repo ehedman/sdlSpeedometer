@@ -362,31 +362,52 @@ double i2cReadHdm(int file, calibration *calib)
 
 }
 
-double i2cReadPitch(void)
-{
-    return pitch;
-}
-
-
 // The lower the ALPHA, the more stable (but slower) the meter becomes.
 // 0.05 to 0.15 is usually perfect for marine instruments.
-#define ALFA 0.08f 
+#define RALFA 0.08f
 
 // Threshold for when we consider the boat to be perfectly level (in degrees)
-#define DEAD_ZONE 0.5f 
+#define RDEAD_ZONE 0.8f
 
-float filterRoll(float rawData) {
+static double filterRoll(float rawData) {
     static double filtered_roll = 0.0f;
-    
+
     // Low-pass filter: attenuates the rapid flicker (-1 to +1)
-    filtered_roll = (ALFA * rawData) + ((1.0f - ALFA) * filtered_roll);
-    
+    filtered_roll = (RALFA * rawData) + ((1.0f - RALFA) * filtered_roll);
+
     // Zeroing: if the damped value is close to zero, force it to 0
-    if (fabsf(filtered_roll) < DEAD_ZONE) {
+    if (fabsf(filtered_roll) < RDEAD_ZONE) {
         return 0.0f;
     }
-    
+
     return filtered_roll;
+}
+
+#define PALFA 0.08f
+#define PDEAD_ZONE 0.8f
+
+static double filterPitch(float rawData) {
+    static double filtered_pitch = 0.0f;
+
+    // Low-pass filter: attenuates the rapid flicker (-1 to +1)
+    filtered_pitch = (PALFA * rawData) + ((1.0f - PALFA) * filtered_pitch);
+
+    // Zeroing: if the damped value is close to zero, force it to 0
+    if (fabsf(filtered_pitch) < PDEAD_ZONE) {
+        return 0.0f;
+    }
+
+    return filtered_pitch;
+}
+
+double i2cReadPitch(calibration *calib)
+{
+    double rpitch = pitch * 100;
+    rpitch += calib->poffset;
+    if (calib->pitcho == 0)
+        rpitch *= -1.0;
+
+    return(filterPitch(rpitch));
 }
 
 double i2cReadRoll(int file, int dt, calibration *calib)
@@ -453,6 +474,12 @@ double i2cReadRoll(int file, int dt, calibration *calib)
     CFangleY=AA*(CFangleY+rate_gyr_y*(double)dt/1000) +(1 - AA) * AccYangle;
 
     //printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n",gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
+
+    AccXangle += calib->roffset;
+
+    if (calib->heelo == 0) {
+            AccXangle *= -1.0;
+    }
 
     return(filterRoll(AccXangle));
 }

@@ -240,7 +240,7 @@ Enter the URL to an RTSP Camera
 
 do_set_compass_offset() {
     whiptail --msgbox "\
-Enter the manual compass offset, Max -10 to + 10 degrees
+Enter the manual compass offset, Max -10 to 10 degrees
 " 20 70 1
 
   CURRENT_COMPASSOFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT cOffset FROM calib;')
@@ -252,7 +252,7 @@ Enter the manual compass offset, Max -10 to + 10 degrees
 
 do_set_compass_heel_offset() {
     whiptail --msgbox "\
-Enter the manual compass heel offset, Max -4 to + 4 degrees.
+Enter the manual compass heel offset, Max -10 to 10 degrees.
 " 20 70 1
 
   CURRENT_COMPASS_ROLL_OFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT rOffset FROM calib;')
@@ -274,7 +274,7 @@ Enter the manual compass heel offset, Max -4 to + 4 degrees.
 
 do_set_compass_pitch_offset() {
     whiptail --msgbox "\
-Enter the manual compass pitch offset, Max -4 to + 4 degrees.
+Enter the manual compass pitch offset, Max -10 to 10 degrees.
 " 20 70 1
 
   CURRENT_COMPASS_PITCH_OFFSET=$(sqlite3 $SPEEDOMETER_DB 'SELECT pOffset FROM calib;')

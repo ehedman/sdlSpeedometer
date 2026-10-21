@@ -1109,7 +1109,7 @@ static int i2cCollector(void *conf)
     int doUpdate = 1;
     const char *tail;
     sqlite3_stmt *res;
-    calibration calib;
+    static calibration calib;
     
     struct stat sb;
     FILE *fd;
@@ -1206,16 +1206,8 @@ static int i2cCollector(void *conf)
         }
 
         cnmea.heel_i2cts = ct;
-        cnmea.heel = i2cReadRoll(configParams->i2cFile, dt, &calib);
-        cnmea.heel += cnmea.calib->roffset;
-        if (cnmea.calib->heelo == 0) {
-            cnmea.heel *= -1.0;
-        }
-
-        cnmea.pitch = i2cReadPitch()*100 + PSENSERR;
-        cnmea.pitch += cnmea.calib->poffset;
-        if (cnmea.calib->pitcho == 0)
-            cnmea.pitch *= -1.0;
+        cnmea.heel  = i2cReadRoll(configParams->i2cFile, dt, &calib);
+        cnmea.pitch = i2cReadPitch(&calib);
 
         // Take over if no NMEA
         if (ct - cnmea.hdg_ts > S_TIMEOUT) {
@@ -1223,7 +1215,6 @@ static int i2cCollector(void *conf)
             cnmea.hdg_i2cts = ct;
         }
     }
-
 
     if (configParams->conn) {
         rval = SQLITE_BUSY;
@@ -2977,8 +2968,8 @@ static int doCompass(sdl2_app *sdlApp)
         SDL_RenderPresent(sdlApp->renderer);
 
         // Reduce CPU load if only short scale movements
-        dynUpd = (1/fabsf(angle -t_angle))*200;
-        dynUpd = dynUpd > 200? 200:dynUpd;
+        dynUpd = (1/fabsf(angle -t_angle))*100;
+        dynUpd = dynUpd > 100? 100:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
 
