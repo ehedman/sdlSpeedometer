@@ -80,6 +80,7 @@ typedef struct {
     double depthw;
     int heelo;
     int pitcho;
+    int toledd;
 } calibration;
 
 typedef struct {
@@ -127,7 +128,7 @@ typedef struct {
     SDL_mutex* tcp_mutex;
     int rwfilez;
     int jumpf;
-    calibration *calib;
+    calibration calib;
     void *sdlApp;
 } configuration;
 
@@ -193,7 +194,7 @@ extern double i2cReadHdm(int file, calibration *calib);
 extern double i2cReadPitch(calibration *calib);
 extern double i2cReadRoll(int file, int dt, calibration *calib);
 extern void i2creadMAG(int  m[], int file);
-extern int doCog3d(sdl2_app *sdlApp, configuration *configParams);
+extern int doCog3d(sdl2_app *sdlApp);
 
 typedef struct {
     // Dynamic data from NMEA server

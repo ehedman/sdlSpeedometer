@@ -250,6 +250,18 @@ Enter the manual compass offset, Max -10 to 10 degrees
   fi
 }
 
+do_set_tolerated_dev() {
+    whiptail --msgbox "\
+Enter the Enter the maximum tolerated deviation from the course
+" 20 70 1
+
+  CURRENT_TOLED_DEV=$(sqlite3 $SPEEDOMETER_DB 'SELECT toledd FROM calib;')
+  NEW_TOLED_DEV=$(whiptail --inputbox "Deviation degrees for the course warning" 20 60 -- "$CURRENT_TOLED_DEV" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_TOLED_DEV" ]; then
+    echo "UPDATE calib SET toledd = '$NEW_TOLED_DEV' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
 do_set_compass_heel_offset() {
     whiptail --msgbox "\
 Enter the manual compass heel offset, Max -10 to 10 degrees.
@@ -485,13 +497,14 @@ do_config_menu() {
     "15 Compass offset" "Enter manual compass offset" \
     "16 Compass heel offset" "Enter manual compass heel offset" \
     "17 Compass pitch offset" "Enter manual compass pitch offset" \
-    "18 Depth warning" "Enter the audible depth level warning" \
-    "19 Wessel draft" "Enter the wessel draft level warning" \
-    "20 Voltage warning" "Enter the audible low voltage level warning" \
-    "21 Current warning" "Enter the audible high current level warning" \
-    "22 Audio Device" "Enter the audio device used for spoken warnings" \
-    "23 RTSP Camera" "Enter the URL for an RTSP Camera" \
-    "24 Configuration" "Run raspi-config" \
+    "18 Tolerated course  deviation" "Enter the deviation for the course warning" \
+    "19 Depth warning" "Enter the audible depth level warning" \
+    "20 Wessel draft" "Enter the wessel draft level warning" \
+    "22 Voltage warning" "Enter the audible low voltage level warning" \
+    "22 Current warning" "Enter the audible high current level warning" \
+    "23 Audio Device" "Enter the audio device used for spoken warnings" \
+    "24 RTSP Camera" "Enter the URL for an RTSP Camera" \
+    "25 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -515,13 +528,14 @@ do_config_menu() {
       15\ *) do_set_compass_offset ;;
       16\ *) do_set_compass_heel_offset ;;
       17\ *) do_set_compass_pitch_offset ;;
-      18\ *) do_set_depth_warning ;;
-      19\ *) do_set_wessel_draft ;;
-      20\ *) do_set_voltage_warning ;;
-      21\ *) do_set_current_warning ;;
-      22\ *) do_set_audio_device ;;
-      23\ *) do_set_camera_url ;;
-      24\ *) do_raspi_config ;;
+      18\ *) do_set_tolerated_dev ;;
+      19\ *) do_set_depth_warning ;;
+      20\ *) do_set_wessel_draft ;;
+      21\ *) do_set_voltage_warning ;;
+      22\ *) do_set_current_warning ;;
+      23\ *) do_set_audio_device ;;
+      24\ *) do_set_camera_url ;;
+      25\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi
