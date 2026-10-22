@@ -1160,7 +1160,7 @@ int doCog3d(sdl2_app *sdlApp)
         SDL_Color status_color;
         const SDL_Color green = {75, 220, 135, 255};
 
-        if (target >= 0)
+        if (target >= 0) {
 
             double hdg_err = angle_error(cnmea.hdg, target);
             double cog_err = angle_error(cnmea.cog, target);
