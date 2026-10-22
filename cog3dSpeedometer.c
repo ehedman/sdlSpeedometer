@@ -39,7 +39,8 @@ static GLint attr_pos, attr_col, uni_mvp;
 static int win_w = 960, win_h = 540;
 static float render_heading_deg = 0.0f;
 /* Wind angle relative to the boat/compass rose: 0=bow, 90=starboard. */
-static float wind_angle_deg = 240.0f;
+static float wind_angle_deg = 0.0f;
+static float course_angle_deg = 0.0f;
 /* Rudder indicator angle, independent of heading and wind. 0=bow, 90=starboard. */
 static float rudder_angle_deg = 0.0f;
 static float render_heel_deg = 0.0f;
@@ -47,6 +48,9 @@ static float camera_tilt_deg = 62.0f;
 static float camera_distance = 4.2f;
 static float compass_scale = 1.0f;
 static int renderer_initialized = 0;
+static int firstRun = 1;
+static int angleLoad;
+static double target;
 
 static V3 v3(float x,float y,float z){ V3 v={x,y,z}; return v; }
 static V3 sub(V3 a,V3 b){return v3(a.x-b.x,a.y-b.y,a.z-b.z);}
@@ -95,6 +99,14 @@ static void compass3d_set_wind_angle(float degrees, int doIt) {
 
     wind_angle_deg = fmodf(degrees, 360.0f);
     if (wind_angle_deg < 0.0f) wind_angle_deg += 360.0f;
+}
+
+/* Set apparent-wind direction relative to the boat. Accept any value and
+   normalize it to [0, 360). */
+static void compass3d_set_course_angle(float degrees) {
+
+    course_angle_deg = fmodf(degrees, 360.0f);
+    if (course_angle_deg < 0.0f) course_angle_deg += 360.0f;
 }
 
 /* Set rudder indicator angle in degrees; 0=bow, 90=starboard. */
@@ -358,6 +370,28 @@ static void build_compass(void) {
         V3 left  = v3(base.x + tx*0.043f, base.y + ty*0.043f, markerZ + 0.004f);
         V3 right = v3(base.x - tx*0.043f, base.y - ty*0.043f, markerZ + 0.004f);
         tri(tip, left, right, 0.12f, 0.055f, 0.015f);
+    }
+
+    if (target >= 0) {
+        const float a = course_angle_deg * PI_F / 180.0f;
+        const float markerR = 1.045f;
+        const float markerZ = topZ + 0.078f;
+        const float badgeR = 0.070f;
+        V3 c = polar(markerR, a, markerZ);
+        for (int i=0; i<24; i++) {
+            float a0 = 2.0f*PI_F*(float)i/24.0f;
+            float a1 = 2.0f*PI_F*(float)(i+1)/24.0f;
+            V3 p = v3(c.x + badgeR*cosf(a0), c.y + badgeR*sinf(a0), markerZ);
+            V3 q = v3(c.x + badgeR*cosf(a1), c.y + badgeR*sinf(a1), markerZ);
+            tri(c, p, q, 0.0f, 1.0f, 0.0f);
+        }
+        /* Inward-pointing arrowhead, drawn over the orange badge. 0.360f=pilens längd*/
+        V3 tip = polar(markerR - 0.360f, a, markerZ + 0.004f);
+        V3 base = polar(markerR + 0.030f, a, markerZ + 0.004f);
+        float tx = cosf(a), ty = -sinf(a); /* tangent to the circle */
+        V3 left  = v3(base.x + tx*0.043f, base.y + ty*0.043f, markerZ + 0.004f);
+        V3 right = v3(base.x - tx*0.043f, base.y - ty*0.043f, markerZ + 0.004f);
+        tri(tip, left, right, 0.0f, 0.3f, 1.0f);
     }
 
     /* Small, plain degree labels directly on the red compass surface. */
@@ -876,8 +910,6 @@ static double shortest_angle_difference(double target, double current)
     return diff;
 }
 
-static int angleLoad;
-
 // Main function that updates the angle using analog inertia (LERP) and a dead zone
 static double update_angle(double current, double target, double interpolation_factor)
 {
@@ -922,11 +954,17 @@ static double update_angle(double current, double target, double interpolation_f
     return new_angle;
 }
 
+/* Current direction minus target, normalized to [-180, 180). */
+static double angle_error(double current, double target)
+{
+    return fmod(current - target + 540.0, 360.0) - 180.0;
+}
+
 extern collected_nmea cnmea;
 extern warnings warn;
 
 // Main entry
-int doCog3d(sdl2_app *sdlApp, configuration *configParams)
+int doCog3d(sdl2_app *sdlApp)
 {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,2);
@@ -955,11 +993,17 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         return 1;
     }
 
+    if (firstRun) {
+        target=-1.0;
+        firstRun=0;
+    }
+
     float view_tilt=62.0f, distance=3.0f;
     int running=1;
 
     TextShader text_shader = init_text_shader();
     TTF_Font* fontLarge = TTF_OpenFont(sdlApp->fontPath, 32);
+    TTF_Font* fontSmall = TTF_OpenFont(sdlApp->fontPath, 12);
 
     // Non fatal
     int doBrn = init_overlay();
@@ -980,7 +1024,10 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
     SDL_GL_GetDrawableSize(win,&w,&h);
     int y_tilt=h/2;
 
-    SDL_Rect exitBarR = {680,438,90,30};
+    SDL_Rect exitBarR = {680,438,90,30};        // Exit button (text)
+    SDL_Rect cogBarR  = {30,30,180,38};         // Lock course button
+    SDL_Rect cokBarR = {w/2-130,440,300,30};    // Unlock course button
+    SDL_Rect lckBarR = {30,135,120,26};         // As above
 
     while(running) {
 
@@ -994,6 +1041,9 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         char msg_ptc[40] = { "PTC: -" };
         char msg_tod[40] = { "TOD: -" };
         char msg_rsa[40] = { "RUD: -" };
+        char msg_hce[40] = { "HCE: -" };
+        char msg_lck[40] = { "LCK: -" };
+
         int doWind = 0;
 
         time_t ct = time(NULL);    // Get a timestamp for this turn
@@ -1005,7 +1055,7 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
                 running=0;
                 eType=e.type;
             } else if (e.type == SDL_MOUSEMOTION ) {
-                if (e.motion.x > (w/2)-50 && e.motion.x < (w/2)+50 ) {
+                if (e.motion.x > (w/2)-50 && e.motion.x < (w/2)+50  &&  e.motion.y > 100 && e.motion.y < h-100) {
                     if (y_tilt < e.motion.y)
                         view_tilt-=1.0f;
                     else
@@ -1025,6 +1075,10 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
                 }
                 if (SDL_PointInRect(&p, &exitBarR)) {
                     running=0;
+                } else if (SDL_PointInRect(&p, &cogBarR)) {
+                    target = cnmea.cog;
+                } else if (SDL_PointInRect(&p, &cokBarR) || SDL_PointInRect(&p, &lckBarR)) {
+                    target = -1.0;
                 }
             }
         }
@@ -1102,11 +1156,30 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             angle_cw = update_angle(angle_cw, angle_a, 0.1);
         }
 
+
+        SDL_Color status_color;
+        const SDL_Color green = {75, 220, 135, 255};
+
+        if (target >= 0)
+
+            double hdg_err = angle_error(cnmea.hdg, target);
+            double cog_err = angle_error(cnmea.cog, target);
+
+            int hdg_ok = fabs(hdg_err) <= cnmea.calib->toledd;
+            int cog_ok = fabs(cog_err) <= cnmea.calib->toledd;
+
+            const SDL_Color red   = {245, 75, 75, 255};
+            status_color = (hdg_ok && cog_ok) ? green : red;
+            const char *status = (hdg_ok && cog_ok) ? "ON COURSE" : "OFF COURSE";
+            sprintf(msg_hce, "%s COG%+.1f%s & HDG%+.1f%s", status, cog_err, "\u00B0", hdg_err, "\u00B0");
+            sprintf(msg_lck, "LCK: %.0f%s ±%d%s", target, "\u00B0", cnmea.calib->toledd, "\u00B0");
+        }
+
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         // Create a NEW texture for this specific frame based on the new string
-        SDL_Color coln = {240, 255, 240, 255};
-        SDL_Color colw = {255, 0, 0, 255};
+        const SDL_Color coln = {240, 255, 240, 255};
+        const SDL_Color colw = {255, 0, 0, 255};
 
         SDL_Color dcol = cnmea.dbt <= warn.depthw? colw : coln;
 
@@ -1115,7 +1188,8 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
         // Create a NEW texture for this specific frame based on the new strings.
         // This is order-sensitive.
-        int nTxt=11;
+       // int nTxt=12;
+        int nTxt=target >= 0? 13 : 11;
         GLuint garr[nTxt];
         int garrIndx = 0;
         garr[garrIndx++] = create_text_texture(fontLarge, msg_hdg, coln, &wi, &hi);
@@ -1129,8 +1203,11 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
         garr[garrIndx++] = create_text_texture(fontLarge, "DONE",  coln, &wi, &hi);
         garr[garrIndx++] = create_text_texture(fontLarge, msg_rol, coln, &wi, &hi);
         garr[garrIndx++] = create_text_texture(fontLarge, msg_ptc, coln, &wi, &hi);
+        if (target >= 0) {
+            garr[garrIndx++] = create_text_texture(fontSmall, msg_hce, status_color, &wi, &hi);
+            garr[garrIndx++] = create_text_texture(fontSmall, msg_lck, green, &wi, &hi);
+        }
   
-
         glViewport(0,0,w,h);
         glClearColor(0.025f,0.028f,0.035f,1.0f);      
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
@@ -1142,6 +1219,10 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
 
         // Draw the wind icon
         compass3d_set_wind_angle(angle_cw, doWind);
+
+        if (target >= 0) {
+            compass3d_set_course_angle(target);
+        }
 
         // Draw the rudder angle
         compass3d_set_rudder_angle(rsaAngle);
@@ -1161,8 +1242,8 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             int wis=180; int his=30;
             garrIndx=0;
 
-            draw_text_gles2(text_shader, garr[garrIndx++], (w/2)-90, 20.0f, (float)wil, (float)hil, (float)w, (float)h);
-            draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 30.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], (w/2)-90.0f, 20.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], cogBarR.x, cogBarR.y, (float)cogBarR.w, (float)cogBarR.h, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 98.0f, (float)wil, (float)hil, (float)w, (float)h);
 
@@ -1173,7 +1254,12 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
             draw_text_gles2(text_shader, garr[garrIndx++], exitBarR.x, exitBarR.y, (float)wis-100, (float)his, (float)w, (float)h);
 
             draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 396.0f, (float)wil-90, (float)hil-10, (float)w, (float)h);
-            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f+100, 396.0f,(float)wil-90, (float)hil-10, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f+100.0f, 396.0f,(float)wil-90, (float)hil-10, (float)w, (float)h);
+
+            if (target > 0) {
+                draw_text_gles2(text_shader, garr[garrIndx++], cokBarR.x, cokBarR.y, (float)cokBarR.w, (float)cokBarR.h, (float)w, (float)h);
+                draw_text_gles2(text_shader, garr[garrIndx++], lckBarR.x, lckBarR.y, lckBarR.w, lckBarR.h, (float)w, (float)h);
+            }
 
             for (int i=0; i < garrIndx; i++) {
                 glDeleteTextures(1, &garr[i]);
@@ -1205,6 +1291,7 @@ int doCog3d(sdl2_app *sdlApp, configuration *configParams)
     compass3d_shutdown();
     SDL_GL_DeleteContext(ctx);
     TTF_CloseFont(fontLarge);
+    TTF_CloseFont(fontSmall);
 
     return eType;
 }

@@ -173,12 +173,13 @@ static int configureDb(configuration *configParams)
 
                     sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY,\
                         magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER,\
-                        magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL, pOffset REAL, heelo INTEGER, pitcho INTEGER);)", -1, &res, &tail);
+                        magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL, pOffset REAL, heelo INTEGER,\
+                        pitcho INTEGER, toledd INTEGER);)", -1, &res, &tail);
 
                     sqlite3_step(res);
                     sprintf(buf, "INSERT INTO calib (\
-                        magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset, heelo, pitcho) \
-                         VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0,0,0)", dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
+                        magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset, heelo, pitcho, toledd) \
+                         VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0,0,0,6)", dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
                     sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
                     sqlite3_step(res);
 
@@ -1167,7 +1168,8 @@ static int i2cCollector(void *conf)
                 }
 
                 if (doUpdate) {
-                    rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset,heelo,pitcho from calib", -1, &res, &tail);
+                    rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,\
+                        magYmin,magZmin,declval,cOffset,rOffset,pOffset,heelo,pitcho,toledd from calib", -1, &res, &tail);
                     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
                         // See: BerryIMU/compass_tutorial03_calibration
                         calib.magXmax = sqlite3_column_int(res, 0);
@@ -1182,6 +1184,7 @@ static int i2cCollector(void *conf)
                         calib.poffset = sqlite3_column_double(res, 9);
                         calib.heelo = sqlite3_column_int(res, 10);
                         calib.pitcho = sqlite3_column_int(res, 11);
+                        calib.toledd = sqlite3_column_int(res, 12);
                     } else {
                         if (connOk) {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to look up calibration data - using defults : %s", \
@@ -1198,7 +1201,7 @@ static int i2cCollector(void *conf)
                         calib.coffset = calib.roffset = calib.poffset = 0;
                     }
                     sqlite3_finalize(res);
-                    memcpy(configParams->calib, &calib, sizeof(calibration));
+                    memcpy(&configParams->calib, &calib, sizeof(calibration));
                     doUpdate = 0;
                 }
                 update = 0;
@@ -2697,7 +2700,7 @@ static int doCompass(sdl2_app *sdlApp)
                     break;
                 }
                 if (SDL_PointInRect(&p, &i3dbarR)) {
-                    if ((e.type=doCog3d(sdlApp, sdlApp->conf))== SDL_QUIT) {
+                    if ((e.type=doCog3d(sdlApp))== SDL_QUIT) {
                         doBreak = 1;
                         break;
                     }
@@ -7610,8 +7613,7 @@ int main(int argc, char *argv[])
     memset(&calibParams, 0, sizeof(calibParams));
     sdlApp.conf = &configParams;
     cnmea.conf =  &configParams;
-    cnmea.calib = &calibParams;
-    configParams.calib = &calibParams;
+    cnmea.calib = &configParams.calib;
 
     configParams.sdlApp = &sdlApp;
 
