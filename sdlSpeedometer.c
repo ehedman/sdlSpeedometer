@@ -551,6 +551,12 @@ static double nmea2dd(const char *coordinates, const char *direction, char type)
     return dd;
 }
 
+#ifdef IKONVERT_APBBUG
+static double lastCog;
+static double lastCogturns;
+static Uint32 cogTicks;
+#endif
+
 static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 {  
     time_t ts = time(NULL);    // Get a timestamp for this turn
@@ -607,6 +613,10 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             if ((cog=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
                 cnmea.cog=cog;
                 cnmea.cog_ts = ts;
+#ifdef IKONVERT_APBBUG
+                lastCogturns++;
+                lastCog+=cnmea.cog;
+#endif
             }
 
             if (cnmea.sogAccIndx < sizeof(cnmea.sogAcc)/sizeof(double) && slastTs+2 < ts) {
@@ -931,18 +941,64 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // RSA - Rudder angle
     if (NMPARSE(nmeastr_p1, "RSA")) {
-        cnmea.rsa=roundf(atof(getf(1, nmeastr_p1)));
+        cnmea.rsa=round(atof(getf(1, nmeastr_p1)));
 
 #ifdef IKONVERT_RSABUG
         // --- PATCH FOR DIGITAL YACHT IKONVERT SIGNED UNDERFLOW BUG ---
         // Since physical rudders cannot rotate past ~45 degrees, any value
         // significantly high indicates the rolled-over negative firmware bug.
+        // Update firmware to v2.62 or newer. Until then:
         if (cnmea.rsa > 180.0f) {
              cnmea.rsa-= 375.3f;
         }
-        // -------------------------------------------------------------
 #endif
         cnmea.rsa_ts = ts;
+        return;
+    }
+
+#ifdef IKONVERT_APBBUG
+    if(cogTicks == 0)
+        cogTicks = (SDL_GetTicks()/100)-start_ticks;
+
+    cogTicks += (SDL_GetTicks()/100)-start_ticks;
+    if (cogTicks/100 >= 20) {
+        cogTicks = 0;
+        lastCog /=lastCogturns;
+        lastCogturns = 1;
+    }
+#endif
+
+    // APB
+    if (NMPARSE(nmeastr_p1, "APB")) {
+        char *a2 = getf(2, nmeastr_p1);
+        char *a3 = getf(2, nmeastr_p1);
+
+        if (*a2 == 'A' && *a3 == 'A') {
+            cnmea.apb=atof(getf(8, nmeastr_p1));
+#ifdef IKONVERT_APBBUG
+            static double dummyCourse;
+            // --- PATCH FOR DIGITAL YACHT IKONVERT SIGNED UNDERFLOW BUG ---
+            // Since course cannot rotate past ~360 degrees, any value
+            // significantly high indicates the rolled-over negative firmware bug.
+            // Update firmware to v2.62 or newer. Until then fake:
+            if (cnmea.apb >= 360.0)
+            {
+                double ll=lastCog/lastCogturns;
+
+                if (dummyCourse == 0.0) {   // Assume AP is ON to Auto. ON and OFF is the only thing we know
+                    dummyCourse = cnmea.cog;
+                } else {
+                    if (ll < dummyCourse-cnmea.calib->toledd) {  // AP is assumed adjusted +/- toledd
+                        dummyCourse=ll+cnmea.calib->toledd;
+                    } else if (ll > dummyCourse+cnmea.calib->toledd) {
+                        dummyCourse=ll-cnmea.calib->toledd;
+                    }
+                    cnmea.apb=dummyCourse;
+                }
+            }
+#endif
+            cnmea.apb_ts = ts;
+        }
         return;
     }
 

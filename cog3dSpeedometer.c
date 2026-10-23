@@ -36,7 +36,6 @@ static TTF_Font *font = NULL;
 static const char atlas_chars[] = "0123456789NESW";
 static const int atlas_cell_w = 64, atlas_cell_h = 80;
 static GLint attr_pos, attr_col, uni_mvp;
-static int win_w = 960, win_h = 540;
 static float render_heading_deg = 0.0f;
 /* Wind angle relative to the boat/compass rose: 0=bow, 90=starboard. */
 static float wind_angle_deg = 0.0f;
@@ -51,6 +50,9 @@ static int renderer_initialized = 0;
 static int firstRun = 1;
 static int angleLoad;
 static double target;
+static int doWind = 0;
+static int doRudd = 0;
+static int doCog = 0;
 
 static V3 v3(float x,float y,float z){ V3 v={x,y,z}; return v; }
 static V3 sub(V3 a,V3 b){return v3(a.x-b.x,a.y-b.y,a.z-b.z);}
@@ -93,9 +95,9 @@ static V3 polar(float radius,float angle,float z) {
 
 /* Set apparent-wind direction relative to the boat. Accept any value and
    normalize it to [0, 360). */
-static void compass3d_set_wind_angle(float degrees, int doIt) {
+static void compass3d_set_wind_angle(float degrees) {
 
-    if (!doIt) degrees=0.0;
+    if (!doWind) return;
 
     wind_angle_deg = fmodf(degrees, 360.0f);
     if (wind_angle_deg < 0.0f) wind_angle_deg += 360.0f;
@@ -111,6 +113,9 @@ static void compass3d_set_course_angle(float degrees) {
 
 /* Set rudder indicator angle in degrees; 0=bow, 90=starboard. */
 static void compass3d_set_rudder_angle(float degrees) {
+
+    if (!doRudd) return;
+
     rudder_angle_deg = fmodf(degrees, 360.0f);
     if (rudder_angle_deg < 0.0f) rudder_angle_deg += 360.0f;
 }
@@ -305,7 +310,7 @@ static void build_compass(void) {
     /* Rudder-angle needle at the centre. It rotates independently, but is
        built in compass coordinates so pitch/heel and the 3D model transform
        affect it exactly like the rose. The pointed end indicates the angle. */
-    {
+    if (doRudd) {
         const float a = rudder_angle_deg * PI_F / 180.0f;
         const float z = topZ + domeH + 0.030f;
         const float tailR = -0.105f;
@@ -350,7 +355,7 @@ static void build_compass(void) {
     /* Wind-angle marker on the outer rim. Its angle is independent of heading;
        the model transform makes it follow the compass's 3D geometry. The orange
        badge has a pointed tip directed radially inward, toward the dial centre. */
-    {
+    if (doWind) {
         const float a = wind_angle_deg * PI_F / 180.0f;
         const float markerR = 1.045f;
         const float markerZ = topZ + 0.078f;
@@ -372,7 +377,7 @@ static void build_compass(void) {
         tri(tip, left, right, 0.12f, 0.055f, 0.015f);
     }
 
-    if (target >= 0) {
+    if (target >= 0) {  // As doWind but for course settings and with yellow badge
         const float a = course_angle_deg * PI_F / 180.0f;
         const float markerR = 1.045f;
         const float markerZ = topZ + 0.078f;
@@ -520,9 +525,6 @@ static void compass3d_render(double heading_degrees, double heel_degrees, double
     render_heel_deg    = (float)heel_degrees;
     double render_pitch_deg   = (float)pitch_degrees;
 
-    win_w = width;
-    win_h = height;
-
     GLint old_viewport[4];
     glGetIntegerv(GL_VIEWPORT, old_viewport);
 
@@ -643,7 +645,6 @@ static void compass3d_shutdown(void) {
     vbo=text_vbo=text_texture=program=text_program=0;
     if (font) { TTF_CloseFont(font); font=NULL; }
     renderer_initialized=0;
-    /* TTF_Quit is intentionally not called: the host application may use SDL_ttf too. */
 }
 
 // Simple shaders for rendering 2D text
@@ -1043,8 +1044,8 @@ int doCog3d(sdl2_app *sdlApp)
         char msg_rsa[40] = { "RUD: -" };
         char msg_hce[40] = { "HCE: -" };
         char msg_lck[40] = { "LCK: -" };
-
-        int doWind = 0;
+        doRudd = doWind = 0;
+        int apLck = 0;
 
         time_t ct = time(NULL);    // Get a timestamp for this turn
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1075,7 +1076,7 @@ int doCog3d(sdl2_app *sdlApp)
                 }
                 if (SDL_PointInRect(&p, &exitBarR)) {
                     running=0;
-                } else if (SDL_PointInRect(&p, &cogBarR)) {
+                } else if (SDL_PointInRect(&p, &cogBarR) && doCog) {
                     target = cnmea.cog;
                 } else if (SDL_PointInRect(&p, &cokBarR) || SDL_PointInRect(&p, &lckBarR)) {
                     target = -1.0;
@@ -1103,8 +1104,10 @@ int doCog3d(sdl2_app *sdlApp)
         heading=360-angle_cc;
 
         // COG - Course over ground
-        if (!(ct - cnmea.cog_ts > S_TIMEOUT))
+        if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
             sprintf(msg_cog, "COG: %.0f", cnmea.cog);
+            doCog = 1;
+        } else doCog = 0;
 
         // VHW - Water speed
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
@@ -1115,8 +1118,10 @@ int doCog3d(sdl2_app *sdlApp)
             sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
         // WND - Apparent wind speed
-        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
             sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+            doWind = 1;
+        }
 
         // Magnetic or Net Heel
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
@@ -1133,7 +1138,8 @@ int doCog3d(sdl2_app *sdlApp)
             rsaAngle += 180;            // The needle towards the south
             rsaAngle = 360 - rsaAngle;  // Mirror the needle motion
             rsaAngle -= heading;        // Normalize the angles towards the compass rose
-        } else rsaAngle=180-heading;    // Go south
+            doRudd = 1;
+        }
  
         // Calculate pitch and heel movement
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
@@ -1146,8 +1152,6 @@ int doCog3d(sdl2_app *sdlApp)
         // Run red wind icon
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
         {
-            doWind = 1;
-
             double angle_a = cnmea.vwra;    // 0-180
             if (cnmea.vwrd == 1) angle_a = 360 - angle_a; // Mirror the needle motion
             angle_a -= 360;
@@ -1156,11 +1160,17 @@ int doCog3d(sdl2_app *sdlApp)
             angle_cw = update_angle(angle_cw, angle_a, 0.1);
         }
 
+        // Get AP Lock status
+        if (!(ct - cnmea.apb_ts > S_TIMEOUT))
+        {
+            target= cnmea.apb;
+            apLck=doCog=1;
+        }
 
         SDL_Color status_color;
         const SDL_Color green = {75, 220, 135, 255};
 
-        if (target >= 0) {
+        if (target >= 0 && doCog) {
 
             double hdg_err = angle_error(cnmea.hdg, target);
             double cog_err = angle_error(cnmea.cog, target);
@@ -1172,8 +1182,9 @@ int doCog3d(sdl2_app *sdlApp)
             status_color = (hdg_ok && cog_ok) ? green : red;
             const char *status = (hdg_ok && cog_ok) ? "ON COURSE" : "OFF COURSE";
             sprintf(msg_hce, "%s COG%+.1f%s & HDG%+.1f%s", status, cog_err, "\u00B0", hdg_err, "\u00B0");
-            sprintf(msg_lck, "LCK: %.0f%s ±%d%s", target, "\u00B0", cnmea.calib->toledd, "\u00B0");
-        }
+            char *lType = apLck==1? "APLCK" : "LCK";
+            sprintf(msg_lck, "%s: %.0f%s ±%d%s", lType, target, "\u00B0", cnmea.calib->toledd, "\u00B0");
+        } else target = -1.0;
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
@@ -1218,14 +1229,18 @@ int doCog3d(sdl2_app *sdlApp)
         compass3d_render(heading, angle_cp, angle_ch-pScaleOffset,0,0,w,h);
 
         // Draw the wind icon
-        compass3d_set_wind_angle(angle_cw, doWind);
+        if (doWind) {
+            compass3d_set_wind_angle(angle_cw);
+        }
 
         if (target >= 0) {
             compass3d_set_course_angle(target);
         }
 
         // Draw the rudder angle
-        compass3d_set_rudder_angle(rsaAngle);
+        if (doRudd) {
+            compass3d_set_rudder_angle(rsaAngle);
+        }
 
         int passed = 1;
         for (int i=0; i < nTxt; i++) {

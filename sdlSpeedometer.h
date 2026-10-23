@@ -12,6 +12,11 @@
 #define US 1        // US Customary units
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
+#ifdef HAS_IKONVERT_WORKAROUNDS
+#define IKONVERT_RSABUG  // Fixes the rudder angle (>180 wraps around to a negative value)
+#define IKONVERT_APBBUG  // Adjusts the autopilot course (>360 degrees)
+#endif
+
 // Dendent on project  https://github.com/ehedman/flowSensor
 //#define DIGIFLOW
 
@@ -229,6 +234,8 @@ typedef struct {
     double  vwta;       // True wind angle
     time_t  vwr_ts;     // Wind data Timestamp
     time_t  vwt_ts;     // True wind data Timestamp
+    double  apb;        // Course bearing from AP
+    time_t  apb_ts;     // APB Timestamp
     int     vwrd;       // Right or Left Heading
     double  vwrs;       // Relative wind speed knots
     double  wsAcc[90];  // Accumulated wind speed
