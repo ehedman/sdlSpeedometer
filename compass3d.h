@@ -12,7 +12,7 @@ static int compass3d_init(void);
 /* Draws the compass into the specified OpenGL viewport rectangle.
  * x/y/width/height are OpenGL viewport coordinates (origin at bottom-left).
  * Does not clear the whole window and does not swap the SDL window. */
-static void compass3d_render(double heading_degrees, double heel_degrees, double pitch,
+static void compass3d_render(float heading_degrees, float heel_degrees, float pitch,
                       int x, int y, int width, int height);
 
 /* Camera angle from horizontal and camera distance. Suggested defaults: 62, 4.2. */
