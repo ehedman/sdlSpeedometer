@@ -962,6 +962,112 @@ static int init_overlay(void)
     return overlay_alpha_loc >= 0;
 }
 
+/* Draw screen-fixed steering arrows using the existing GLES2 shader.
+   direction: -1 = steer starboard (>>), +1 = steer port (<<). */
+
+/* Draw screen-fixed steering arrows using the existing GLES2 shader.
+   direction: -1 = steer starboard (>>), +1 = steer port (<<). */
+
+static void draw_steer_arrows(int w, int h, int direction, float arrowSpacing)
+{
+    Vertex v[64];
+    int n = 0;
+
+    if (w <= 0 || h <= 0)
+        return;
+
+    /* Position and dimensions in screen pixels. */
+    const float cy = h * 0.50f;
+
+    const float halfH = 42.0f;      // Arrow height
+    const float halfW = 11.0f;      // Arrow width
+    const float thickness = 7.0f;   // Arrow thickness
+
+    /*
+     * Each chevron consists of four triangles:
+     *
+     *       outer top
+     *          /|
+     *         / |
+     * tip ---   |  (direction determines left/right)
+     *         \ |
+     *          \|
+     *       outer bottom
+     *
+     * The upper and lower arms are triangulated separately.
+     */
+    #define ADD_TRI(ax, ay, bx, by, cx_, cy_) do { \
+        const float sx_[3] = { (ax), (bx), (cx_) }; \
+        const float sy_[3] = { (ay), (by), (cy_) }; \
+        for (int j_ = 0; j_ < 3; ++j_) { \
+            float nx_ = 2.0f * sx_[j_] / (float)w - 1.0f; \
+            float ny_ = 1.0f - 2.0f * sy_[j_] / (float)h; \
+            v[n++] = (Vertex){nx_, ny_, 0.0f, \
+                              1.0f, 1.0f, 1.0f, 1.0f}; \
+        } \
+    } while (0)
+
+    #define ADD_CHEVRON(cx_, dir_) do { \
+        float tipX_ = (cx_) + (dir_) * halfW; \
+        float backX_ = (cx_) - (dir_) * halfW; \
+        float innerX_ = (cx_) - (dir_) * (halfW - thickness); \
+        float topY_ = cy - halfH; \
+        float innerTopY_ = cy - thickness; \
+        float innerBotY_ = cy + thickness; \
+        float botY_ = cy + halfH; \
+        /* Upper arm: two triangles. */ \
+        ADD_TRI(tipX_, cy, backX_, topY_, \
+                innerX_, innerTopY_); \
+        ADD_TRI(tipX_, cy, innerX_, innerTopY_, \
+                (cx_) - (dir_) * thickness, cy); \
+        /* Lower arm: two triangles. */ \
+        ADD_TRI(tipX_, cy, \
+                (cx_) - (dir_) * thickness, cy, \
+                innerX_, innerBotY_); \
+        ADD_TRI(tipX_, cy, innerX_, innerBotY_, \
+                backX_, botY_); \
+    } while (0)
+
+    if (direction > 0) {
+        /* Steer port: << */
+        ADD_CHEVRON(60.0f, -1.0f);                 // Yttre: fast
+        ADD_CHEVRON(30.0f + arrowSpacing, -1.0f);  // Inre: rörlig
+    } else {
+        /* Steer starboard: >> */
+        ADD_CHEVRON((float)w - 60.0f, 1.0f);                // Yttre: fast
+        ADD_CHEVRON((float)w - 30.0f - arrowSpacing, 1.0f); // Inre: rörlig
+    }
+
+    #undef ADD_CHEVRON
+    #undef ADD_TRI
+
+    float identity[16];
+    mat_identity(identity);
+
+    GLboolean depthWasEnabled = glIsEnabled(GL_DEPTH_TEST);
+    glDisable(GL_DEPTH_TEST);
+
+    glUseProgram(program);
+    glUniformMatrix4fv(uni_mvp, 1, GL_FALSE, identity);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, n * sizeof(Vertex),
+                 v, GL_DYNAMIC_DRAW);
+
+    glEnableVertexAttribArray((GLuint)attr_pos);
+    glEnableVertexAttribArray((GLuint)attr_col);
+
+    glVertexAttribPointer((GLuint)attr_pos, 3, GL_FLOAT, GL_FALSE,
+                          sizeof(Vertex), (void *)offsetof(Vertex, x));
+    glVertexAttribPointer((GLuint)attr_col, 4, GL_FLOAT, GL_FALSE,
+                          sizeof(Vertex), (void *)offsetof(Vertex, r));
+
+    glDrawArrays(GL_TRIANGLES, 0, n);
+
+    if (depthWasEnabled)
+        glEnable(GL_DEPTH_TEST);
+}
+
 // Helper function for finding the shortest path (-180 to 180 degrees)
 static float shortest_angle_difference(float target, float current)
 {
@@ -1287,7 +1393,8 @@ int doCog3d(sdl2_app *sdlApp)
         int nTxt=target_course >= 0 && do_cog? 14 : 11;
         GLuint garr[nTxt];
         int garrIndx = 0;
-        garr[garrIndx++] = create_text_texture(fontLarge, target_course >0 && do_cog? msg_cog : msg_hdg, coln, &wi, &hi);
+        SDL_Color lckColn = target_course >0 && do_cog? green : coln;
+        garr[garrIndx++] = create_text_texture(fontLarge, target_course >0 && do_cog? msg_cog : msg_hdg, lckColn, &wi, &hi);
         garr[garrIndx++] = create_text_texture(fontLarge, target_course >0 && do_cog? msg_hdg : msg_cog, coln, &wi, &hi);
         garr[garrIndx++] = create_text_texture(fontLarge, msg_sog, coln, &wi, &hi);
         garr[garrIndx++] = create_text_texture(fontLarge, msg_stw, coln, &wi, &hi);
@@ -1366,6 +1473,30 @@ int doCog3d(sdl2_app *sdlApp)
 
             for (int i=0; i < garrIndx; i++) {
                 glDeleteTextures(1, &garr[i]);
+            }
+        }
+
+        // Steering guidance: show only when course lock is active and COG is outside the allowed tolerance.
+        // The animation: Let `arrowSpacing` vary over time between, for example, 55.0f and 85.0f.
+
+        Uint32 uticks = SDL_GetTicks();
+        static Uint32 ticks;
+        static float arrowSpacing = 55.0f;
+
+        if (target_course >= 0.0f && do_cog && !course_ok) {
+
+            if (uticks >= ticks+60) {
+                arrowSpacing += 1;
+                ticks = uticks;
+            }
+
+            float cog_err = angle_error(angle_cg, target_course);
+
+            if (cog_err != 0.0f) {
+                draw_steer_arrows(w, h, cog_err > 0.0f ? 1 : -1, arrowSpacing);
+
+                if (arrowSpacing > 65.0f)
+                    arrowSpacing = 55.0f;
             }
         }
 
