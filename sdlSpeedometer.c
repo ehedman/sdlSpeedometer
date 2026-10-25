@@ -877,7 +877,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             } else if (isKnots && cnmea.units==US) {
                 vwrsKnots = cnmea.vwrs;
             } else if (!isKnots && cnmea.units==METRIC) {
-                vwrsKnots = cnmea.vwrs *1.943844f; 
+                vwrsKnots = cnmea.vwrs *1.943844f;
             }
             float vwts = 0.0f;
             cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
@@ -927,7 +927,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                 } else if (isKnots && cnmea.units==US) {
                     vwrsKnots = cnmea.vwrs;
                 } else if (!isKnots && cnmea.units==METRIC) {
-                    vwrsKnots = cnmea.vwrs *1.943844f; 
+                    vwrsKnots = cnmea.vwrs *1.943844f;
                 }
                 float vwts = 0.0f;
                 cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
