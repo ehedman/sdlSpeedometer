@@ -992,7 +992,7 @@ static float update_angle(float current, float target, float interpolation_facto
     // Calculate the shortest rotation path
     float diff = shortest_angle_difference(target, current);
 
-    if (fabsf(diff) > 0.1) {
+    if (fabsf(diff) > 0.1f) {
         float newdiff = fabsf(diff) * 100.0f;
 
         if (newdiff < 50.0f) {
@@ -1223,8 +1223,8 @@ int doCog3d(sdl2_app *sdlApp)
         // Calculate pitch and heel movement
         if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
         {
-            angle_ch = update_angle(angle_ch, cnmea.heel * -1.0, 0.2);  // Switch sign to match 2D COG page
-            angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0, 0.3);
+            angle_ch = update_angle(angle_ch, cnmea.heel * -1.0f, 0.2f);  // Switch sign to match 2D COG page
+            angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0f, 0.3f);
             sprintf(msg_ptc, "PTC: %.0f", fabsf(cnmea.pitch));
         } else {angle_ch=angle_cp=0;}
  
