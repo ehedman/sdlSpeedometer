@@ -1457,7 +1457,7 @@ int doCog3d(sdl2_app *sdlApp)
 
             draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 30.0f, (float)wil, (float)hil, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
-            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 98.0f, (float)wil, (float)hil, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 98.0f, (float)wil-16, (float)hil, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 438.0f, (float)wis, (float)his-10, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], exitBarR.x, exitBarR.y, (float)wis-100, (float)his, (float)w, (float)h);
 
@@ -1527,6 +1527,7 @@ int doCog3d(sdl2_app *sdlApp)
         torsional_load = 0;
     }
 
+    warn.turnp =0; warn.turnsb =1;
     compass3d_shutdown();
     SDL_GL_DeleteContext(ctx);
     TTF_CloseFont(fontLarge);
