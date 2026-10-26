@@ -268,7 +268,7 @@ static float pitch;
 float i2cReadHdm(int file, calibration *calib)
 {
 
-    static float accXnorm,accYnorm,roll,magXcomp,magYcomp;
+    static float roll,magXcomp,magYcomp;
     static int magRaw[3];
     static int accRaw[3];
     static int oldXMagRawValue;
@@ -328,13 +328,9 @@ float i2cReadHdm(int file, calibration *calib)
 //    accRaw[0] = -accRaw[0];
 //    accRaw[1] = -accRaw[1];
 
-    //Normalize accelerometer raw values.
-    accXnorm = accRaw[0]/sqrt(accRaw[0] * accRaw[0] + accRaw[1] * accRaw[1] + accRaw[2] * accRaw[2]);
-    accYnorm = accRaw[1]/sqrt(accRaw[0] * accRaw[0] + accRaw[1] * accRaw[1] + accRaw[2] * accRaw[2]);
-
-    //Calculate pitch and roll
-    pitch = asinf(accXnorm);
-    roll = -asinf(accYnorm/cosf(pitch));
+    // Calculate pitch and roll directly from the raw values
+    pitch = atan2f((float)accRaw[0], sqrtf((float)accRaw[1] * accRaw[1] + (float)accRaw[2] * accRaw[2]));
+    roll  = atan2f((float)accRaw[1], sqrtf((float)accRaw[0] * accRaw[0] + (float)accRaw[2] * accRaw[2]));
 
     //Calculate the new tilt compensated values
     magXcomp = magRaw[0]*cosf(pitch)+magRaw[2]*sinf(pitch);
@@ -359,32 +355,10 @@ float i2cReadHdm(int file, calibration *calib)
     }
 
     return roundf(heading);
-
 }
 
-// The lower the ALPHA, the more stable (but slower) the meter becomes.
-// 0.05 to 0.15 is usually perfect for marine instruments.
-#define RALFA 0.08f
-
-// Threshold for when we consider the boat to be perfectly level (in degrees)
-#define RDEAD_ZONE 0.8f
-
-static float filterRoll(float rawData) {
-    static float filtered_roll = 0.0f;
-
-    // Low-pass filter: attenuates the rapid flicker (-1 to +1)
-    filtered_roll = (RALFA * rawData) + ((1.0f - RALFA) * filtered_roll);
-
-    // Zeroing: if the damped value is close to zero, force it to 0
-    if (fabsf(filtered_roll) < RDEAD_ZONE) {
-        return 0.0f;
-    }
-
-    return filtered_roll;
-}
-
-#define PALFA 0.08f
-#define PDEAD_ZONE 0.8f
+#define PALFA 0.12f
+#define PDEAD_ZONE 0.9f
 
 static float filterPitch(float rawData) {
     static float filtered_pitch = 0.0f;
@@ -402,29 +376,44 @@ static float filterPitch(float rawData) {
 
 float i2cReadPitch(calibration *calib)
 {
-    float rpitch = pitch * 100.0f;
-    rpitch += calib->poffset;
-    if (calib->pitcho == 0)
-        rpitch *= -1.0f;
 
-    return(filterPitch(rpitch));
+    float pitch_degrees = (pitch * RAD_TO_DEG) + calib->poffset;
+
+    if (calib->pitcho == 0)
+        pitch_degrees *= -1.0f;
+
+    return (filterPitch(pitch_degrees));
+}
+
+// The lower the ALPHA, the more stable (but slower) the meter becomes.
+// 0.05 to 0.15 is usually perfect for marine instruments.
+#define RALFA 0.08f
+
+// Threshold for when we consider the boat to be perfectly level (in degrees)
+#define RDEAD_ZONE 0.5f
+
+static float filterRoll(float rawData) {
+    static float filtered_roll = 0.0f;
+
+    // Low-pass filter: attenuates the rapid flicker (-1 to +1)
+    filtered_roll = (RALFA * rawData) + ((1.0f - RALFA) * filtered_roll);
+
+    // Zeroing: if the damped value is close to zero, force it to 0
+    if (fabsf(filtered_roll) < RDEAD_ZONE) {
+        return 0.0f;
+    }
+
+    return filtered_roll;
 }
 
 float i2cReadRoll(int file, int dt, calibration *calib)
 {
-    //Each (dt) loop should be at least 20ms.
+    static float CFangleX = 0.0f;
+    static float CFangleY = 0.0f;
+    static int first_run = 1;
 
-    static float gyroXangle;
-    static float gyroYangle;
-    static float gyroZangle;
-    static float AccYangle;
-    static float AccXangle;
-    static float CFangleX;
-    static float CFangleY;
-
-    static float rate_gyr_y;    // [deg/s]
-    static float rate_gyr_x;    // [deg/s]
-    static float rate_gyr_z;    // [deg/s]
+    float rate_gyr_x;    // [deg/s]
+    float rate_gyr_y;    // [deg/s]
 
     int  acc_raw[3];
     int  gyr_raw[3];
@@ -432,55 +421,40 @@ float i2cReadRoll(int file, int dt, calibration *calib)
     if (LSM9DS0 + LSM9DS1 == 0)
         return 0.0;
 
-    //read ACC and GYR data
+    // Read hardware data
     readACC(acc_raw, file);
     readGYR(gyr_raw, file);
 
-    //Convert Gyro raw to degrees per second
-    rate_gyr_x = (float) gyr_raw[0] * G_GAIN;
-    rate_gyr_y = (float) gyr_raw[1]  * G_GAIN;
-    rate_gyr_z = (float) gyr_raw[2]  * G_GAIN;
+    // Convert gyro to degrees per second (DPS)
+    rate_gyr_x = (float)gyr_raw[0] * G_GAIN;
+    rate_gyr_y = (float)gyr_raw[1] * G_GAIN;
 
-    //Calculate the angles from the gyro
-    gyroXangle+=rate_gyr_x*(float)dt/1000.0f;
-    gyroYangle+=rate_gyr_y*(float)dt/1000.0f;
-    gyroZangle+=rate_gyr_z*(float)dt/1000.0f;;
+    // Stable and clean calculation of accelerometer angles in degrees (Standard IMU)
+    float AccXangle = atan2f((float)acc_raw[1], sqrtf((float)acc_raw[0]*acc_raw[0] + (float)acc_raw[2]*acc_raw[2])) * RAD_TO_DEG;
+    float AccYangle = atan2f((float)acc_raw[0], sqrtf((float)acc_raw[1]*acc_raw[1] + (float)acc_raw[2]*acc_raw[2])) * RAD_TO_DEG;
 
-    //Convert Accelerometer values to degrees
-    AccXangle = (float) (atan2f(acc_raw[1],acc_raw[2])+(float)M_PI)*RAD_TO_DEG;
-    AccYangle = (float) (atan2f(acc_raw[2],acc_raw[0])+(float)M_PI)*RAD_TO_DEG;
-
-    //Change the rotation value of the accelerometer to -/+ 180 and move the Y axis '0' point to up.
-    //Two different pieces of code are used depending on how your IMU is mounted.
-    //If IMU is upside down
-    /*
-    if (AccXangle >180)
-        AccXangle -= (float)360.0;
-
-    AccYangle-=90;
-    if (AccYangle >180)
-    A    ccYangle -= (float)360.0;
-    */
-
-    //If IMU is up the correct way, use these lines
-    AccXangle -= (float)180.0;
-    if (AccYangle > 90)
-        AccYangle -= (float)270;
-    else
-        AccYangle += (float)90;
-
-    //Complementary filter used to combine the accelerometer and gyro values.
-    CFangleX=AA*(CFangleX+rate_gyr_x*(float)dt/1000.0f) +(1 - AA) * AccXangle;
-    CFangleY=AA*(CFangleY+rate_gyr_y*(float)dt/1000.0f) +(1 - AA) * AccYangle;
-
-    //printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n",gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
-
-    AccXangle += calib->roffset;
-
-    if (calib->heelo == 0) {
-            AccXangle *= -1.0f;
+    // If this is the first run, initialize the filter using the actual accelerometer value instead of 0.
+    if (first_run) {
+        CFangleX = AccXangle;
+        CFangleY = AccYangle;
+        first_run = 0;
     }
 
-    return(filterRoll(AccXangle));
-}
+    // Time delta in seconds
+    float dt_secs = (float)dt / 1000.0f;
 
+    // Complementary filter (combines gyro and accelerometer)
+    CFangleX = AA * (CFangleX + rate_gyr_x * dt_secs) + (1.0f - AA) * AccXangle;
+    CFangleY = AA * (CFangleY + rate_gyr_y * dt_secs) + (1.0f - AA) * AccYangle;
+
+    // Apply the user's calibrations to the filtered value
+    float finalRoll = CFangleX + calib->roffset;
+
+    // Invert if the user has selected it
+    if (calib->heelo == 0) {
+        finalRoll *= -1.0f;
+    }
+
+    // Run through the final display filter and return
+    return filterRoll(finalRoll);
+}
