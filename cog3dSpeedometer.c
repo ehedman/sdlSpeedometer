@@ -1160,7 +1160,7 @@ int doCog3d(sdl2_app *sdlApp)
         return 1;
     }
 
-    if (SDL_GL_SetSwapInterval(1) < 0) {
+    if (SDL_GL_SetSwapInterval(0) < 0) {
        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "COG3D: VSync could not be enabled: %s", SDL_GetError());
     }
 
@@ -1377,13 +1377,12 @@ int doCog3d(sdl2_app *sdlApp)
 
         } else target_course = -1.0f;
 
-        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
-
         // Create a NEW texture for this specific frame based on the new string
         const SDL_Color coln = {240, 255, 240, 255};
         const SDL_Color colw = {255, 0, 0, 255};
-
         SDL_Color dcol = cnmea.dbt <= warn.depthw? colw : coln;
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
         int wi = 0;
         int hi = 0;
@@ -1476,7 +1475,12 @@ int doCog3d(sdl2_app *sdlApp)
             }
         }
 
-        // Steering guidance: show only when course lock is active and COG is outside the allowed tolerance.
+        // Shorten SDL_Delay() if lots of movement
+        int delay = 70 - torsional_load;
+        if (delay < 0)  delay = 50;
+        if (delay > 70) delay = 70;
+
+        // Steering guidance: show only when course lock is active and COG is outside the allowed tolerance+10.
         // The animation: Let `arrowSpacing` vary over time between, for example, 55.0f and 85.0f.
 
         Uint32 uticks = SDL_GetTicks();
@@ -1485,20 +1489,26 @@ int doCog3d(sdl2_app *sdlApp)
 
         if (target_course >= 0.0f && do_cog && !course_ok) {
 
-            if (uticks >= ticks+60) {
+            if (uticks >= ticks+50) {
                 arrowSpacing += 1;
                 ticks = uticks;
             }
 
+            delay = 50;
+
             float cog_err = angle_error(angle_cg, target_course);
 
-            if (cog_err != 0.0f) {
+            if (fabsf(cog_err)  > 10.0f) {  // Early warning was already given when the marker left the crosshair.
                 draw_steer_arrows(w, h, cog_err > 0.0f ? 1 : -1, arrowSpacing);
-
-                if (arrowSpacing > 65.0f)
+                if (arrowSpacing > 65.0f) {
                     arrowSpacing = 55.0f;
+                }
+
+                // Play an audible spoken warning
+                if (cog_err > 0.0f) {warn.turnsb =0; warn.turnp =1;}
+                else {warn.turnp =0; warn.turnsb =1;}
             }
-        }
+        } else {warn.turnp = 0; warn.turnsb = 0;}
 
         // Set brightness. Controlled from the doCompass() function (COG-page)
         if (sdlApp->conf->br_percent < 1.0f && doBrn)
@@ -1512,11 +1522,6 @@ int doCog3d(sdl2_app *sdlApp)
         }
 
         SDL_GL_SwapWindow(win);
-
-        // Shorten delay if lots of movement
-        int delay = 70 - torsional_load;
-        if (delay < 0)  delay = 50;
-        if (delay > 70) delay = 70;
 
         SDL_Delay((Uint32)delay);
         torsional_load = 0;

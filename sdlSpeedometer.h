@@ -192,6 +192,8 @@ typedef struct {
     float draftw;
     float lowvoltw;
     float highcurrw;
+    int turnsb;
+    int turnp;
 } warnings;
 
 extern int i2cinit(int bus);

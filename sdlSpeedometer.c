@@ -1887,6 +1887,16 @@ static int threadWarn(void *conf)
             SDL_Delay(2000);
         }
 
+        if (warn.turnsb && configParams->runWrn) {
+            playWarnSound(configParams->snd_card_name, "steer-starboard.wav");
+            SDL_Delay(2000);
+        }
+
+        if (warn.turnp && configParams->runWrn) {
+            playWarnSound(configParams->snd_card_name, "steer-port.wav");
+            SDL_Delay(2000);
+        }
+
         if (configParams->runWrn) SDL_Delay(2000);
 
     }
