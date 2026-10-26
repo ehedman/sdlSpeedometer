@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
-#include "compass3d.h"
+#include "cog3dSpeedometer.h"
 #include "sdlSpeedometer.h"
 
 #ifndef M_PI

@@ -1839,15 +1839,33 @@ static void playWarnSound(char *snd_card_name, char *wavFile)
 
     if ((deviceId = SDL_OpenAudioDevice(snd_card_name, 0, &wavSpec, NULL, 0)) == 0) { 
         if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0)) == 0) { // Open default
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to SDL_OpenAudioDevice %s: %s", snd_card_name, SDL_GetError()); 
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open SDL_OpenAudioDevice %s: %s", snd_card_name, SDL_GetError()); 
             return;
        }
     }
 
-    // play audio
+    // Allow the audio device time (~0.5 sec) to stabilize before playback
+    Uint32 bytesPerSample = (SDL_AUDIO_BITSIZE(wavSpec.format) / 8);
+    Uint32 silenceLength = bytesPerSample * wavSpec.channels * wavSpec.freq * 0.5f;
+
+    // Create a temporary buffer filled with silence (0 for most formats; SDL handles character encoding)
+    Uint8 *silenceBuffer = (Uint8 *)malloc(silenceLength);
+    if (silenceBuffer != NULL) {
+        // Fill the buffer with the appropriate silence value, depending on the format (e.g., U8 uses 128 for silence, S16 uses 0).
+        Uint8 silenceValue = (wavSpec.format == AUDIO_U8) ? 128 : 0;
+        memset(silenceBuffer, silenceValue, silenceLength);
+
+        // Queue the silence first (takes ~0.5s to play; the sound card wakes up during this time)
+        SDL_QueueAudio(deviceId, silenceBuffer, silenceLength);
+
+        // Free the memory for the silence immediately after it has been queued
+        free(silenceBuffer);
+    }
+
+    // play the audio file
     if (SDL_QueueAudio(deviceId, wavBuffer, wavLength) == 0) {
         SDL_PauseAudioDevice(deviceId, 0);
-        SDL_Delay(2200);
+        SDL_Delay(2200+500);
     }
 
     // Clean up
