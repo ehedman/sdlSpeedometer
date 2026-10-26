@@ -125,7 +125,6 @@ static int configureDb(configuration *configParams)
     sqlite3 *conn;
     sqlite3_stmt *res;
     const char *tail;
-    char buf[300];
     int rval = 0;
     int bval = 0;
     struct stat sb;
@@ -159,59 +158,170 @@ static int configureDb(configuration *configParams)
                             return 1;
                     }
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY,\
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER,\
-                        style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER, rwfilez INTEGER);)", -1, &res, &tail);
+                    // =========================================================================
+                    // 1. CONFIG TABLE
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS config ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "rev TEXT, "
+                        "tty TEXT, "
+                        "baud INTEGER, "
+                        "server TEXT, "
+                        "port INTEGER, "
+                        "vncport INTEGER, "
+                        "style INTEGER, "
+                        "audiodev TEXT, "
+                        "camurl TEXT, "
+                        "nmtot REAL, "
+                        "units INTEGER, "
+                        "rwfilez INTEGER)", 
+                        -1, &res, &tail);
                     sqlite3_step(res);
+                    sqlite3_finalize(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,\
-                        tty,baud,server,port,vncport,style,audiodev,camurl,nmtot,units,rwfilez) \
-                        VALUES ('%s','%s',9600,'%s',%d,%d,0,'%s','%s', 0.0, 0,10000)",\
-                        SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT,"hw:0,0","rtsp://cam:campw@cam-ip/stream");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
+                    // Förbered INSERT med platshållare (?)
+                    sqlite3_prepare_v2(conn, 
+                        "INSERT INTO config (rev, tty, baud, server, port, vncport, style, audiodev, camurl, nmtot, units, rwfilez) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                        -1, &res, &tail);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY,\
-                        magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER,\
-                        magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL, pOffset REAL, heelo INTEGER,\
-                        pitcho INTEGER, toledd INTEGER);)", -1, &res, &tail);
+                    // Bind värdena till rätt index (1-12)
+                    sqlite3_bind_text(res, 1, SWREV, -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(res, 2, TTY_SERIAL, -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(res, 3, 9600);
+                    sqlite3_bind_text(res, 4, DEF_NMEA_SERVER, -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(res, 5, DEF_NMEA_PORT);
+                    sqlite3_bind_int(res, 6, DEF_VNC_PORT);
+                    sqlite3_bind_int(res, 7, 0);
+                    sqlite3_bind_text(res, 8, "hw:0,0", -1, SQLITE_STATIC);
+                    sqlite3_bind_text(res, 9, "rtsp://cam:campw@cam-ip/stream", -1, SQLITE_STATIC);
+                    sqlite3_bind_double(res, 10, 0.0);
+                    sqlite3_bind_int(res, 11, 0);
+                    sqlite3_bind_int(res, 12, 10000);
 
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (\
-                        magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset, heelo, pitcho, toledd) \
-                         VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0,0,0,6)", dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
-                    sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
-                    sqlite3_step(res);
+                    sqlite3_finalize(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, \
-                        depthw REAL, draftw REAL, lowvoltw REAL, highcurrw REAL)", -1, &res, &tail);
+                    // =========================================================================
+                    // 2. CALIB TABLE
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS calib ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "magXmax INTEGER, "
+                        "magYmax INTEGER, "
+                        "magZmax INTEGER, "
+                        "magXmin INTEGER, "
+                        "magYmin INTEGER, "
+                        "magZmin INTEGER, "
+                        "declval REAL, "
+                        "cOffset INTEGER, "
+                        "rOffset REAL, "
+                        "pOffset REAL, "
+                        "heelo INTEGER, "
+                        "pitcho INTEGER, "
+                        "toledd INTEGER)", 
+                        -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO warnings (depthw, draftw, lowvoltw, highcurrw) VALUES(5.0, 2.1, 11.7, 9.0)");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
+                    sqlite3_finalize(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE subtasks (Id INTEGER PRIMARY KEY, task TEXT, args TEXT, icon TEXT)", -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('opencpn','-f','opencpn')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-stat','','sdlSpeedometer-stat')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-browser','','sdlSpeedometer-browser')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('XyGrib','','XyGrib')");    
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('kodi-standalone','','kodi-standalone')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-venus','','sdlSpeedometer-venus')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
+                    // Prepare INSERT (13 placeholders)
+                    sqlite3_prepare_v2(conn, 
+                        "INSERT INTO calib (magXmax, magYmax, magZmax, magXmin, magYmin, magZmin, declval, cOffset, rOffset, pOffset, heelo, pitcho, toledd) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                        -1, &res, &tail);
 
-                    rval = sqlite3_finalize(res);
+                    sqlite3_bind_int(res, 1, dmagXmax);
+                    sqlite3_bind_int(res, 2, dmagYmax);
+                    sqlite3_bind_int(res, 3, dmagZmax);
+                    sqlite3_bind_int(res, 4, dmagXmin);
+                    sqlite3_bind_int(res, 5, dmagYmin);
+                    sqlite3_bind_int(res, 6, dmagZmin);
+                    sqlite3_bind_double(res, 7, ddeclval);
+                    sqlite3_bind_int(res, 8, 0);
+                    sqlite3_bind_double(res, 9, 0.0);
+                    sqlite3_bind_double(res, 10, 0.0);
+                    sqlite3_bind_int(res, 11, 0);
+                    sqlite3_bind_int(res, 12, 0);
+                    sqlite3_bind_int(res, 13, 6);
+
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+
+                    // =========================================================================
+                    // 3. WARNINGS TABLE
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS warnings ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "depthw REAL, "
+                        "draftw REAL, "
+                        "lowvoltw REAL, "
+                        "highcurrw REAL)", 
+                        -1, &res, &tail);
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+                    sqlite3_prepare_v2(conn, 
+                        "INSERT INTO warnings (depthw, draftw, lowvoltw, highcurrw) VALUES (?, ?, ?, ?)", 
+                        -1, &res, &tail);
+
+                    sqlite3_bind_double(res, 1, 5.0);
+                    sqlite3_bind_double(res, 2, 2.1);
+                    sqlite3_bind_double(res, 3, 11.7);
+                    sqlite3_bind_double(res, 4, 9.0);
+
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+
+                    // =========================================================================
+                    // 4. SUBTASKS TABLE (With loops and statement reuse)
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS subtasks ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "task TEXT, "
+                        "args TEXT, "
+                        "icon TEXT)", 
+                        -1, &res, &tail);
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+                    // A structure for gathering all subtask data in one place
+                    struct SubtaskInit {
+                        const char *task;
+                        const char *args;
+                        const char *icon;
+                    };
+
+                    struct SubtaskInit initial_subtasks[] = {
+                        {"opencpn", "-f", "opencpn"},
+                        {"sdlSpeedometer-stat", "", "sdlSpeedometer-stat"},
+                        {"sdlSpeedometer-browser", "", "sdlSpeedometer-browser"},
+                        {"XyGrib", "", "XyGrib"},
+                        {"kodi-standalone", "", "kodi-standalone"},
+                        {"sdlSpeedometer-venus", "", "sdlSpeedometer-venus"}
+                    };
+                    int num_subtasks = sizeof(initial_subtasks) / sizeof(initial_subtasks[0]);
+
+                    // Prepare the question ONCE
+                    sqlite3_prepare_v2(conn, "INSERT INTO subtasks (task, args, icon) VALUES (?, ?, ?)", -1, &res, &tail);
+
+                    // Loop through all subtasks
+                    for (int i = 0; i < num_subtasks; i++) {
+                        sqlite3_bind_text(res, 1, initial_subtasks[i].task, -1, SQLITE_STATIC);
+                        sqlite3_bind_text(res, 2, initial_subtasks[i].args, -1, SQLITE_STATIC);
+                        sqlite3_bind_text(res, 3, initial_subtasks[i].icon, -1, SQLITE_STATIC);
+                        
+                        sqlite3_step(res);
+                        sqlite3_reset(res); // Clears the values ​​and prepares 'res' for the next iteration of the loop
+                    }
+
+                    // Finally, close down the statement completely.
+                    sqlite3_finalize(res);
                     break;
                 default:
                     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Configuration database initialization failed: %s", strerror(rval));
@@ -248,7 +358,7 @@ static int configureDb(configuration *configParams)
         strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 6));
         strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
 		cnmea.logDistT =         		sqlite3_column_double(res, 8);
-        cnmea.units =         		    sqlite3_column_double(res, 9);
+        cnmea.units =         		    sqlite3_column_int(res, 9);
         configParams->rwfilez =         sqlite3_column_int(res, 10);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));

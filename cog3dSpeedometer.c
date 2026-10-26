@@ -1527,7 +1527,7 @@ int doCog3d(sdl2_app *sdlApp)
         torsional_load = 0;
     }
 
-    warn.turnp =0; warn.turnsb =1;
+    warn.turnp =0; warn.turnsb =0;
     compass3d_shutdown();
     SDL_GL_DeleteContext(ctx);
     TTF_CloseFont(fontLarge);
