@@ -1283,7 +1283,7 @@ int doCog3d(sdl2_app *sdlApp)
         // HDG - The direction the bow points. Magnetic BerryGPS or from Net/USB.
         if (!(ct - cnmea.hdg_i2cts > S_TIMEOUT)) {
             sprintf(msg_hdg, "HDG M: %.0f%s", cnmea.hdg, "\u00B0");
-        } else if (!(ct - cnmea.net_ts > S_TIMEOUT)){
+        } else if (!(ct - cnmea.hdg_ts > S_TIMEOUT)){
             sprintf(msg_hdg, "HDG: %.0f%s", cnmea.hdg, "\u00B0");
         }
 
