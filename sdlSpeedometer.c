@@ -219,17 +219,18 @@ static int configureDb(configuration *configParams)
                         "cOffset INTEGER, "
                         "rOffset REAL, "
                         "pOffset REAL, "
-                        "heelo INTEGER, "
+                        "rollo INTEGER, "
                         "pitcho INTEGER, "
-                        "toledd INTEGER)", 
+                        "toledd INTEGER, "
+                        "softi INTEGER)",
                         -1, &res, &tail);
                     sqlite3_step(res);
                     sqlite3_finalize(res);
 
-                    // Prepare INSERT (13 placeholders)
+                    // Prepare INSERT (14 placeholders)
                     sqlite3_prepare_v2(conn, 
-                        "INSERT INTO calib (magXmax, magYmax, magZmax, magXmin, magYmin, magZmin, declval, cOffset, rOffset, pOffset, heelo, pitcho, toledd) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                        "INSERT INTO calib (magXmax, magYmax, magZmax, magXmin, magYmin, magZmin, declval, cOffset, rOffset, pOffset, rollo, pitcho, toledd, softi) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         -1, &res, &tail);
 
                     sqlite3_bind_int(res, 1, dmagXmax);
@@ -245,6 +246,7 @@ static int configureDb(configuration *configParams)
                     sqlite3_bind_int(res, 11, 0);
                     sqlite3_bind_int(res, 12, 0);
                     sqlite3_bind_int(res, 13, 6);
+                    sqlite3_bind_int(res, 14, 0);
 
                     sqlite3_step(res);
                     sqlite3_finalize(res);
@@ -526,7 +528,7 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 
 /**
  * Calculate true wind angle and true wind speed from
- * apparent wind, boat speed and heel angle.
+ * apparent wind, boat speed and roll angle.
  *
  * Coordinate system:
  *
@@ -539,9 +541,9 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
  *                |
  *             180° Stern
  *
- * Heel convention:
- *   positive = heel to port
- *   negative = heel to starboard
+ * Roll convention:
+ *   positive = roll to port
+ *   negative = roll to starboard
  *
  * Apparent wind angle is the value from NMEA 0183 MWV,
  * where 'R' means relative/apparent wind.
@@ -549,7 +551,7 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
  * @param boatSpeed              Speed through water, knots
  * @param apparentWindSpeed      AWS, knots
  * @param apparentWindDirection  AWA, degrees, 0..360
- * @param heelAngle              Heel, degrees
+ * @param rollAngle              Roll, degrees
  * @param[out] trueWindSpeed     TWS, knots
  *
  * @return True wind angle, degrees, 0..360
@@ -557,25 +559,25 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 static float trueWindAngle(float boatSpeed,
                             float apparentWindSpeed,
                             float apparentWindDirection,
-							float heelAngle,
+							float rollAngle,
                             float *trueWindSpeed)
 {
     const float DEG_TO_RAD = (float)M_PI / 180.0f;
     const float RAD_TO_DEG = 180.0f / (float)M_PI;
     const float awaRad = apparentWindDirection * DEG_TO_RAD;
-    heelAngle *= -1.0f;  // To match this system
-    const float heelRad = heelAngle * DEG_TO_RAD;
+    rollAngle *= -1.0f;  // To match this system
+    const float rollRad = rollAngle * DEG_TO_RAD;
 
     /*
-     * Apparent wind vector measured by the heeled wind sensor.
+     * Apparent wind vector measured by the rolled wind sensor.
      *
      * X = forward/backward
      * Y = starboard/port
      *
-     * The longitudinal component is unaffected by heel.
+     * The longitudinal component is unaffected by roll.
      *
      * The transverse component measured by the sensor is
-     * reduced by cosf(heel), because the sensor is tilted.
+     * reduced by cosf(roll), because the sensor is tilted.
      */
     float awsX = apparentWindSpeed * cosf(awaRad);
 
@@ -585,14 +587,14 @@ static float trueWindAngle(float boatSpeed,
      * Transform the transverse component back into the
      * horizontal boat plane.
      */
-    float cosHeel = cosf(heelRad);
+    float cosRoll = cosf(rollRad);
 
-    // Prevent division by zero at unrealistic heel angles.
-    if (fabsf(cosHeel) < 0.01f) {
-        cosHeel = 0.01f;
+    // Prevent division by zero at unrealistic roll angles.
+    if (fabsf(cosRoll) < 0.01f) {
+        cosRoll = 0.01f;
     }
 
-    awsY /= cosHeel;
+    awsY /= cosRoll;
 
     /*
      * Remove the boat's forward velocity.
@@ -947,9 +949,9 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             isKnots = 1;
         }
 
-        float heel = 0.0f;
-        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT)))
-            heel = cnmea.heel;
+        float roll = 0.0f;
+        if (!(ts - cnmea.roll_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT)))
+            roll = cnmea.roll;
 
           
         if (!strncmp(getf(2, nmeastr_p1),"R",1) && isKnots) {
@@ -990,7 +992,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                 vwrsKnots = cnmea.vwrs *1.943844f;
             }
             float vwts = 0.0f;
-            cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
+            cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, roll, &cnmea.vwts);
             vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144f : cnmea.vwts;
             cnmea.vwts = vwts;
             cnmea.vwt_ts = ts;
@@ -1006,9 +1008,9 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             isKnots = 1;
         }
 
-        float heel = 0.0f;
-        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT))) {
-            heel = cnmea.heel;
+        float roll = 0.0f;
+        if (!(ts - cnmea.roll_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT))) {
+            roll = cnmea.roll;
         }
 
         if (NMPARSE(nmeastr_p1, "VWR")) {
@@ -1040,7 +1042,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                     vwrsKnots = cnmea.vwrs *1.943844f;
                 }
                 float vwts = 0.0f;
-                cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
+                cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, roll, &cnmea.vwts);
                 vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144f : cnmea.vwts;
                 cnmea.vwts = vwts;
                 cnmea.vwt_ts = ts;
@@ -1166,7 +1168,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
     }
 
-    // HEEL - Wessel heel and pitch:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*hh or  $IIXDR,A,-001.5,D,PITCH,A,003.2,D,ROLL*hh
+    // ROLL - Wessel roll and pitch:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*hh or  $IIXDR,A,-001.5,D,PITCH,A,003.2,D,ROLL*hh
     if (NMPARSE(nmeastr_p1, "XDR")) {
         int i = 1;
         char *measure_type;
@@ -1186,12 +1188,12 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                 break;
             }
 
-            // Check whether it is ROLL / HEEL
-            if (strcmp(id_str, "ROLL") == 0 || strcmp(id_str, "HEEL") == 0) {
-                cnmea.heel = value;
-                cnmea.heel += cnmea.calib->roffset;
-                if (cnmea.calib->heelo == 0) {
-                    cnmea.heel *= -1.0f;
+            // Check whether it is ROLL / ROLL
+            if (strcmp(id_str, "ROLL") == 0 || strcmp(id_str, "ROLL") == 0) {
+                cnmea.roll = value;
+                cnmea.roll += cnmea.calib->roffset;
+                if (cnmea.calib->rollo == 0) {
+                    cnmea.roll *= -1.0f;
                 }
                 cnmea.xdr_ts = ts;
             }
@@ -1278,7 +1280,7 @@ static int i2cCollector(void *conf)
 
     int retry = 0;
     int bus = 1;
-    const int dt=26;
+    const int dt=20;     // Loop period. 0.02  = 20ms for the LSM9DS*
     int rval;
     int connOk = 1;
     int update = dt;
@@ -1308,8 +1310,8 @@ static int i2cCollector(void *conf)
         SDL_Delay(dt);
 
         if (configParams->conn && connOk) {
-            if (update++ > dt+30 / 10) {
-                if (!stat(SQLCONFIG, &sb)) {
+            if (update++ > dt+2000 / 10) {
+                if (!stat(SQLCONFIG, &sb)) {    // If the file is hit, then the calibrator thread has some news
                     SDL_Delay(600);
                     char sqlbuf[150];
                     memset(sqlbuf, 0, sizeof(sqlbuf));
@@ -1335,7 +1337,7 @@ static int i2cCollector(void *conf)
 
                 if (doUpdate) {
                     rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,\
-                        magYmin,magZmin,declval,cOffset,rOffset,pOffset,heelo,pitcho,toledd from calib", -1, &res, &tail);
+                        magYmin,magZmin,declval,cOffset,rOffset,pOffset,rollo,pitcho,toledd,softi from calib", -1, &res, &tail);
                     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
                         // See: BerryIMU/compass_tutorial03_calibration
                         calib.magXmax = sqlite3_column_int(res, 0);
@@ -1348,9 +1350,10 @@ static int i2cCollector(void *conf)
                         calib.coffset = sqlite3_column_int(res, 7);
                         calib.roffset = sqlite3_column_double(res, 8);
                         calib.poffset = sqlite3_column_double(res, 9);
-                        calib.heelo = sqlite3_column_int(res, 10);
+                        calib.rollo = sqlite3_column_int(res, 10);
                         calib.pitcho = sqlite3_column_int(res, 11);
                         calib.toledd = sqlite3_column_int(res, 12);
+                        calib.softi = sqlite3_column_int(res, 13);
                     } else {
                         if (connOk) {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to look up calibration data - using defults : %s", \
@@ -1364,7 +1367,7 @@ static int i2cCollector(void *conf)
                         calib.magYmin = dmagYmin;
                         calib.magZmin = dmagZmin;
                         calib.declval = ddeclval;
-                        calib.coffset = calib.roffset = calib.poffset = 0;
+                        calib.coffset = calib.roffset = calib.poffset = calib.softi = 0;
                     }
                     sqlite3_finalize(res);
                     memcpy(&configParams->calib, &calib, sizeof(calibration));
@@ -1383,9 +1386,9 @@ static int i2cCollector(void *conf)
             } else continue;
         }
 
-        cnmea.heel_i2cts = ct;
-        cnmea.heel  = i2cReadRoll(configParams->i2cFile, dt, &calib);
-        cnmea.pitch = i2cReadPitch(&calib);
+        cnmea.roll_i2cts = ct;
+        cnmea.roll  = cnmea.mcomp->roll;
+        cnmea.pitch = cnmea.mcomp->pitch;
 
         // Take over if no NMEA
         if (ct - cnmea.hdg_ts > S_TIMEOUT) {
@@ -2573,7 +2576,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                     memset(current_input, 0, sizeof(current_input));
                     snprintf(statusMsg, sizeof(statusMsg), "File operation stopped");
                 }
-            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wheel input
+            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wroll input
                 if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
                 else if (e.wheel.y < 0 && scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
             }
@@ -2693,12 +2696,12 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
     return eType;
 }
 
-// Present the compass with heading ant heel
+// Present the compass with heading and roll
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event e;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
-    TTF_Font* fontHeel = TTF_OpenFont(sdlApp->fontPath, 22);
+    TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
@@ -2782,8 +2785,8 @@ static int doCompass(sdl2_app *sdlApp)
     float angle = 0;
     float t_angle_a = 0;
     float angle_a = 0;
-    float t_heel = 0;
-    float heel = 0;
+    float t_roll = 0;
+    float roll = 0;
     int res = 1;
     int res_a = 1;
     int boxItems[] = {86,136,186,236,286};
@@ -2940,18 +2943,18 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-        // Magnetic or Net Heel
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rll, "%.0f", fabsf(heel=cnmea.heel));
+        // Magnetic or Net Roll
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
+            sprintf(msg_rll, "%.0f", fabsf(roll=cnmea.roll));
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
-            cnmea.heel_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rll, "%.0f", fabsf(heel=cnmea.heel));
+            cnmea.roll_i2cts = cnmea.xdr_ts;
+            sprintf(msg_rll, "%.0f", fabsf(roll=cnmea.roll));
         }
 
-        // Calculate clinoMeter heel movement
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
-            if (heel > t_heel) t_heel += 0.8f * (fabsf(heel -t_heel) / 4.0f);
-            else if (heel < t_heel) t_heel -= 0.8f * (fabsf(heel -t_heel) / 4.0f);
+        // Calculate clinoMeter roll movement
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
+            if (roll > t_roll) t_roll += 0.8f * (fabsf(roll -t_roll) / 4.0f);
+            else if (roll < t_roll) t_roll -= 0.8f * (fabsf(roll -t_roll) / 4.0f);
         }
 
         // RMC - Recommended minimum specific GPS/Transit data
@@ -3007,8 +3010,8 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderCopyEx(sdlApp->renderer, windScale, NULL, &windScaleR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)))
-            SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_heel, NULL, SDL_FLIP_NONE);
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)))
+            SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, windDir, NULL, &windDirR, t_angle_a, NULL, SDL_FLIP_NONE);
@@ -3023,8 +3026,8 @@ static int doCompass(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 200, 200, 5, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
-            get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontHeel, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
+            get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -3207,7 +3210,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(rsaBar);
     SDL_DestroyTexture(textBox);
     TTF_CloseFont(fontCog);
-    TTF_CloseFont(fontHeel);
+    TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
 
@@ -7800,6 +7803,7 @@ int main(int argc, char *argv[])
     char buf[FILENAME_MAX];
     struct stat stats;
     struct timespec ts;
+    extern mCompass Comppass;
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
@@ -7808,6 +7812,7 @@ int main(int argc, char *argv[])
     sdlApp.conf = &configParams;
     cnmea.conf =  &configParams;
     cnmea.calib = &configParams.calib;
+    cnmea.mcomp = &Comppass;
 
     configParams.sdlApp = &sdlApp;
 

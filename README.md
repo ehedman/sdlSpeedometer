@@ -23,7 +23,7 @@ This instrument can work independently and always provide compass, heading, posi
 Currently there are eight virtual pages with instruments working:
 
     Compass       : With heading, pitch and rudder/wind angle from NMEA-net and/or from BerryGPS-IMUv2
-    Compass 3D    : OpenGL compass with heel, pitch, wind angle, target steering and and audible warnings for course deviations
+    Compass 3D    : OpenGL compass with roll, pitch, wind angle, target steering and and audible warnings for course deviations
     GPS           : Lo, Lat, Heading, course over ground, drift a graphical Vector Triangle showing current Set, Drift, and Drift Angle (CRX).
     Log           : SOW, SOG from NMEA-net
     Wind          : Real, Relative and speed from NMEA-net

@@ -1309,11 +1309,11 @@ int doCog3d(sdl2_app *sdlApp)
         }
 
         // Magnetic or Net Heel
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rol, "ROL: %.0f", fabsf(cnmea.heel));
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
+            sprintf(msg_rol, "ROL: %.0f", fabsf(cnmea.roll));
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
-            cnmea.heel_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rol, "ROL: %.0f", fabsf(cnmea.heel));
+            cnmea.roll_i2cts = cnmea.xdr_ts;
+            sprintf(msg_rol, "ROL: %.0f", fabsf(cnmea.roll));
         }
 
         // RUD - Rudder angle
@@ -1327,9 +1327,9 @@ int doCog3d(sdl2_app *sdlApp)
         }
  
         // Calculate pitch and heel movement
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
         {
-            angle_ch = update_angle(angle_ch, cnmea.heel * -1.0f, 0.2f);  // Switch sign to match 2D COG page
+            angle_ch = update_angle(angle_ch, cnmea.roll * -1.0f, 0.2f);  // Switch sign to match 2D COG page
             angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0f, 0.3f);
             sprintf(msg_ptc, "PTC: %.0f", fabsf(cnmea.pitch));
         } else {angle_ch=angle_cp=0;}

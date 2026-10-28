@@ -35,17 +35,17 @@
 #include <SDL2/SDL.h>   // For the purpose of logging
 #include "sdlSpeedometer.h"
 
-#define MAG_LPF_FACTOR  0.4f
-#define ACC_LPF_FACTOR  0.1f
+#define MAG_LPF_FACTOR  0.4
+#define ACC_LPF_FACTOR  0.1
 
-#define G_GAIN 0.070f   // [deg/s/LSB]
-#define RAD_TO_DEG      57.29578f
-//#define DT 0.2          // [s/loop] loop period.  0.2  = 200ms
-#define AA      0.97f   // complementary filter constan
-#define RDEV    2       // Return heading results within +/- RDEV range
+#define RAD_TO_DEG      57.29578
+#define AA      0.97    // complementary filter constan
 
 static int LSM9DS0 = 0;
 static int LSM9DS1 = 0;
+
+// Return values to main app
+mCompass Comppass;
 
 static int selectDevice(int file, int addr)
 {
@@ -80,7 +80,19 @@ static void writeGyrReg(uint8_t reg, uint8_t value, int file)
     }
 }
 
+#if 0   // TBU
 static void readGYR(int g[], int file)
+
+    /* The gyroscope primarily provides faster response to movement and better
+     * short-term stability. In the context of a Raspberry Pi-based compass 
+     * using the LSM9DS1, this makes for an interesting distinction—especially
+     * if you want the compass to perform well while the boat is rolling and pitching.
+     * The accelerometer and the gyroscope measure two different things:
+     * Sensor	        What it measures	Strength
+     * Accelerometer	Acceleration,       including components of gravity	Can estimate pitch and roll during calm motion
+     * Gyroscope	    Angular velocity    in degrees per second	Reacts quickly to rotation
+     * Magnetometer	    The Earth’s magnetic field	Provides the basis for determining compass heading
+     */
 {
     uint8_t block[6];
     if (LSM9DS0){
@@ -97,6 +109,7 @@ static void readGYR(int g[], int file)
     g[1] = (int16_t)(block[2] | block[3] << 8);
     g[2] = (int16_t)(block[4] | block[5] << 8);
 }
+#endif
 
 static int writeAccReg(uint8_t reg, uint8_t value, int file)
 {
@@ -155,7 +168,6 @@ static int readMAG(int  m[], int file)
     m[2] = (int16_t)(block[4] | block[5] << 8);
 
     return result;
-
 }
 
 void i2creadMAG(int  m[], int file)
@@ -181,7 +193,6 @@ static int writeMagReg(uint8_t reg, uint8_t value, int file)
 
 static void enableIMU(int file)
 {
-
     if (LSM9DS0){//For BerryIMUv1
         // Enable accelerometer.
         writeAccReg(LSM9DS0_CTRL_REG1_XM, 0b01100111, file); //  z,y,x axis enabled, continuous update,  100Hz data rate
@@ -263,134 +274,12 @@ int i2cinit(int bus)
     return file;
 }
 
-static float pitch;
-
-float i2cReadHdm(int file, calibration *calib)
-{
-
-    static float roll,magXcomp,magYcomp;
-    static int magRaw[3];
-    static int accRaw[3];
-    static int oldXMagRawValue;
-    static int oldYMagRawValue;
-    static int oldZMagRawValue;
-    static int oldXAccRawValue;
-    static int oldYAccRawValue;
-    static int oldZAccRawValue;
-    static int sampleCnt;
-
-    static float heading, curHeading;
-    int result = 0;
-
-    if (LSM9DS0 + LSM9DS1 == 0)
-        return 0.0;
-
-    if (sampleCnt++ < 5) {
-        return curHeading;
-    }
-    sampleCnt = 0;
-
-    result += readMAG(magRaw, file);
-    result += readACC(accRaw, file);
-
-    if (result < 0)
-        return result;
-
-    //Apply low pass filter to reduce noise
-    magRaw[0] =  magRaw[0]  * MAG_LPF_FACTOR + oldXMagRawValue*(1 - MAG_LPF_FACTOR);
-    magRaw[1] =  magRaw[1]  * MAG_LPF_FACTOR + oldYMagRawValue*(1 - MAG_LPF_FACTOR);
-    magRaw[2] =  magRaw[2]  * MAG_LPF_FACTOR + oldZMagRawValue*(1 - MAG_LPF_FACTOR);
-    accRaw[0] =  accRaw[0]  * ACC_LPF_FACTOR + oldXAccRawValue*(1 - ACC_LPF_FACTOR);
-    accRaw[1] =  accRaw[1]  * ACC_LPF_FACTOR + oldYAccRawValue*(1 - ACC_LPF_FACTOR);
-    accRaw[2] =  accRaw[2]  * ACC_LPF_FACTOR + oldZAccRawValue*(1 - ACC_LPF_FACTOR);
-
-    oldXMagRawValue = magRaw[0];
-    oldYMagRawValue = magRaw[1];
-    oldZMagRawValue = magRaw[2];
-    oldXAccRawValue = accRaw[0];
-    oldYAccRawValue = accRaw[1];
-    oldZAccRawValue = accRaw[2];
-
-     //Apply hard iron calibration
-     magRaw[0] -= (calib->magXmin + calib->magXmax) /2 ;
-     magRaw[1] -= (calib->magYmin + calib->magYmax) /2 ;
-     magRaw[2] -= (calib->magZmin + calib->magZmax) /2 ;
-
-#if 0
-     //Apply soft iron calibration
-    static float scaledMag[3];
-    scaledMag[0]  = (float)(magRaw[0] - calib->magXmin) / (calib->magXmax - calib->magXmin) * 2 - 1;
-    scaledMag[1]  = (float)(magRaw[1] - calib->magYmin) / (calib->magYmax - calib->magYmin) * 2 - 1;
-    scaledMag[2]  = (float)(magRaw[2] - calib->magZmin) / (calib->magZmax - calib->magZmin) * 2 - 1;
-#endif
-
-    //If your IMU is upside down, comment out the two lines below which we correct the tilt calculation
-//    accRaw[0] = -accRaw[0];
-//    accRaw[1] = -accRaw[1];
-
-    // Calculate pitch and roll directly from the raw values
-    pitch = atan2f((float)accRaw[0], sqrtf((float)accRaw[1] * accRaw[1] + (float)accRaw[2] * accRaw[2]));
-    roll  = atan2f((float)accRaw[1], sqrtf((float)accRaw[0] * accRaw[0] + (float)accRaw[2] * accRaw[2]));
-
-    //Calculate the new tilt compensated values
-    magXcomp = magRaw[0]*cosf(pitch)+magRaw[2]*sinf(pitch);
-    if(LSM9DS0)
-        magYcomp = magRaw[0]*sinf(roll)*sinf(pitch)+magRaw[1]*cosf(roll)-magRaw[2]*sinf(roll)*cosf(pitch); // LSM9DS0
-    else
-       magYcomp = magRaw[0]*sinf(roll)*sinf(pitch)+magRaw[1]*cosf(roll)+magRaw[2]*sinf(roll)*cosf(pitch); // LSM9DS1
-
-    //Calculate heading with declination
-    heading = (180*atan2f(magYcomp,magXcomp)/(float)M_PI) + calib->declval + calib->coffset;
-
-    //Convert heading to 0 - 360
-    if(heading < 0)
-        heading += 360;
-
-    if (!curHeading) curHeading = heading;
-
-    if (!(heading > curHeading+RDEV || heading < curHeading-RDEV)) {
-        heading = curHeading;
-    } else {
-        curHeading = heading;
-    }
-
-    return roundf(heading);
-}
-
-#define PALFA 0.12f
-#define PDEAD_ZONE 0.9f
-
-static float filterPitch(float rawData) {
-    static float filtered_pitch = 0.0f;
-
-    // Low-pass filter: attenuates the rapid flicker (-1 to +1)
-    filtered_pitch = (PALFA * rawData) + ((1.0f - PALFA) * filtered_pitch);
-
-    // Zeroing: if the damped value is close to zero, force it to 0
-    if (fabsf(filtered_pitch) < PDEAD_ZONE) {
-        return 0.0f;
-    }
-
-    return filtered_pitch;
-}
-
-float i2cReadPitch(calibration *calib)
-{
-
-    float pitch_degrees = (pitch * RAD_TO_DEG) + calib->poffset;
-
-    if (calib->pitcho == 0)
-        pitch_degrees *= -1.0f;
-
-    return (filterPitch(pitch_degrees));
-}
-
 // The lower the ALPHA, the more stable (but slower) the meter becomes.
 // 0.05 to 0.15 is usually perfect for marine instruments.
-#define RALFA 0.08f
+#define RALFA 0.1f
 
 // Threshold for when we consider the boat to be perfectly level (in degrees)
-#define RDEAD_ZONE 0.5f
+#define RDEAD_ZONE 0.3f
 
 static float filterRoll(float rawData) {
     static float filtered_roll = 0.0f;
@@ -406,55 +295,186 @@ static float filterRoll(float rawData) {
     return filtered_roll;
 }
 
-float i2cReadRoll(int file, int dt, calibration *calib)
+#define PALFA 0.1f
+#define PDEAD_ZONE 0.3f
+
+static float filterPitch(float rawData) {
+    static float filtered_pitch = 0.0f;
+
+    // Low-pass filter: attenuates the rapid flicker (-1 to +1)
+    filtered_pitch = (PALFA * rawData) + ((1.0f - PALFA) * filtered_pitch);
+
+    // Zeroing: if the damped value is close to zero, force it to 0
+    if (fabsf(filtered_pitch) < PDEAD_ZONE) {
+        return 0.0f;
+    }
+
+    return filtered_pitch;
+}
+
+#define HALFA 0.08f
+#define HDEAD_ZONE 1.0f
+
+static float filterHeading(float rawData)
 {
-    static float CFangleX = 0.0f;
-    static float CFangleY = 0.0f;
-    static int first_run = 1;
+    static float filtered_heading = 0.0f;
+    static int initialized = 0;
 
-    float rate_gyr_x;    // [deg/s]
-    float rate_gyr_y;    // [deg/s]
+    if (!initialized) {
+        filtered_heading = rawData;
+        initialized = 1;
+        return filtered_heading;
+    }
 
-    int  acc_raw[3];
-    int  gyr_raw[3];
+    // Shortest angular difference, range -180 to +180
+    float diff = rawData - filtered_heading;
+
+    while (diff > 180.0f)  diff -= 360.0f;
+    while (diff < -180.0f) diff += 360.0f;
+
+    // Ignore small changes around the current heading
+    if (fabsf(diff) < HDEAD_ZONE)
+        return filtered_heading;
+
+    // Low-pass filter using the shortest angular direction
+    filtered_heading += HALFA * diff;
+
+    // Normalize to 0..360 degrees
+    if (filtered_heading >= 360.0f)
+        filtered_heading -= 360.0f;
+    else if (filtered_heading < 0.0f)
+        filtered_heading += 360.0f;
+
+    return filtered_heading;
+}
+
+float i2cReadHdm(int file, calibration *calib)
+{
+    static float magXcomp, magYcomp, accYnorm;
+    static int magRaw[3];
+    static int accRaw[3];
+    static int oldXMagRawValue;
+    static int oldYMagRawValue;
+    static int oldZMagRawValue;
+    static int oldXAccRawValue;
+    static int oldYAccRawValue;
+    static int oldZAccRawValue;
+    static float heading;
+    static float roll, pitch;
+    static float scaledMag[3];
+
+    int result = 0;
 
     if (LSM9DS0 + LSM9DS1 == 0)
-        return 0.0;
+        return 0.0f;
 
-    // Read hardware data
-    readACC(acc_raw, file);
-    readGYR(gyr_raw, file);
+    result += readMAG(magRaw, file);
+    result += readACC(accRaw, file);
 
-    // Convert gyro to degrees per second (DPS)
-    rate_gyr_x = (float)gyr_raw[0] * G_GAIN;
-    rate_gyr_y = (float)gyr_raw[1] * G_GAIN;
+    if (result < 0)
+        return result;
 
-    // Stable and clean calculation of accelerometer angles in degrees (Standard IMU)
-    float AccXangle = atan2f((float)acc_raw[1], sqrtf((float)acc_raw[0]*acc_raw[0] + (float)acc_raw[2]*acc_raw[2])) * RAD_TO_DEG;
-    float AccYangle = atan2f((float)acc_raw[0], sqrtf((float)acc_raw[1]*acc_raw[1] + (float)acc_raw[2]*acc_raw[2])) * RAD_TO_DEG;
+    // Low-pass filter
+    magRaw[0] = magRaw[0] * MAG_LPF_FACTOR
+              + oldXMagRawValue * (1 - MAG_LPF_FACTOR);
+    magRaw[1] = magRaw[1] * MAG_LPF_FACTOR
+              + oldYMagRawValue * (1 - MAG_LPF_FACTOR);
+    magRaw[2] = magRaw[2] * MAG_LPF_FACTOR
+              + oldZMagRawValue * (1 - MAG_LPF_FACTOR);
 
-    // If this is the first run, initialize the filter using the actual accelerometer value instead of 0.
-    if (first_run) {
-        CFangleX = AccXangle;
-        CFangleY = AccYangle;
-        first_run = 0;
+    accRaw[0] = accRaw[0] * ACC_LPF_FACTOR
+              + oldXAccRawValue * (1 - ACC_LPF_FACTOR);
+    accRaw[1] = accRaw[1] * ACC_LPF_FACTOR
+              + oldYAccRawValue * (1 - ACC_LPF_FACTOR);
+    accRaw[2] = accRaw[2] * ACC_LPF_FACTOR
+              + oldZAccRawValue * (1 - ACC_LPF_FACTOR);
+
+    oldXMagRawValue = magRaw[0];
+    oldYMagRawValue = magRaw[1];
+    oldZMagRawValue = magRaw[2];
+
+    oldXAccRawValue = accRaw[0];
+    oldYAccRawValue = accRaw[1];
+    oldZAccRawValue = accRaw[2];
+
+    // Hard-iron compensation
+    magRaw[0] -= (calib->magXmin + calib->magXmax) / 2;
+    magRaw[1] -= (calib->magYmin + calib->magYmax) / 2;
+    magRaw[2] -= (calib->magZmin + calib->magZmax) / 2;
+
+
+    if (calib->softi)
+    {
+        // Soft-iron compensation: approximate per-axis scaling
+        float halfX = (calib->magXmax - calib->magXmin) / 2.0f;
+        float halfY = (calib->magYmax - calib->magYmin) / 2.0f;
+        float halfZ = (calib->magZmax - calib->magZmin) / 2.0f;
+        float avgHalf = (halfX + halfY + halfZ) / 3.0f;
+
+        scaledMag[0] = magRaw[0] * avgHalf / halfX;
+        scaledMag[1] = magRaw[1] * avgHalf / halfY;
+        scaledMag[2] = magRaw[2] * avgHalf / halfZ;
     }
 
-    // Time delta in seconds
-    float dt_secs = (float)dt / 1000.0f;
-
-    // Complementary filter (combines gyro and accelerometer)
-    CFangleX = AA * (CFangleX + rate_gyr_x * dt_secs) + (1.0f - AA) * AccXangle;
-    CFangleY = AA * (CFangleY + rate_gyr_y * dt_secs) + (1.0f - AA) * AccYangle;
-
-    // Apply the user's calibrations to the filtered value
-    float finalRoll = CFangleX + calib->roffset;
-
-    // Invert if the user has selected it
-    if (calib->heelo == 0) {
-        finalRoll *= -1.0f;
+    // Orientation uppside down ?
+    if (calib->pitcho == 0) {
+        accRaw[0] = -accRaw[0];
+        accRaw[1] = -accRaw[1];
     }
 
-    // Run through the final display filter and return
-    return filterRoll(finalRoll);
+    accYnorm = accRaw[1] /
+        sqrt(accRaw[0] * accRaw[0] +
+             accRaw[1] * accRaw[1] +
+             accRaw[2] * accRaw[2]);
+
+    pitch = atan2f((float)accRaw[0],
+        sqrtf((float)accRaw[1] * accRaw[1] +
+              (float)accRaw[2] * accRaw[2]));
+
+    roll = -asinf(accYnorm / cosf(pitch));
+
+    if (calib->rollo == 0)
+        roll *= -1.0f;
+
+    if (calib->softi) { // LSM9DS0
+        // Tilt-compensated magnetometer
+        magXcomp = scaledMag[0] * cosf(pitch)
+                 + scaledMag[2] * sinf(pitch);
+
+        if (LSM9DS0)
+            magYcomp = scaledMag[0] * sinf(roll) * sinf(pitch)
+                     + scaledMag[1] * cosf(roll)
+                     - scaledMag[2] * sinf(roll) * cosf(pitch);
+        else  // LSM9DS1
+            magYcomp = scaledMag[0] * sinf(roll) * sinf(pitch)
+                     + scaledMag[1] * cosf(roll)
+                     + scaledMag[2] * sinf(roll) * cosf(pitch);
+    } else {
+        // Calculate the new tilt compensated values
+	    magXcomp = magRaw[0] * cosf(pitch)
+            +magRaw[2] * sinf(pitch);
+
+	    if(LSM9DS0)
+		    magYcomp = magRaw[0] *sinf(roll) *sinf(pitch)
+                +magRaw[1] *cosf(roll)
+                -magRaw[2]*sinf(roll)*cosf(pitch);
+	    else // LSM9DS1
+		    magYcomp = magRaw[0] * sinf(roll)*sinf(pitch)
+                +magRaw[1] * cosf(roll) 
+                +magRaw[2]*sinf(roll)*cosf(pitch); 
+    }
+
+    heading = 180.0f * atan2f(magYcomp, magXcomp) / M_PI;
+
+    if (heading < 0.0f)
+        heading += 360.0f;
+
+    // Return data through a stability filter
+    heading = filterHeading(heading);
+
+    Comppass.pitch = (filterPitch(pitch * RAD_TO_DEG) + calib->poffset) * -1.0f;    // Invert to match GUI perspective
+    Comppass.roll =  (filterRoll(roll   * RAD_TO_DEG) + calib->roffset) * -1.0f;
+    Comppass.heading = heading;
+
+    return roundf(heading);
 }
