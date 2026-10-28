@@ -250,10 +250,10 @@ Enter the manual compass offset, Max -10 to 10 degrees
   fi
 
   CURRENT_SOFTI=$(sqlite3 $SPEEDOMETER_DB 'SELECT softi FROM calib;')
-  NEW_SOFTI=$(whiptail --menu "Choose Soft-iron compensation. Current is $CURRENT_SOFTI" 20 60 10 \
-    "0" "OFF" \
-    "1" "ON" \
-      3>&1 1>&2 2>&3)
+  NEW_SOFTI=$(whiptail --default-item "$CURRENT_SOFTI" --menu "Choose Soft-iron compensation. Current is $CURRENT_SOFTI" 20 60 10 \
+  "0" "OFF" \
+  "1" "ON" \
+    3>&1 1>&2 2>&3)
 
   if [ -n "$NEW_SOFTI" ]; then
     echo "UPDATE calib SET softi = '$NEW_SOFTI' WHERE Id=1;" >> "$SQLFILE"
@@ -284,7 +284,7 @@ Enter the manual compass roll offset, Max -10 to 10 degrees.
   fi
 
   CURRENT_ROLL_O=$(sqlite3 $SPEEDOMETER_DB 'SELECT rollo FROM calib;')
-  NEW_ROLL_O=$(whiptail --menu "Choose roll sensor orientation. Current is $CURRENT_ROLL_O" 20 60 10 \
+  NEW_ROLL_O=$(whiptail --default-item "$CURRENT_ROLL_O" --menu "Choose roll sensor orientation. Current is $CURRENT_ROLL_O" 20 60 10 \
     "0" "Reverse SB - BB" \
     "1" "Reverse BB - SB" \
       3>&1 1>&2 2>&3)
@@ -306,7 +306,7 @@ Enter the manual compass pitch offset, Max -10 to 10 degrees.
   fi
 
   CURRENT_PITCH_O=$(sqlite3 $SPEEDOMETER_DB 'SELECT pitcho FROM calib;')
-  NEW_PITCH_O=$(whiptail --menu "Choose pitch sensor orientation. Current is $CURRENT_PITCH_O" 20 60 10 \
+  NEW_PITCH_O=$(whiptail --default-item "$CURRENT_PITCH_O" --menu "Choose pitch sensor orientation. Current is $CURRENT_PITCH_O" 20 60 10 \
     "0" "Reverse B - S" \
     "1" "Reverse S - B" \
       3>&1 1>&2 2>&3)
@@ -399,7 +399,7 @@ do_set_audio_device() {
     list=$(pactl list sinks | grep -e "Sink #" -e "alsa.card_name" | sed s/*//g | sed s/^[' '\\t]*//g | sed s/'Sink #'//g | sed s/'alsa.card_name = '//g | sed s/'bcm2835 '//g | sed s/\"//g | tr '\n' '/')
     if [ -n "$list" ] ; then
         IFS="/"
-        AUDIO_OUT=$(whiptail --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 ${list} 3>&1 1>&2 2>&3)
+        AUDIO_OUT=$(whiptail --default-item "$CURRENT_AUDIO_DEVICE" --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 ${list} 3>&1 1>&2 2>&3)
 
     else
         whiptail --msgbox "No internal audio devices found" 20 60 1
@@ -411,7 +411,7 @@ do_set_audio_device() {
     IFS="$oIFS"
     else
         if aplay -l | grep -q "bcm2835 ALSA"; then
-            AUDIO_OUT=$(whiptail --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 \
+            AUDIO_OUT=$(whiptail --default-item "$CURRENT_AUDIO_DEVICE" --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 \
               "0" "Auto" \
               "1" "Force 3.5mm ('headphone') jack" \
               "2" "Force HDMI" \
@@ -448,7 +448,7 @@ do_set_audio_device() {
             else
               oIFS="$IFS"
               IFS="/"
-              AUDIO_OUT=$(whiptail --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 ${array} 3>&1 1>&2 2>&3)
+              AUDIO_OUT=$(whiptail --default-item "$CURRENT_AUDIO_DEVICE" --menu "Choose the audio output. Current is $CURRENT_AUDIO_DEVICE" 20 60 10 ${array} 3>&1 1>&2 2>&3)
               IFS="$oIFS"
             fi
             if [ "$?" -eq 0 ] && [ -n "$AUDIO_OUT" ]; then
