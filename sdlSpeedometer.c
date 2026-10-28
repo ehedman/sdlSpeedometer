@@ -9,7 +9,8 @@
  * 2 of the License, or (at your option) any later version.
  *
  * Desription:
- * This application collect nautical NMEA-0183 sentences from an NMEA network server or an USB dongle, also from a NMEA-2K to NMEA-0183 USB device.
+ * This application collect nautical NMEA-0183 sentences from an NMEA network server
+ * or an serial USB dongle and also from a NMEA-2K to an NMEA-0183 USB device.
  * Optionally use the BerryGPS-IMUv2 to collect GPS and compass data.
  * This app can use both interfaces simultaneously and if the network goes away the BerryGPS takes over.
  *

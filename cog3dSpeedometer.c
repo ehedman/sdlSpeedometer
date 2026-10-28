@@ -1,7 +1,17 @@
 /*
+ * cog3dSpeedometer.c
+ *
+ *  Copyright (C) 2018-2026 by Erland Hedman <erland@hedmanshome.se>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
+ *
+ * Description:
  * SDL2 + OpenGL ES 2.0 3D marine compass
+ *
  */
-
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengles2.h>
@@ -14,13 +24,12 @@
 #include "cog3dSpeedometer.h"
 #include "sdlSpeedometer.h"
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
 #define MAX_VERTS 120000
 #define MAX_TEXT_VERTS 4096
-#define PI_F 3.14159265358979323846f
+
+#ifndef M_PIf
+#define M_PIf 3.14159265358979323846f
+#endif
 
 typedef struct { float x,y,z; } V3;
 typedef struct { float x,y,z,r,g,b,a; } Vertex;
@@ -37,12 +46,9 @@ static const char atlas_chars[] = "0123456789NESW";
 static const int atlas_cell_w = 64, atlas_cell_h = 80;
 static GLint attr_pos, attr_col, uni_mvp;
 static float render_heading_deg = 0.0f;
-/* Wind angle relative to the boat/compass rose: 0=bow, 90=starboard. */
 static float wind_angle_deg = 0.0f;
 static float course_angle_deg = 0.0f;
-/* Rudder indicator angle, independent of heading and wind. 0=bow, 90=starboard. */
 static float rudder_angle_deg = 0.0f;
-static float render_heel_deg = 0.0f;
 static float camera_tilt_deg = 62.0f;
 static float camera_distance = 4.2f;
 static float compass_scale = 1.0f;
@@ -55,9 +61,8 @@ static int do_rudd = 0;
 static int do_cog = 0;
 static float compass_angle = 0.0f;
 static float target_limit = 2;
-int heading_ok = 0;
-int course_ok = 0;
-
+static int heading_ok = 0;
+static int course_ok = 0;
 
 static V3 v3(float x,float y,float z){ V3 v={x,y,z}; return v; }
 static V3 sub(V3 a,V3 b){return v3(a.x-b.x,a.y-b.y,a.z-b.z);}
@@ -153,7 +158,7 @@ static void push_text_quad(float cx,float cy,float z,float w,float h,int char_in
     /* Rotate each glyph in the compass dial's own XY plane. This makes
        the label baseline tangent to the dial, hence perpendicular to its
        radial degree tick. The complete label remains attached to the rose. */
-    float a=angle_deg*PI_F/180.0f, cs=cosf(a), sn=sinf(a);
+    float a=angle_deg*M_PIf/180.0f, cs=cosf(a), sn=sinf(a);
     for(int i=0;i<6;i++) {
         float dx=q[i].x-cx, dy=q[i].y-cy;
         q[i].x=cx+dx*cs-dy*sn;
@@ -171,7 +176,7 @@ static void add_dial_text(const char *str,float cx,float cy,float z,float height
     float charw=height*0.62f;
     float total=(float)strlen(str)*charw;
     float x=cx-total*0.5f;
-    float a=angle_deg*PI_F/180.0f, cs=cosf(a), sn=sinf(a);
+    float a=angle_deg*M_PIf/180.0f, cs=cosf(a), sn=sinf(a);
     for(size_t i=0;i<strlen(str);i++) {
         int idx=atlas_index(str[i]);
         if(idx>=0) {
@@ -259,7 +264,7 @@ static void build_compass(void) {
     const float redR=0.95f, domeH=0.12f;
     /* Dark underside and red cylindrical side, with subtle vertical facets. */
     for(int i=0;i<N;i++) {
-        float a=2*PI_F*i/N, b=2*PI_F*(i+1)/N;
+        float a=2*M_PIf*i/N, b=2*M_PIf*(i+1)/N;
         V3 p0=polar(bodyR,a,bottomZ), p1=polar(bodyR,b,bottomZ);
         V3 p2=polar(bodyR,b,topZ-0.015f), p3=polar(bodyR,a,topZ-0.015f);
         float shade=0.045f+0.035f*(0.5f+0.5f*cosf((a+b)*0.5f));
@@ -272,7 +277,7 @@ static void build_compass(void) {
 
     /* Beveled outer rim: dark lip, then red sloping shoulder. */
     for(int i=0;i<N;i++) {
-        float a=2*PI_F*i/N,b=2*PI_F*(i+1)/N;
+        float a=2*M_PIf*i/N,b=2*M_PIf*(i+1)/N;
         V3 p0=polar(1.25f,a,topZ-0.015f),p1=polar(1.25f,b,topZ-0.015f);
         V3 p2=polar(1.14f,b,topZ+0.045f),p3=polar(1.14f,a,topZ+0.045f);
         quad(p0,p1,p2,p3,0.20f,0.025f,0.045f);
@@ -287,7 +292,7 @@ static void build_compass(void) {
     for(int j=0;j<rings;j++) {
         float r0=redR*j/rings, r1=redR*(j+1)/rings;
         for(int i=0;i<N;i++) {
-            float a=2*PI_F*i/N,b=2*PI_F*(i+1)/N;
+            float a=2*M_PIf*i/N,b=2*M_PIf*(i+1)/N;
             float z00=topZ+domeH*(1-(r0/redR)*(r0/redR));
             float z10=topZ+domeH*(1-(r1/redR)*(r1/redR));
             V3 p0=polar(r0,a,z00),p1=polar(r0,b,z00);
@@ -304,8 +309,8 @@ static void build_compass(void) {
         const float hubZ = topZ + domeH + 0.014f;
         V3 center = v3(0.0f, 0.0f, hubZ);
         for (int i=0; i<N; i++) {
-            float a = 2.0f*PI_F*(float)i/(float)N;
-            float b = 2.0f*PI_F*(float)(i+1)/(float)N;
+            float a = 2.0f*M_PIf*(float)i/(float)N;
+            float b = 2.0f*M_PIf*(float)(i+1)/(float)N;
             V3 p = polar(hubR, a, hubZ);
             V3 q = polar(hubR, b, hubZ);
             tri(center, p, q, 0.30f, 0.025f, 0.055f);
@@ -313,10 +318,10 @@ static void build_compass(void) {
     }
 
     /* Rudder-angle needle at the centre. It rotates independently, but is
-       built in compass coordinates so pitch/heel and the 3D model transform
+       built in compass coordinates so pitch/roll and the 3D model transform
        affect it exactly like the rose. The pointed end indicates the angle. */
     if (do_rudd) {
-        const float a = rudder_angle_deg * PI_F / 180.0f;
+        const float a = rudder_angle_deg * M_PIf / 180.0f;
         const float z = topZ + domeH + 0.030f;
         const float tailR = -0.105f;
         const float tipR = 0.255f;
@@ -343,7 +348,7 @@ static void build_compass(void) {
 
     /* Tick marks follow the domed surface. North is toward +Y. */
     for(int deg=0;deg<360;deg+=5) {
-        float a=deg*PI_F/180.0f;
+        float a=deg*M_PIf/180.0f;
         float inner=0.78f, outer=0.91f;
         float cr=0.96f, cg=0.84f, cb=0.43f;
         if(deg%30==0) { inner=0.66f; outer=0.90f; }
@@ -383,18 +388,18 @@ static void build_compass(void) {
         const float markerZ = topZ + 0.078f;
 
         // --- CALCULATION OF DYNAMIC DIAMETER ---
-        const float units_per_degree = markerR * (PI_F / 180.0f);
+        const float units_per_degree = markerR * (M_PIf / 180.0f);
         const float circleDiameter = (lck_tolerance_deg * 2.0f) * units_per_degree;
         const float badgeR = circleDiameter / 2.0f;
 
         // --- CALCULATION OF POSITION (Fixed at the top) ---
-        const float a = (0.0f - course_angle_deg) * PI_F / 180.0f;
+        const float a = (0.0f - course_angle_deg) * M_PIf / 180.0f;
         V3 c = polar(markerR, a, markerZ);
 
         // --- DRAWING OF THE RING ---
         for (int i = 0; i < 36; i++) {
-            float a0 = 2.0f * PI_F * (float)i / 36.0f;
-            float a1 = 2.0f * PI_F * (float)(i + 1) / 36.0f;
+            float a0 = 2.0f * M_PIf * (float)i / 36.0f;
+            float a1 = 2.0f * M_PIf * (float)(i + 1) / 36.0f;
 
             V3 p = v3(c.x + badgeR * cosf(a0), c.y + badgeR * sinf(a0), markerZ);
             V3 q = v3(c.x + badgeR * cosf(a1), c.y + badgeR * sinf(a1), markerZ);
@@ -404,7 +409,7 @@ static void build_compass(void) {
 
         // --- DRAWING OF THE CROSSHAIR LINES ---
         const float crosshairLength = 0.030f;
-        float crossAngles[4] = { 0.0f, PI_F / 2.0f, PI_F, 3.0f * PI_F / 2.0f };
+        float crossAngles[4] = { 0.0f, M_PIf / 2.0f, M_PIf, 3.0f * M_PIf / 2.0f };
 
         for (int j = 0; j < 4; j++) {
             float ang = crossAngles[j];
@@ -425,14 +430,14 @@ static void build_compass(void) {
        the model transform makes it follow the compass's 3D geometry. The orange
        badge has a pointed tip directed radially inward, toward the dial centre. */
     if (do_wind) {
-        const float a = wind_angle_deg * PI_F / 180.0f;
+        const float a = wind_angle_deg * M_PIf / 180.0f;
         const float markerR = 1.045f;
         const float markerZ = topZ + 0.078f;
         const float badgeR = 0.070f;
         V3 c = polar(markerR, a, markerZ);
         for (int i=0; i<24; i++) {
-            float a0 = 2.0f*PI_F*(float)i/24.0f;
-            float a1 = 2.0f*PI_F*(float)(i+1)/24.0f;
+            float a0 = 2.0f*M_PIf*(float)i/24.0f;
+            float a1 = 2.0f*M_PIf*(float)(i+1)/24.0f;
             V3 p = v3(c.x + badgeR*cosf(a0), c.y + badgeR*sinf(a0), markerZ);
             V3 q = v3(c.x + badgeR*cosf(a1), c.y + badgeR*sinf(a1), markerZ);
             tri(c, p, q, 1.0f, 0.39f, 0.025f);
@@ -447,14 +452,14 @@ static void build_compass(void) {
     }
 
     if (target_course >= 0 && do_cog ) {  // As do_wind but for course settings and with yellow badge
-        const float a = course_angle_deg * PI_F / 180.0f;
+        const float a = course_angle_deg * M_PIf / 180.0f;
         const float markerR = 1.045f;
         const float markerZ = topZ + 0.078f;
         const float badgeR = 0.070f;
         V3 c = polar(markerR, a, markerZ);
         for (int i=0; i<24; i++) {
-            float a0 = 2.0f*PI_F*(float)i/24.0f;
-            float a1 = 2.0f*PI_F*(float)(i+1)/24.0f;
+            float a0 = 2.0f*M_PIf*(float)i/24.0f;
+            float a1 = 2.0f*M_PIf*(float)(i+1)/24.0f;
             V3 p = v3(c.x + badgeR*cosf(a0), c.y + badgeR*sinf(a0), markerZ);
             V3 q = v3(c.x + badgeR*cosf(a1), c.y + badgeR*sinf(a1), markerZ);
             tri(c, p, q, 0.0f, 1.0f, 0.0f);
@@ -471,7 +476,7 @@ static void build_compass(void) {
     /* Small, plain degree labels directly on the red compass surface. */
     text_vert_count=0;
     for(int deg=0;deg<360;deg+=30) {
-        float a=deg*PI_F/180.0f, rr=0.62f;
+        float a=deg*M_PIf/180.0f, rr=0.62f;
         V3 p=polar(rr,a,topZ+domeH*(1-(rr/redR)*(rr/redR))+0.010f);
         char buf[4];
         snprintf(buf,sizeof(buf),"%d",deg);
@@ -491,7 +496,7 @@ static void build_compass(void) {
     const int cardinal_deg[] = {0, 90, 180, 270};
     for (int i=0; i<4; i++) {
         int deg = cardinal_deg[i];
-        float a = (float)deg * PI_F / 180.0f;
+        float a = (float)deg * M_PIf / 180.0f;
         float rr = 0.39f;
         V3 p = polar(rr, a, topZ+domeH*(1-(rr/redR)*(rr/redR))+0.012f);
         float screen_angle = -(float)deg - render_heading_deg;
@@ -552,11 +557,11 @@ static void mat_mul(float out[16],const float a[16],const float b[16]){
     memcpy(out,t,sizeof(t));
 }
 
-static void rotate_x(float m[16],float deg){float a=deg*PI_F/180,c=cosf(a),s=sinf(a);mat_identity(m);m[5]=c;m[6]=s;m[9]=-s;m[10]=c;}
-static void rotate_y(float m[16],float deg){float a=deg*PI_F/180,c=cosf(a),s=sinf(a);mat_identity(m);m[0]=c;m[2]=-s;m[8]=s;m[10]=c;}
-static void rotate_z(float m[16],float deg){float a=deg*PI_F/180,c=cosf(a),s=sinf(a);mat_identity(m);m[0]=c;m[1]=s;m[4]=-s;m[5]=c;}
+static void rotate_x(float m[16],float deg){float a=deg*M_PIf/180,c=cosf(a),s=sinf(a);mat_identity(m);m[5]=c;m[6]=s;m[9]=-s;m[10]=c;}
+static void rotate_y(float m[16],float deg){float a=deg*M_PIf/180,c=cosf(a),s=sinf(a);mat_identity(m);m[0]=c;m[2]=-s;m[8]=s;m[10]=c;}
+static void rotate_z(float m[16],float deg){float a=deg*M_PIf/180,c=cosf(a),s=sinf(a);mat_identity(m);m[0]=c;m[1]=s;m[4]=-s;m[5]=c;}
 static void perspective(float m[16],float fovy,float aspect,float zn,float zf){
-    memset(m,0,16*sizeof(float));float f=1.0f/tanf(fovy*PI_F/360.0f);
+    memset(m,0,16*sizeof(float));float f=1.0f/tanf(fovy*M_PIf/360.0f);
     m[0]=f/aspect;m[5]=f;m[10]=(zf+zn)/(zn-zf);m[11]=-1;m[14]=(2*zf*zn)/(zn-zf);
 }
 
@@ -585,14 +590,14 @@ static void compass3d_set_view(float tilt_degrees, float distance) {
     camera_distance = fmaxf(2.0f, fminf(10.0f, distance));
 }
 
-static void compass3d_render(float heading_degrees, float heel_degrees, float pitch_degrees, int x, int y, int width, int height)
+static void compass3d_render(float heading_degrees, float pitch_degrees, float roll_degrees, int x, int y, int width, int height)
 {
     if (!renderer_initialized || width <= 0 || height <= 0)
         return;
 
     render_heading_deg = (float)heading_degrees;
-    render_heel_deg    = (float)heel_degrees;
-    float render_pitch_deg   = (float)pitch_degrees;
+    float render_pitch_deg  = (float)pitch_degrees;
+    float render_roll_deg   = (float)roll_degrees;
 
     GLint old_viewport[4];
     glGetIntegerv(GL_VIEWPORT, old_viewport);
@@ -634,19 +639,19 @@ static void compass3d_render(float heading_degrees, float heel_degrees, float pi
 
     V3 eye = v3(
         0.0f,
-        -camera_distance * cosf((90.0f - tilt) * PI_F / 180.0f),
-         camera_distance * sinf((90.0f - tilt) * PI_F / 180.0f)
+        -camera_distance * cosf((90.0f - tilt) * M_PIf / 180.0f),
+         camera_distance * sinf((90.0f - tilt) * M_PIf / 180.0f)
     );
 
     look_at(view, eye, v3(0, 0, 0), v3(0, 0, 1));
 
     /*
      * Heading rotates around the vertical Z axis.
-     * Heel and pitch use opposite signs to simulate
+     * Roll and pitch use opposite signs to simulate
      * compensation for the boat's roll and pitch.
      */
-    rotate_x(rx, -render_heel_deg);
-    rotate_y(ry, -render_pitch_deg);
+    rotate_x(rx, -render_pitch_deg);
+    rotate_y(ry, -render_roll_deg);
     rotate_z(rz, -render_heading_deg);
 
     float scale_m[16];
@@ -1189,25 +1194,32 @@ int doCog3d(sdl2_app *sdlApp)
     float angle_cc = 0;
     float angle_hd = 0;
     float angle_cg = 0;
-    float angle_ch = 0;
+    float angle_cr = 0;
     float angle_cp = 0;
+
+    int rltxt = 0;
+    int pitxt = 0;
 
     const float pScaleOffset=0.3;
     float m2f=cnmea.units==METRIC? 1 : 3.28084;
     target_limit = cnmea.calib->toledd;
 
     int eType = 0;
+    int eSkip = 1;
 
     int w,h;
     SDL_GL_GetDrawableSize(win,&w,&h);
     int y_tilt=h/2;
 
-    SDL_Rect exitBarR = {680,438,90,30};        // Exit button (text)
-    SDL_Rect hdgBarR =  {(w/2)-90, 6, 180, 38}; // Heading bar
-    SDL_Rect cogBarR  = {30,30,180,38};         // Lock course button
-    SDL_Rect couBarR =  {w/2-150,440,150,30};   // Unlock course button
-    SDL_Rect hduBarR =  {couBarR.x+couBarR.w+5,440,couBarR.w,30};    // Unlock heading button
-    SDL_Rect lckBarR =  {30,135,120,26};        // As above
+    // Click on any of these text fields
+    SDL_Rect exitBarR   = {680,438,90,30};      // Exit button
+    SDL_Rect hdgBarR    = {(w/2)-90, 6, 180, 38}; // Heading bar
+    SDL_Rect cogBarR    = {30,30,180,38};       // Lock course button
+    SDL_Rect couBarR    = {w/2-150,440,150,30}; // Unlock course button
+    SDL_Rect hduBarR    = {couBarR.x+couBarR.w+5,440,couBarR.w,30}; // Unlock heading button
+    SDL_Rect lckBarR    = {30,135,120,26};      // As above
+    SDL_Rect rollBarR   = {30,396,90,28};       // Show ! a decimal roll value
+    SDL_Rect pitchBarR  = {680,396,90,28};      // Show ! a decimal pitch value
 
     while(running) {
 
@@ -1227,11 +1239,20 @@ int doCog3d(sdl2_app *sdlApp)
         do_rudd = do_wind = 0;
         int ap_lock = 0;
 
+        const char *rltxt0 =  "ROL: %.0f";
+        const char *rltxt1 =  "ROL: %.1f";
+        const char *pitxt0 =  "PTC: %.0f";
+        const char *pitxt1 =  "PTC: %.1f";
+
         time_t ct = time(NULL);    // Get a timestamp for this turn
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         SDL_Event e;
         while(SDL_PollEvent(&e)) {
+
+            if (--eSkip > 0)
+                continue;
+
             if(e.type==SDL_QUIT) {
                 running=0;
                 eType=e.type;
@@ -1260,8 +1281,13 @@ int doCog3d(sdl2_app *sdlApp)
                     target_course = angle_cg;
                 } else if (SDL_PointInRect(&p, &couBarR) || SDL_PointInRect(&p, &lckBarR) || SDL_PointInRect(&p, &hduBarR)) {
                     target_course = -1.0f;
+                } else if (SDL_PointInRect(&p, &rollBarR)) {
+                    rltxt = !rltxt;
+                }  else if (SDL_PointInRect(&p, &pitchBarR)) {
+                    pitxt = !pitxt;
                 }
             }
+            eSkip = 2;  // inadvertent double-click
         }
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
@@ -1308,12 +1334,12 @@ int doCog3d(sdl2_app *sdlApp)
             do_wind = 1;
         }
 
-        // Magnetic or Net Heel
+        // Magnetic or Net Roll
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rol, "ROL: %.0f", fabsf(cnmea.roll));
+            sprintf(msg_rol, rltxt==0? rltxt0:rltxt1, fabsf(cnmea.roll));
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
             cnmea.roll_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rol, "ROL: %.0f", fabsf(cnmea.roll));
+            sprintf(msg_rol, rltxt==0? rltxt0:rltxt1, fabsf(cnmea.roll));
         }
 
         // RUD - Rudder angle
@@ -1326,13 +1352,13 @@ int doCog3d(sdl2_app *sdlApp)
             do_rudd = 1;
         }
  
-        // Calculate pitch and heel movement
+        // Calculate pitch and roll movement
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)) )
         {
-            angle_ch = update_angle(angle_ch, cnmea.roll * -1.0f, 0.2f);  // Switch sign to match 2D COG page
+            angle_cr = update_angle(angle_cr, cnmea.roll * -1.0f, 0.2f);  // Switch sign to match 2D COG page
             angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0f, 0.3f);
-            sprintf(msg_ptc, "PTC: %.0f", fabsf(cnmea.pitch));
-        } else {angle_ch=angle_cp=0;}
+            sprintf(msg_ptc, pitxt==0? pitxt0:pitxt1, fabsf(cnmea.pitch));
+        } else {angle_cr=angle_cp=0;}
  
         // Run red wind badge
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
@@ -1418,7 +1444,7 @@ int doCog3d(sdl2_app *sdlApp)
         compass3d_set_view(view_tilt,distance);
 
         // Draw the compass
-        compass3d_render(compass_angle, angle_cp, angle_ch-pScaleOffset,0,0,w,h);
+        compass3d_render(compass_angle, angle_cp, angle_cr-pScaleOffset,0,0,w,h);
 
         // Draw the wind badge
         if (do_wind) {
@@ -1450,8 +1476,8 @@ int doCog3d(sdl2_app *sdlApp)
             int wis=180; int his=30;
             garrIndx=0;
 
-            draw_text_gles2(text_shader, garr[garrIndx++], hdgBarR.x, hdgBarR.y, (float)hdgBarR.w, (float)hdgBarR.h, (float)w, (float)h);
-            draw_text_gles2(text_shader, garr[garrIndx++], cogBarR.x, cogBarR.y, (float)cogBarR.w, (float)cogBarR.h, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], (float)hdgBarR.x, (float)hdgBarR.y, (float)hdgBarR.w, (float)hdgBarR.h, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], (float)cogBarR.x, (float)cogBarR.y, (float)cogBarR.w, (float)cogBarR.h, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 98.0f, (float)wil, (float)hil, (float)w, (float)h);
 
@@ -1459,15 +1485,16 @@ int doCog3d(sdl2_app *sdlApp)
             draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 64.0f, (float)wil, (float)hil, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 580.0f, 98.0f, (float)wil-16, (float)hil, (float)w, (float)h);
             draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 438.0f, (float)wis, (float)his-10, (float)w, (float)h);
-            draw_text_gles2(text_shader, garr[garrIndx++], exitBarR.x, exitBarR.y, (float)wis-100, (float)his, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], (float)exitBarR.x, (float)exitBarR.y, (float)wis-100, (float)his, (float)w, (float)h);
 
-            draw_text_gles2(text_shader, garr[garrIndx++], 30.0f, 396.0f, (float)wil-90, (float)hil-10, (float)w, (float)h);
-            draw_text_gles2(text_shader, garr[garrIndx++], 580.0f+100.0f, 396.0f,(float)wil-90, (float)hil-10, (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], (float)rollBarR.x,  (float)rollBarR.y,  (float)rollBarR.w, (float)rollBarR.h,  (float)w, (float)h);
+            draw_text_gles2(text_shader, garr[garrIndx++], (float)pitchBarR.x, (float)pitchBarR.y,(float)pitchBarR.w, (float)pitchBarR.h, (float)w, (float)h);
+
 
             if (target_course > 0 && do_cog) {
-                draw_text_gles2(text_shader, garr[garrIndx++], couBarR.x, couBarR.y, (float)couBarR.w, (float)couBarR.h, (float)w, (float)h);
-                draw_text_gles2(text_shader, garr[garrIndx++], hduBarR.x, hduBarR.y, (float)hduBarR.w, (float)hduBarR.h, (float)w, (float)h);
-                draw_text_gles2(text_shader, garr[garrIndx++], lckBarR.x, lckBarR.y, lckBarR.w, lckBarR.h, (float)w, (float)h);
+                draw_text_gles2(text_shader, garr[garrIndx++], (float)couBarR.x, (float)couBarR.y, (float)couBarR.w, (float)couBarR.h, (float)w, (float)h);
+                draw_text_gles2(text_shader, garr[garrIndx++], (float)hduBarR.x, (float)hduBarR.y, (float)hduBarR.w, (float)hduBarR.h, (float)w, (float)h);
+                draw_text_gles2(text_shader, garr[garrIndx++], (float)lckBarR.x, (float)lckBarR.y, (float)lckBarR.w, (float)lckBarR.h, (float)w, (float)h);
             }
 
             for (int i=0; i < garrIndx; i++) {

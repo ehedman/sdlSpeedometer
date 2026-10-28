@@ -7,9 +7,9 @@
 #endif
 #include <alsa/asoundlib.h>
 
-#define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
-#define METRIC 0    // Metric units
-#define US 1        // US Customary units
+#define S_TIMEOUT   4   // Invalidate current sentences after # seconds without a refresh from talker.
+#define METRIC 0        // Metric units
+#define US 1            // US Customary units
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
 #ifdef HAS_IKONVERT_WORKAROUNDS
@@ -19,7 +19,6 @@
 
 // Dendent on project  https://github.com/ehedman/flowSensor
 //#define DIGIFLOW
-
 
 // Volume slider
 #define SWINDOW_WIDTH 20
