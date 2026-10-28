@@ -57,7 +57,7 @@
 #define DEF_NMEA_PORT   10110
 #define DEF_VNC_PORT    5903
 
-#define TRGPS       1.5     // Min speed to be trusted as real movement from GPS RMC
+#define TRGPS       1.5f    // Min speed to be trusted as real movement from GPS RMC
 #define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
 
 #define DEFAULT_SCREEN_SIZE     "800x480"   // Default screen size
@@ -125,7 +125,6 @@ static int configureDb(configuration *configParams)
     sqlite3 *conn;
     sqlite3_stmt *res;
     const char *tail;
-    char buf[300];
     int rval = 0;
     int bval = 0;
     struct stat sb;
@@ -159,59 +158,172 @@ static int configureDb(configuration *configParams)
                             return 1;
                     }
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE config (Id INTEGER PRIMARY KEY,\
-                        rev TEXT, tty TEXT, baud INTEGER, server TEXT, port INTEGER, vncport INTEGER,\
-                        style INTEGER, audiodev TEXT, camurl TEXT, nmtot REAL, units INTEGER, rwfilez INTEGER);)", -1, &res, &tail);
+                    // =========================================================================
+                    // 1. CONFIG TABLE
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS config ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "rev TEXT, "
+                        "tty TEXT, "
+                        "baud INTEGER, "
+                        "server TEXT, "
+                        "port INTEGER, "
+                        "vncport INTEGER, "
+                        "style INTEGER, "
+                        "audiodev TEXT, "
+                        "camurl TEXT, "
+                        "nmtot REAL, "
+                        "units INTEGER, "
+                        "rwfilez INTEGER)", 
+                        -1, &res, &tail);
                     sqlite3_step(res);
+                    sqlite3_finalize(res);
 
-                    sprintf(buf, "INSERT INTO config (rev,\
-                        tty,baud,server,port,vncport,style,audiodev,camurl,nmtot,units,rwfilez) \
-                        VALUES ('%s','%s',9600,'%s',%d,%d,0,'%s','%s', 0.0, 0,10000)",\
-                        SWREV,TTY_SERIAL, DEF_NMEA_SERVER, DEF_NMEA_PORT, DEF_VNC_PORT,"hw:0,0","rtsp://cam:campw@cam-ip/stream");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
+                    // Förbered INSERT med platshållare (?)
+                    sqlite3_prepare_v2(conn, 
+                        "INSERT INTO config (rev, tty, baud, server, port, vncport, style, audiodev, camurl, nmtot, units, rwfilez) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                        -1, &res, &tail);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE calib (Id INTEGER PRIMARY KEY,\
-                        magXmax INTEGER, magYmax INTEGER, magZmax INTEGER, magXmin INTEGER, magYmin INTEGER,\
-                        magZmin INTEGER, declval REAL, cOffset INTEGER, rOffset REAL, pOffset REAL, heelo INTEGER,\
-                        pitcho INTEGER, toledd INTEGER);)", -1, &res, &tail);
+                    // Bind värdena till rätt index (1-12)
+                    sqlite3_bind_text(res, 1, SWREV, -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(res, 2, TTY_SERIAL, -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(res, 3, 9600);
+                    sqlite3_bind_text(res, 4, DEF_NMEA_SERVER, -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(res, 5, DEF_NMEA_PORT);
+                    sqlite3_bind_int(res, 6, DEF_VNC_PORT);
+                    sqlite3_bind_int(res, 7, 0);
+                    sqlite3_bind_text(res, 8, "hw:0,0", -1, SQLITE_STATIC);
+                    sqlite3_bind_text(res, 9, "rtsp://cam:campw@cam-ip/stream", -1, SQLITE_STATIC);
+                    sqlite3_bind_double(res, 10, 0.0);
+                    sqlite3_bind_int(res, 11, 0);
+                    sqlite3_bind_int(res, 12, 10000);
 
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO calib (\
-                        magXmax,magYmax,magZmax,magXmin,magYmin,magZmin,declval,cOffset,rOffset,pOffset, heelo, pitcho, toledd) \
-                         VALUES (%d,%d,%d,%d,%d,%d,%.2f,0,0.0,0.0,0,0,6)", dmagXmax,dmagYmax,dmagZmax,dmagXmin,dmagYmin,dmagZmin,ddeclval);
-                    sqlite3_prepare_v2(conn, buf , -1, &res, &tail);
-                    sqlite3_step(res);
+                    sqlite3_finalize(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE warnings (Id INTEGER PRIMARY KEY, \
-                        depthw REAL, draftw REAL, lowvoltw REAL, highcurrw REAL)", -1, &res, &tail);
+                    // =========================================================================
+                    // 2. CALIB TABLE
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS calib ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "magXmax INTEGER, "
+                        "magYmax INTEGER, "
+                        "magZmax INTEGER, "
+                        "magXmin INTEGER, "
+                        "magYmin INTEGER, "
+                        "magZmin INTEGER, "
+                        "declval REAL, "
+                        "cOffset INTEGER, "
+                        "rOffset REAL, "
+                        "pOffset REAL, "
+                        "rollo INTEGER, "
+                        "pitcho INTEGER, "
+                        "toledd INTEGER, "
+                        "softi INTEGER)",
+                        -1, &res, &tail);
                     sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO warnings (depthw, draftw, lowvoltw, highcurrw) VALUES(5.0, 2.1, 11.7, 9.0)");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
+                    sqlite3_finalize(res);
 
-                    sqlite3_prepare_v2(conn, "CREATE TABLE subtasks (Id INTEGER PRIMARY KEY, task TEXT, args TEXT, icon TEXT)", -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('opencpn','-f','opencpn')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-stat','','sdlSpeedometer-stat')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-browser','','sdlSpeedometer-browser')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('XyGrib','','XyGrib')");    
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('kodi-standalone','','kodi-standalone')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
-                    sprintf(buf, "INSERT INTO subtasks (task,args,icon) VALUES ('sdlSpeedometer-venus','','sdlSpeedometer-venus')");
-                    sqlite3_prepare_v2(conn, buf, -1, &res, &tail);
-                    sqlite3_step(res);
+                    // Prepare INSERT (14 placeholders)
+                    sqlite3_prepare_v2(conn, 
+                        "INSERT INTO calib (magXmax, magYmax, magZmax, magXmin, magYmin, magZmin, declval, cOffset, rOffset, pOffset, rollo, pitcho, toledd, softi) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        -1, &res, &tail);
 
-                    rval = sqlite3_finalize(res);
+                    sqlite3_bind_int(res, 1, dmagXmax);
+                    sqlite3_bind_int(res, 2, dmagYmax);
+                    sqlite3_bind_int(res, 3, dmagZmax);
+                    sqlite3_bind_int(res, 4, dmagXmin);
+                    sqlite3_bind_int(res, 5, dmagYmin);
+                    sqlite3_bind_int(res, 6, dmagZmin);
+                    sqlite3_bind_double(res, 7, ddeclval);
+                    sqlite3_bind_int(res, 8, 0);
+                    sqlite3_bind_double(res, 9, 0.0);
+                    sqlite3_bind_double(res, 10, 0.0);
+                    sqlite3_bind_int(res, 11, 0);
+                    sqlite3_bind_int(res, 12, 0);
+                    sqlite3_bind_int(res, 13, 6);
+                    sqlite3_bind_int(res, 14, 0);
+
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+
+                    // =========================================================================
+                    // 3. WARNINGS TABLE
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS warnings ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "depthw REAL, "
+                        "draftw REAL, "
+                        "lowvoltw REAL, "
+                        "highcurrw REAL)", 
+                        -1, &res, &tail);
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+                    sqlite3_prepare_v2(conn, 
+                        "INSERT INTO warnings (depthw, draftw, lowvoltw, highcurrw) VALUES (?, ?, ?, ?)", 
+                        -1, &res, &tail);
+
+                    sqlite3_bind_double(res, 1, 5.0);
+                    sqlite3_bind_double(res, 2, 2.1);
+                    sqlite3_bind_double(res, 3, 11.7);
+                    sqlite3_bind_double(res, 4, 9.0);
+
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+
+                    // =========================================================================
+                    // 4. SUBTASKS TABLE (With loops and statement reuse)
+                    // =========================================================================
+                    sqlite3_prepare_v2(conn, 
+                        "CREATE TABLE IF NOT EXISTS subtasks ("
+                        "Id INTEGER PRIMARY KEY, "
+                        "task TEXT, "
+                        "args TEXT, "
+                        "icon TEXT)", 
+                        -1, &res, &tail);
+                    sqlite3_step(res);
+                    sqlite3_finalize(res);
+
+                    // A structure for gathering all subtask data in one place
+                    struct SubtaskInit {
+                        const char *task;
+                        const char *args;
+                        const char *icon;
+                    };
+
+                    struct SubtaskInit initial_subtasks[] = {
+                        {"opencpn", "-f", "opencpn"},
+                        {"sdlSpeedometer-stat", "", "sdlSpeedometer-stat"},
+                        {"sdlSpeedometer-browser", "", "sdlSpeedometer-browser"},
+                        {"XyGrib", "", "XyGrib"},
+                        {"kodi-standalone", "", "kodi-standalone"},
+                        {"sdlSpeedometer-venus", "", "sdlSpeedometer-venus"}
+                    };
+                    int num_subtasks = sizeof(initial_subtasks) / sizeof(initial_subtasks[0]);
+
+                    // Prepare the question ONCE
+                    sqlite3_prepare_v2(conn, "INSERT INTO subtasks (task, args, icon) VALUES (?, ?, ?)", -1, &res, &tail);
+
+                    // Loop through all subtasks
+                    for (int i = 0; i < num_subtasks; i++) {
+                        sqlite3_bind_text(res, 1, initial_subtasks[i].task, -1, SQLITE_STATIC);
+                        sqlite3_bind_text(res, 2, initial_subtasks[i].args, -1, SQLITE_STATIC);
+                        sqlite3_bind_text(res, 3, initial_subtasks[i].icon, -1, SQLITE_STATIC);
+                        
+                        sqlite3_step(res);
+                        sqlite3_reset(res); // Clears the values ​​and prepares 'res' for the next iteration of the loop
+                    }
+
+                    // Finally, close down the statement completely.
+                    sqlite3_finalize(res);
                     break;
                 default:
                     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Configuration database initialization failed: %s", strerror(rval));
@@ -248,7 +360,7 @@ static int configureDb(configuration *configParams)
         strcpy(configParams->snd_card,  (char*)sqlite3_column_text(res, 6));
         strcpy(configParams->cam_url,   (char*)sqlite3_column_text(res, 7));
 		cnmea.logDistT =         		sqlite3_column_double(res, 8);
-        cnmea.units =         		    sqlite3_column_double(res, 9);
+        cnmea.units =         		    sqlite3_column_int(res, 9);
         configParams->rwfilez =         sqlite3_column_int(res, 10);
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
@@ -416,7 +528,7 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
 
 /**
  * Calculate true wind angle and true wind speed from
- * apparent wind, boat speed and heel angle.
+ * apparent wind, boat speed and roll angle.
  *
  * Coordinate system:
  *
@@ -429,9 +541,9 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
  *                |
  *             180° Stern
  *
- * Heel convention:
- *   positive = heel to port
- *   negative = heel to starboard
+ * Roll convention:
+ *   positive = roll to port
+ *   negative = roll to starboard
  *
  * Apparent wind angle is the value from NMEA 0183 MWV,
  * where 'R' means relative/apparent wind.
@@ -439,61 +551,61 @@ static int nmeaChecksum(char * str_p1, char * str_p2, int cnt)
  * @param boatSpeed              Speed through water, knots
  * @param apparentWindSpeed      AWS, knots
  * @param apparentWindDirection  AWA, degrees, 0..360
- * @param heelAngle              Heel, degrees
+ * @param rollAngle              Roll, degrees
  * @param[out] trueWindSpeed     TWS, knots
  *
  * @return True wind angle, degrees, 0..360
  */
-static double trueWindAngle(double boatSpeed,
-                            double apparentWindSpeed,
-                            double apparentWindDirection,
-							double heelAngle,
-                            double *trueWindSpeed)
+static float trueWindAngle(float boatSpeed,
+                            float apparentWindSpeed,
+                            float apparentWindDirection,
+							float rollAngle,
+                            float *trueWindSpeed)
 {
-    const double DEG_TO_RAD = M_PI / 180.0;
-    const double RAD_TO_DEG = 180.0 / M_PI;
-    const double awaRad = apparentWindDirection * DEG_TO_RAD;
-    heelAngle *= -1.0;  // To match this system
-    const double heelRad = heelAngle * DEG_TO_RAD;
+    const float DEG_TO_RAD = (float)M_PI / 180.0f;
+    const float RAD_TO_DEG = 180.0f / (float)M_PI;
+    const float awaRad = apparentWindDirection * DEG_TO_RAD;
+    rollAngle *= -1.0f;  // To match this system
+    const float rollRad = rollAngle * DEG_TO_RAD;
 
     /*
-     * Apparent wind vector measured by the heeled wind sensor.
+     * Apparent wind vector measured by the rolled wind sensor.
      *
      * X = forward/backward
      * Y = starboard/port
      *
-     * The longitudinal component is unaffected by heel.
+     * The longitudinal component is unaffected by roll.
      *
      * The transverse component measured by the sensor is
-     * reduced by cos(heel), because the sensor is tilted.
+     * reduced by cosf(roll), because the sensor is tilted.
      */
-    double awsX = apparentWindSpeed * cos(awaRad);
+    float awsX = apparentWindSpeed * cosf(awaRad);
 
-    double awsY = apparentWindSpeed * sin(awaRad);
+    float awsY = apparentWindSpeed * sinf(awaRad);
 
     /*
      * Transform the transverse component back into the
      * horizontal boat plane.
      */
-    double cosHeel = cos(heelRad);
+    float cosRoll = cosf(rollRad);
 
-    // Prevent division by zero at unrealistic heel angles.
-    if (fabs(cosHeel) < 0.01) {
-        cosHeel = 0.01;
+    // Prevent division by zero at unrealistic roll angles.
+    if (fabsf(cosRoll) < 0.01f) {
+        cosRoll = 0.01f;
     }
 
-    awsY /= cosHeel;
+    awsY /= cosRoll;
 
     /*
      * Remove the boat's forward velocity.
      */
-    double trueX = awsX - boatSpeed;
-    double trueY = awsY;
+    float trueX = awsX - boatSpeed;
+    float trueY = awsY;
 
     /*
      * True wind speed.
      */
-    double tws = sqrt(trueX * trueX + trueY * trueY);
+    float tws = sqrt(trueX * trueX + trueY * trueY);
 
     if (trueWindSpeed != NULL) {
         *trueWindSpeed = tws;
@@ -502,20 +614,20 @@ static double trueWindAngle(double boatSpeed,
     /*
      * True wind angle.
      */
-    double twa = atan2(trueY, trueX) * RAD_TO_DEG;
+    float twa = atan2f(trueY, trueX) * RAD_TO_DEG;
 
     /*
      * Normalize to 0..360°.
      */
-    if (twa < 0.0) {
-        twa += 360.0;
+    if (twa < 0.0f) {
+        twa += 360.0f;
     }
 
     return twa;
 }
 
-#define MAX_LONGITUDE 180.0
-#define MAX_LATITUDE   90.0
+#define MAX_LONGITUDE 180.0f
+#define MAX_LATITUDE   90.0f
 /*
 * Converts NMEA format (DDMM.MMMM) to decimal degrees
 * Coordinates: The NMEA string (e.g., "5920.1234")
@@ -523,18 +635,18 @@ static double trueWindAngle(double boatSpeed,
 * Type: 'L' for Latitude, 'O' for Longitude
 * Return Decimal degrees (negative for S/W), or NaN on error
 */
-static double nmea2dd(const char *coordinates, const char *direction, char type)
+static float nmea2dd(const char *coordinates, const char *direction, char type)
 {
     if (!coordinates || strlen(coordinates) == 0) return NAN;
     
-    double raw_val = atof(coordinates);
+    float raw_val = strtof(coordinates, NULL);
 
     // Split NMEA DDMM.MMMM into Degrees and Minutes
-    int degrees = (int)(raw_val / 100.0);
-    double minutes = raw_val - (degrees * 100.0);
+    int degrees = (int)(raw_val / 100.0f);
+    float minutes = raw_val - (degrees * 100.0f);
 
     // Calculate decimal degrees
-    double dd = degrees + (minutes / 60.0);
+    float dd = degrees + (minutes / 60.0f);
 
     // Apply Southern/Western hemisphere (becomes minus)
     if (direction != NULL && (*direction == 'S' || *direction == 'W')) {
@@ -543,13 +655,19 @@ static double nmea2dd(const char *coordinates, const char *direction, char type)
 
     // Validation based on type ('L' = Latitude, 'O' = Longitude)
     if (type == 'L') {
-        if (fabs(dd) > MAX_LATITUDE) return NAN;
+        if (fabsf(dd) > MAX_LATITUDE) return NAN;
     } else if (type == 'O') {
-        if (fabs(dd) > MAX_LONGITUDE) return NAN;
+        if (fabsf(dd) > MAX_LONGITUDE) return NAN;
     }
 
     return dd;
 }
+
+#ifdef IKONVERT_APBBUG
+static float lastCog;
+static float lastCogturns;
+static Uint32 cogTicks;
+#endif
 
 static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 {  
@@ -597,22 +715,26 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // RMC - Recommended minimum specific GPS/Transit data
     if (NMPARSE(nmeastr_p1, "RMC")) {
-        double cog;
+        float cog;
         struct timespec ct;
         static time_t lastCt;
 
         cnmea.rmc_nme_ts = ts;
-        if ((cnmea.sog=atof(getf(7, nmeastr_p1))) >= TRGPS) {   // SOG
+        if ((cnmea.sog=strtof(getf(7, nmeastr_p1), NULL)) >= TRGPS) {   // SOG
             cnmea.rmc_ts = ts;
-            if ((cog=atof(getf(8, nmeastr_p1))) != 0)  {   // Track made good
+            if ((cog=strtof(getf(8, nmeastr_p1), NULL)) != 0)  {   // Track made good
                 cnmea.cog=cog;
                 cnmea.cog_ts = ts;
+#ifdef IKONVERT_APBBUG
+                lastCogturns++;
+                lastCog+=cnmea.cog;
+#endif
             }
 
-            if (cnmea.sogAccIndx < sizeof(cnmea.sogAcc)/sizeof(double) && slastTs+2 < ts) {
+            if (cnmea.sogAccIndx < sizeof(cnmea.sogAcc)/sizeof(float) && slastTs+2 < ts) {
                 cnmea.sogAcc[cnmea.sogAccIndx++] = cnmea.sog;
                 slastTs = ts;
-                if (cnmea.sogAccIndx >= sizeof(cnmea.sogAcc)/sizeof(double)) {
+                if (cnmea.sogAccIndx >= sizeof(cnmea.sogAcc)/sizeof(float)) {
                     cnmea.sogAccRdy = 1;
                     cnmea.sogAccIndx = 0;
                     cnmea.sogAccDur=ts-slastDur;
@@ -624,21 +746,21 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             clock_gettime(CLOCK_MONOTONIC, &ct);
 
             // Calculate the time difference (delta t) in seconds since the last loop.
-            double current_time = ct.tv_sec + (ct.tv_nsec / 1000000000.0);
-            double delta_time_seconds = current_time - cnmea.logStart;
+            Uint32 current_time = ct.tv_sec + (ct.tv_nsec / 1000000000.0);
+            Uint32 delta_time_seconds = current_time - cnmea.logStart;
             cnmea.logStart = current_time;
 
             // Convert seconds to hours (since knots are nautical miles per hour)
-            double delta_time_hours = delta_time_seconds / 3600.0;
+            Uint32 delta_time_hours = delta_time_seconds / 3600.0;
 
             // Calculate distance for this range and add to total 
             // Distance = Speed * Time
-            double interval_distance = cnmea.sog * delta_time_hours;
+            Uint32 interval_distance = cnmea.sog * delta_time_hours;
             cnmea.logDist += interval_distance;
             cnmea.logDistT += interval_distance;
 
             // Update total nmtot in config row periodically
-            if (difftime(ts, lastCt) > 10.0) {
+            if (difftime(ts, lastCt) > 10) {
 				configuration configParams;
 				const char *tail;
                 char sql[200];
@@ -652,11 +774,11 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 				} else {
 
 					if (cnmea.logtReset) {
-						cnmea.logDistT = 0.0;
+						cnmea.logDistT = 0.0f;
 						cnmea.logtReset = 0;
 					}
 
-					sprintf(sql, "UPDATE config SET nmtot = %.1f WHERE Id = 1", cnmea.logDistT);
+					sprintf(sql, "UPDATE config SET nmtot = %.1f WHERE Id = 1", (double)cnmea.logDistT);
 
 					if (sqlite3_prepare_v2(configParams.conn, sql, -1, &res, &tail) == SQLITE_OK) {
 
@@ -725,8 +847,8 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // HDG - Heading - Deviation and Variation
     if (NMPARSE(nmeastr_p1, "HDG")) {
-        double raw_hdg = atof(getf(1, nmeastr_p1));
-        double variation = atof(getf(4, nmeastr_p1));
+        float raw_hdg = strtof(getf(1, nmeastr_p1), NULL);
+        float variation = strtof(getf(4, nmeastr_p1), NULL);
         const char* var_dir = getf(5, nmeastr_p1); // E or W
 
         // Correct for magnetic variation (add East, subtract West)
@@ -737,8 +859,8 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
 
         // Handle 360-degree wrap-around (so the heading stays within 0.0 – 359.9)
-        if (raw_hdg >= 360.0) raw_hdg -= 360.0;
-        if (raw_hdg < 0.0)    raw_hdg += 360.0;
+        if (raw_hdg >= 360.0f) raw_hdg -= 360.0f;
+        if (raw_hdg < 0.0f)    raw_hdg += 360.0f;
 
         cnmea.hdg = raw_hdg;
         cnmea.hdg_ts = ts;
@@ -748,7 +870,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     // HDT - Heading - True (obsoleted)
     if (ts - cnmea.hdg_ts > S_TIMEOUT/2) { // If not from HDG
         if (NMPARSE(nmeastr_p1, "HDT")) {
-            cnmea.hdg=atof(getf(1, nmeastr_p1));
+            cnmea.hdg=strtof(getf(1, nmeastr_p1), NULL);
             cnmea.hdg_ts = ts;
             return;
         }
@@ -757,7 +879,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     // HDM Heading - Heading Magnetic (obsoleted)
     if (ts - cnmea.hdg_ts > S_TIMEOUT/2) { // If not from HDG or HDT
         if (NMPARSE(nmeastr_p1, "HDM")) {
-            cnmea.hdg=atof(getf(1, nmeastr_p1));
+            cnmea.hdg=strtof(getf(1, nmeastr_p1), NULL);
             cnmea.hdg_ts = ts;
             return;
         }
@@ -765,16 +887,16 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // VTG - Track made good and ground speed (obsoleted)
     if (ts - cnmea.rmc_ts > S_TIMEOUT/2) { // If not from RMC
-        double hdg;
+        float hdg;
         if (NMPARSE(nmeastr_p1, "VTG")) {
-            if ((cnmea.sog=atof(getf(5, nmeastr_p1))) >= TRGPS) { // SOG
+            if ((cnmea.sog=strtof(getf(5, nmeastr_p1), NULL)) >= TRGPS) { // SOG
                 if (src == 1)
                     cnmea.net_ts = cnmea.rmc_ts = ts;
                 else
                     cnmea.rmc_ts = ts;
 
                 if (ts - cnmea.hdg_ts > S_TIMEOUT/2) { // If not from HDG, HDM or HDT
-                    if ((hdg=atof(getf(1, nmeastr_p1))) != 0) { // Track made good
+                    if ((hdg=strtof(getf(1, nmeastr_p1), NULL)) != 0) { // Track made good
                         cnmea.hdg=hdg;
                         cnmea.hdg_ts = ts;
                     }
@@ -786,14 +908,14 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // VHW - Water speed
     if(NMPARSE(nmeastr_p1, "VHW")) {
-        if ((cnmea.stw=atof(getf(5, nmeastr_p1))) != 0)
+        if ((cnmea.stw=strtof(getf(5, nmeastr_p1), NULL)) != 0)
             cnmea.stw_ts = ts;
         return;
     }
 
     // DPT - Depth (Depth of transponder added)
     if (NMPARSE(nmeastr_p1, "DPT")) {
-        cnmea.dbt=atof(getf(1, nmeastr_p1))+atof(getf(2, nmeastr_p1));
+        cnmea.dbt=strtof(getf(1, nmeastr_p1), NULL)+strtof(getf(2, nmeastr_p1), NULL);
         //cnmea.dbt = cnmea.units==METRIC? cnmea.dbt : cnmea.dbt * 3.280839;
         cnmea.dbt_ts = ts;
         return;
@@ -802,8 +924,8 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     // DBT - Depth Below Transponder (aged standard)
     if (ts - cnmea.dbt_ts > S_TIMEOUT/2) { // If not from DPT
         if (NMPARSE(nmeastr_p1, "DBT")) {
-            double dbt = atof(getf(3, nmeastr_p1));
-            if (dbt >= 80.0)
+            float dbt = strtof(getf(3, nmeastr_p1), NULL);
+            if (dbt >= 80.0f)
                 dbt = round(dbt);
             cnmea.dbt=dbt;
             cnmea.dbt_ts = ts;
@@ -813,8 +935,8 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // MTW - Water temperature in C
     if (NMPARSE(nmeastr_p1, "MTW")) {
-        cnmea.mtw=atof(getf(1, nmeastr_p1));
-        cnmea.mtw=cnmea.units==US? (cnmea.mtw * 1.8) + 32 : cnmea.mtw;
+        cnmea.mtw=strtof(getf(1, nmeastr_p1), NULL);
+        cnmea.mtw=cnmea.units==US? (cnmea.mtw * 1.8f) + 32.0f : cnmea.mtw;
         cnmea.mtw_ts = ts;
         return;
     }
@@ -827,19 +949,19 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             isKnots = 1;
         }
 
-        double heel = 0.0;
-        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT)))
-            heel = cnmea.heel;
+        float roll = 0.0f;
+        if (!(ts - cnmea.roll_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT)))
+            roll = cnmea.roll;
 
           
         if (!strncmp(getf(2, nmeastr_p1),"R",1) && isKnots) {
-            cnmea.vwra=atof(getf(1, nmeastr_p1));
-            cnmea.vwrs=atof(getf(3, nmeastr_p1)); 
+            cnmea.vwra=strtof(getf(1, nmeastr_p1), NULL);
+            cnmea.vwrs=strtof(getf(3, nmeastr_p1), NULL); 
 
-            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(double) && wlastTs+2 < ts) {
+            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(float) && wlastTs+2 < ts) {
                 cnmea.wsAcc[cnmea.wsAccIndx++] = cnmea.vwrs;
                 wlastTs = ts;
-                if (cnmea.wsAccIndx >= sizeof(cnmea.wsAcc)/sizeof(double)) {
+                if (cnmea.wsAccIndx >= sizeof(cnmea.wsAcc)/sizeof(float)) {
                     cnmea.wsAccRdy = 1;
                     cnmea.wsAccIndx = 0;
                     cnmea.wsAccDur=ts-wlastDur;
@@ -855,23 +977,23 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
 
         if (!strncmp(getf(2, nmeastr_p1),"T",1) && isKnots) {
-            cnmea.vwta=atof(getf(1, nmeastr_p1));
-            cnmea.vwts=atof(getf(3, nmeastr_p1));
+            cnmea.vwta=strtof(getf(1, nmeastr_p1), NULL);
+            cnmea.vwts=strtof(getf(3, nmeastr_p1), NULL);
             cnmea.vwt_ts = ts;
-        } else if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-            double vwrsKnots = 0;
+        } else if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9f) {
+            float vwrsKnots = 0;
             if (isKnots && cnmea.units==METRIC) {
                 vwrsKnots = cnmea.vwrs;
-                cnmea.vwrs *= 0.5144;
+                cnmea.vwrs *= 0.5144f;
 
             } else if (isKnots && cnmea.units==US) {
                 vwrsKnots = cnmea.vwrs;
             } else if (!isKnots && cnmea.units==METRIC) {
-                vwrsKnots = cnmea.vwrs *1.943844; 
+                vwrsKnots = cnmea.vwrs *1.943844f;
             }
-            double vwts = 0.0;
-            cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
-            vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144 : cnmea.vwts;
+            float vwts = 0.0f;
+            cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, roll, &cnmea.vwts);
+            vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144f : cnmea.vwts;
             cnmea.vwts = vwts;
             cnmea.vwt_ts = ts;
         }
@@ -886,21 +1008,21 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             isKnots = 1;
         }
 
-        double heel = 0.0;
-        if (!(ts - cnmea.heel_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT))) {
-            heel = cnmea.heel;
+        float roll = 0.0f;
+        if (!(ts - cnmea.roll_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT))) {
+            roll = cnmea.roll;
         }
 
         if (NMPARSE(nmeastr_p1, "VWR")) {
-            cnmea.vwra=atof(getf(1, nmeastr_p1));
-            cnmea.vwrs=atof(getf(3, nmeastr_p1));
+            cnmea.vwra=strtof(getf(1, nmeastr_p1), NULL);
+            cnmea.vwrs=strtof(getf(3, nmeastr_p1), NULL);
             cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
             cnmea.vwr_ts = ts;
 
-            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(double) && wlastTs+2 < ts) {
+            if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(float) && wlastTs+2 < ts) {
                 cnmea.wsAcc[cnmea.wsAccIndx++] = cnmea.vwrs;
                 wlastTs = ts;
-                if (cnmea.wsAccIndx >= sizeof(cnmea.wsAcc)/sizeof(double)) {
+                if (cnmea.wsAccIndx >= sizeof(cnmea.wsAcc)/sizeof(float)) {
                     cnmea.wsAccRdy = 1;
                     cnmea.wsAccIndx = 0;
                     cnmea.wsAccDur=ts-wlastDur;
@@ -908,20 +1030,20 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                 }
             }
 
-            if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9) {
-                double vwrsKnots = 0.0;
+            if (ts - cnmea.stw_ts < S_TIMEOUT && cnmea.stw > 0.9f) {
+                float vwrsKnots = 0.0f;
                 if (isKnots && cnmea.units==METRIC) {
                     vwrsKnots = cnmea.vwrs;
-                    cnmea.vwrs *= 0.5144;
+                    cnmea.vwrs *= 0.5144f;
 
                 } else if (isKnots && cnmea.units==US) {
                     vwrsKnots = cnmea.vwrs;
                 } else if (!isKnots && cnmea.units==METRIC) {
-                    vwrsKnots = cnmea.vwrs *1.943844; 
+                    vwrsKnots = cnmea.vwrs *1.943844f;
                 }
-                double vwts = 0.0;
-                cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, heel, &cnmea.vwts);
-                vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144 : cnmea.vwts;
+                float vwts = 0.0f;
+                cnmea.vwta=trueWindAngle(cnmea.stw, vwrsKnots, cnmea.vwra, roll, &cnmea.vwts);
+                vwts = cnmea.units==METRIC? cnmea.vwts*=0.5144f : cnmea.vwts;
                 cnmea.vwts = vwts;
                 cnmea.vwt_ts = ts;
                 }
@@ -931,18 +1053,64 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
     // RSA - Rudder angle
     if (NMPARSE(nmeastr_p1, "RSA")) {
-        cnmea.rsa=roundf(atof(getf(1, nmeastr_p1)));
+        cnmea.rsa=round(strtof(getf(1, nmeastr_p1), NULL));
 
 #ifdef IKONVERT_RSABUG
         // --- PATCH FOR DIGITAL YACHT IKONVERT SIGNED UNDERFLOW BUG ---
         // Since physical rudders cannot rotate past ~45 degrees, any value
         // significantly high indicates the rolled-over negative firmware bug.
+        // Update firmware to v2.62 or newer. Until then:
         if (cnmea.rsa > 180.0f) {
              cnmea.rsa-= 375.3f;
         }
-        // -------------------------------------------------------------
 #endif
         cnmea.rsa_ts = ts;
+        return;
+    }
+
+#ifdef IKONVERT_APBBUG
+    if(cogTicks == 0)
+        cogTicks = (SDL_GetTicks()/100)-start_ticks;
+
+    cogTicks += (SDL_GetTicks()/100)-start_ticks;
+    if (cogTicks/100 >= 20) {
+        cogTicks = 0;
+        lastCog /=lastCogturns;
+        lastCogturns = 1;
+    }
+#endif
+
+    // APB
+    if (NMPARSE(nmeastr_p1, "APB")) {
+        char *a2 = getf(2, nmeastr_p1);
+        char *a3 = getf(2, nmeastr_p1);
+
+        if (*a2 == 'A' && *a3 == 'A') {
+            cnmea.apb=strtof(getf(8, nmeastr_p1), NULL);
+#ifdef IKONVERT_APBBUG
+            static float dummyCourse;
+            // --- PATCH FOR DIGITAL YACHT IKONVERT SIGNED UNDERFLOW BUG ---
+            // Since course cannot rotate past ~360 degrees, any value
+            // significantly high indicates the rolled-over negative firmware bug.
+            // Update firmware to v2.62 or newer. Until then fake:
+            if (cnmea.apb >= 360.0f)
+            {
+                float ll=lastCog/lastCogturns;
+
+                if (dummyCourse == 0.0f) {   // Assume AP is ON to Auto. ON and OFF is the only thing we know
+                    dummyCourse = cnmea.cog;
+                } else {
+                    if (ll < dummyCourse-cnmea.calib->toledd) {  // AP is assumed adjusted +/- toledd
+                        dummyCourse=ll+cnmea.calib->toledd;
+                    } else if (ll > dummyCourse+cnmea.calib->toledd) {
+                        dummyCourse=ll-cnmea.calib->toledd;
+                    }
+                    cnmea.apb=dummyCourse;
+                }
+            }
+#endif
+            cnmea.apb_ts = ts;
+        }
         return;
     }
 
@@ -950,21 +1118,21 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     // "$P". These extended messages are not standardized.
     if (NMPARSE(nmeastr_p1, "ENV")) {
         hasGPENV = 1;
-        cnmea.volt=         atof(getf(1, nmeastr_p1));
+        cnmea.volt=         strtof(getf(1, nmeastr_p1), NULL);
         strcpy(cnmea.volt_bank, getf(2, nmeastr_p1));
         if(cnmea.volt >=8)  cnmea.volt_ts = ts;
 
-        cnmea.curr=         atof(getf(3, nmeastr_p1));
+        cnmea.curr=         strtof(getf(3, nmeastr_p1), NULL);
         strcpy(cnmea.curr_bank, getf(4, nmeastr_p1));
         cnmea.curr_ts = ts;
 
-        cnmea.temp=         atof(getf(5, nmeastr_p1));
-        cnmea.temp=cnmea.units==US? (cnmea.temp*1.8)+32 : cnmea.temp;
+        cnmea.temp=         strtof(getf(5, nmeastr_p1), NULL);
+        cnmea.temp=cnmea.units==US? (cnmea.temp*1.8f)+32.0f : cnmea.temp;
         strcpy(cnmea.temp_loc, getf(6, nmeastr_p1));
         if(cnmea.temp < 125) cnmea.temp_ts = ts;
 
-        cnmea.kWhp=         atof(getf(7, nmeastr_p1));
-        cnmea.kWhn=         atof(getf(8, nmeastr_p1));
+        cnmea.kWhp=         strtof(getf(7, nmeastr_p1), NULL);
+        cnmea.kWhn=         strtof(getf(8, nmeastr_p1), NULL);
         cnmea.startTime=    atol(getf(9, nmeastr_p1));
 
         return;
@@ -979,19 +1147,19 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             if ((ptr=memchr(nmeastr_p1,'*', NMBUFF)) !=NULL)
                 *ptr = '\0';
 
-            cnmea.volt = atof(getf(2, nmeastr_p1));
-            if(cnmea.volt >=8) cnmea.volt_ts = ts;
+            cnmea.volt = strtof(getf(2, nmeastr_p1), NULL);
+            if(cnmea.volt >=8.0f) cnmea.volt_ts = ts;
             strcpy(cnmea.volt_bank, getf(4, nmeastr_p1));
             if (*getf(5, nmeastr_p1) == 'I') {
-                cnmea.curr = atof(getf(6, nmeastr_p1));
+                cnmea.curr = strtof(getf(6, nmeastr_p1), NULL);
                 cnmea.curr_ts = ts;
                 strcpy(cnmea.curr_bank, getf(8, nmeastr_p1));
             }
             if (*getf(9, nmeastr_p1) == 'C') {
-                cnmea.temp = atof(getf(10, nmeastr_p1));
-                cnmea.temp=cnmea.units==US? (cnmea.temp*1.8)+32 : cnmea.temp;
+                cnmea.temp = strtof(getf(10, nmeastr_p1), NULL);
+                cnmea.temp=cnmea.units==US? (cnmea.temp*1.8f)+32.0f : cnmea.temp;
                 strcpy(cnmea.temp_loc, getf(12, nmeastr_p1));
-                if(cnmea.temp < 125) cnmea.temp_ts = ts;
+                if(cnmea.temp < 125.0f) cnmea.temp_ts = ts;
             }
             cnmea.kWhp=cnmea.kWhn=0;
             cnmea.startTime=1;
@@ -1000,17 +1168,17 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
     }
 
-    // HEEL - Wessel heel and pitch:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*hh or  $IIXDR,A,-001.5,D,PITCH,A,003.2,D,ROLL*hh
+    // ROLL - Wessel roll and pitch:  $IIXDR,A,10.5,D,ROLL,A,-1.2,D,PTCH*hh or  $IIXDR,A,-001.5,D,PITCH,A,003.2,D,ROLL*hh
     if (NMPARSE(nmeastr_p1, "XDR")) {
         int i = 1;
         char *measure_type;
         char *id_str;
-        double value = 0;
+        float value = 0;
 
         // Loop through the sentence as long as there are quadruplets (4 fields per sensor)
         while (1) {
             measure_type = getf(i,     nmeastr_p1); // E.g. "A" for angle
-            value = atof(getf(i + 1, nmeastr_p1));  // E.g. "10.5");
+            value = strtof(getf(i + 1, nmeastr_p1), NULL);  // E.g. "10.5");
 
             // Field i+2 is the unit, e.g., "D" for degrees (can be omitted here)
            id_str       = getf(i + 3, nmeastr_p1); // T.ex. "ROLL" eller "PTCH"
@@ -1020,12 +1188,12 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                 break;
             }
 
-            // Check whether it is ROLL / HEEL
-            if (strcmp(id_str, "ROLL") == 0 || strcmp(id_str, "HEEL") == 0) {
-                cnmea.heel = value;
-                cnmea.heel += cnmea.calib->roffset;
-                if (cnmea.calib->heelo == 0) {
-                    cnmea.heel *= -1.0;
+            // Check whether it is ROLL / ROLL
+            if (strcmp(id_str, "ROLL") == 0 || strcmp(id_str, "ROLL") == 0) {
+                cnmea.roll = value;
+                cnmea.roll += cnmea.calib->roffset;
+                if (cnmea.calib->rollo == 0) {
+                    cnmea.roll *= -1.0f;
                 }
                 cnmea.xdr_ts = ts;
             }
@@ -1034,7 +1202,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
                 cnmea.pitch = value;
                 cnmea.pitch += cnmea.calib->poffset;
                 if (cnmea.calib->pitcho == 0)
-                    cnmea.pitch *= -1.0;
+                    cnmea.pitch *= -1.0f;
                 cnmea.xdr_ts = ts;
             }
 
@@ -1112,7 +1280,7 @@ static int i2cCollector(void *conf)
 
     int retry = 0;
     int bus = 1;
-    const int dt=26;
+    const int dt=20;     // Loop period. 0.02  = 20ms for the LSM9DS*
     int rval;
     int connOk = 1;
     int update = dt;
@@ -1137,13 +1305,13 @@ static int i2cCollector(void *conf)
     while(configParams->runi2c)
     {
         time_t ct;
-        double hdg;
+        float hdg;
 
         SDL_Delay(dt);
 
         if (configParams->conn && connOk) {
-            if (update++ > dt+30 / 10) {
-                if (!stat(SQLCONFIG, &sb)) {
+            if (update++ > dt+2000 / 10) {
+                if (!stat(SQLCONFIG, &sb)) {    // If the file is hit, then the calibrator thread has some news
                     SDL_Delay(600);
                     char sqlbuf[150];
                     memset(sqlbuf, 0, sizeof(sqlbuf));
@@ -1169,7 +1337,7 @@ static int i2cCollector(void *conf)
 
                 if (doUpdate) {
                     rval = sqlite3_prepare_v2(configParams->conn, "select magXmax,magYmax,magZmax,magXmin,\
-                        magYmin,magZmin,declval,cOffset,rOffset,pOffset,heelo,pitcho,toledd from calib", -1, &res, &tail);
+                        magYmin,magZmin,declval,cOffset,rOffset,pOffset,rollo,pitcho,toledd,softi from calib", -1, &res, &tail);
                     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
                         // See: BerryIMU/compass_tutorial03_calibration
                         calib.magXmax = sqlite3_column_int(res, 0);
@@ -1182,9 +1350,10 @@ static int i2cCollector(void *conf)
                         calib.coffset = sqlite3_column_int(res, 7);
                         calib.roffset = sqlite3_column_double(res, 8);
                         calib.poffset = sqlite3_column_double(res, 9);
-                        calib.heelo = sqlite3_column_int(res, 10);
+                        calib.rollo = sqlite3_column_int(res, 10);
                         calib.pitcho = sqlite3_column_int(res, 11);
                         calib.toledd = sqlite3_column_int(res, 12);
+                        calib.softi = sqlite3_column_int(res, 13);
                     } else {
                         if (connOk) {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to look up calibration data - using defults : %s", \
@@ -1198,7 +1367,7 @@ static int i2cCollector(void *conf)
                         calib.magYmin = dmagYmin;
                         calib.magZmin = dmagZmin;
                         calib.declval = ddeclval;
-                        calib.coffset = calib.roffset = calib.poffset = 0;
+                        calib.coffset = calib.roffset = calib.poffset = calib.softi = 0;
                     }
                     sqlite3_finalize(res);
                     memcpy(&configParams->calib, &calib, sizeof(calibration));
@@ -1217,9 +1386,9 @@ static int i2cCollector(void *conf)
             } else continue;
         }
 
-        cnmea.heel_i2cts = ct;
-        cnmea.heel  = i2cReadRoll(configParams->i2cFile, dt, &calib);
-        cnmea.pitch = i2cReadPitch(&calib);
+        cnmea.roll_i2cts = ct;
+        cnmea.roll  = cnmea.mcomp->roll;
+        cnmea.pitch = cnmea.mcomp->pitch;
 
         // Take over if no NMEA
         if (ct - cnmea.hdg_ts > S_TIMEOUT) {
@@ -1733,14 +1902,14 @@ static void setUTCtime(void)
 }
 
 // Make sure instruments take shortest route over the 0 - 360 scale
-static double rotate(double angle, int res)
+static float rotate(float angle, int res)
 {
-    double nR = angle;
-    static double rot;
-    double aR;
+    float nR = angle;
+    static float rot;
+    float aR;
     if (res) rot = 0;
 
-    aR = fmod(rot, 360);
+    aR = fmodf(rot, 360);
     if ( aR < 0 ) { aR += 360; }
     if ( aR < 180 && (nR > (aR + 180)) ) { rot -= 360; }
     if ( aR >= 180 && (nR <= (aR - 180)) ) { rot += 360; }
@@ -1749,14 +1918,14 @@ static double rotate(double angle, int res)
     return(rot);
 }
 
-static double rotate_a(double angle, int res)
+static float rotate_a(float angle, int res)
 {
-    double nR = angle;
-    static double rot;
-    double aR;
+    float nR = angle;
+    static float rot;
+    float aR;
     if (res) rot = 0;
 
-    aR = fmod(rot, 360);
+    aR = fmodf(rot, 360);
     if ( aR < 0 ) { aR += 360; }
     if ( aR < 180 && (nR > (aR + 180)) ) { rot -= 360; }
     if ( aR >= 180 && (nR <= (aR - 180)) ) { rot += 360; }
@@ -1783,15 +1952,33 @@ static void playWarnSound(char *snd_card_name, char *wavFile)
 
     if ((deviceId = SDL_OpenAudioDevice(snd_card_name, 0, &wavSpec, NULL, 0)) == 0) { 
         if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &wavSpec, NULL, 0)) == 0) { // Open default
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to SDL_OpenAudioDevice %s: %s", snd_card_name, SDL_GetError()); 
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open SDL_OpenAudioDevice %s: %s", snd_card_name, SDL_GetError()); 
             return;
        }
     }
 
-    // play audio
+    // Allow the audio device time (~0.5 sec) to stabilize before playback
+    Uint32 bytesPerSample = (SDL_AUDIO_BITSIZE(wavSpec.format) / 8);
+    Uint32 silenceLength = bytesPerSample * wavSpec.channels * wavSpec.freq * 0.5f;
+
+    // Create a temporary buffer filled with silence (0 for most formats; SDL handles character encoding)
+    Uint8 *silenceBuffer = (Uint8 *)malloc(silenceLength);
+    if (silenceBuffer != NULL) {
+        // Fill the buffer with the appropriate silence value, depending on the format (e.g., U8 uses 128 for silence, S16 uses 0).
+        Uint8 silenceValue = (wavSpec.format == AUDIO_U8) ? 128 : 0;
+        memset(silenceBuffer, silenceValue, silenceLength);
+
+        // Queue the silence first (takes ~0.5s to play; the sound card wakes up during this time)
+        SDL_QueueAudio(deviceId, silenceBuffer, silenceLength);
+
+        // Free the memory for the silence immediately after it has been queued
+        free(silenceBuffer);
+    }
+
+    // play the audio file
     if (SDL_QueueAudio(deviceId, wavBuffer, wavLength) == 0) {
         SDL_PauseAudioDevice(deviceId, 0);
-        SDL_Delay(2200);
+        SDL_Delay(2200+500);
     }
 
     // Clean up
@@ -1828,6 +2015,16 @@ static int threadWarn(void *conf)
 
         if (!(ct - cnmea.volt_ts > S_TIMEOUT) && cnmea.volt <= warn.lowvoltw && configParams->runWrn) { 
             playWarnSound(configParams->snd_card_name, "low-voltage.wav");
+            SDL_Delay(2000);
+        }
+
+        if (warn.turnsb && configParams->runWrn) {
+            playWarnSound(configParams->snd_card_name, "steer-starboard.wav");
+            SDL_Delay(2000);
+        }
+
+        if (warn.turnp && configParams->runWrn) {
+            playWarnSound(configParams->snd_card_name, "steer-port.wav");
             SDL_Delay(2000);
         }
 
@@ -2379,7 +2576,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                     memset(current_input, 0, sizeof(current_input));
                     snprintf(statusMsg, sizeof(statusMsg), "File operation stopped");
                 }
-            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wheel input
+            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wroll input
                 if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
                 else if (e.wheel.y < 0 && scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
             }
@@ -2499,12 +2696,12 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
     return eType;
 }
 
-// Present the compass with heading ant heel
+// Present the compass with heading and roll
 static int doCompass(sdl2_app *sdlApp)
 {
     SDL_Event e;
     TTF_Font* fontCog = TTF_OpenFont(sdlApp->fontPath, 42);
-    TTF_Font* fontHeel = TTF_OpenFont(sdlApp->fontPath, 22);
+    TTF_Font* fontRoll = TTF_OpenFont(sdlApp->fontPath, 22);
     TTF_Font* fontSrc = TTF_OpenFont(sdlApp->fontPath, 16);
     TTF_Font* fontTod = TTF_OpenFont(sdlApp->fontPath, 16);
 
@@ -2584,25 +2781,25 @@ static int doCompass(sdl2_app *sdlApp)
         SLIDER_HEIGHT_BR
     };
 
-    double t_angle = 0;
-    double angle = 0;
-    double t_angle_a = 0;
-    double angle_a = 0;
-    double t_heel = 0;
-    double heel = 0;
+    float t_angle = 0;
+    float angle = 0;
+    float t_angle_a = 0;
+    float angle_a = 0;
+    float t_roll = 0;
+    float roll = 0;
     int res = 1;
     int res_a = 1;
     int boxItems[] = {86,136,186,236,286};
-    double dynUpd;
+    float dynUpd;
 
-    const double offset = 131; // For scale
+    const float offset = 131; // For scale
 
     int dragging = 0;
     int hideBrBar = 30;
 
     SDL_SetTextureBlendMode(recordBar, SDL_BLENDMODE_BLEND);
 
-    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+    float m2f=cnmea.units==METRIC? 1.0f : 3.28084f;
 
     int eSkip = 1;
 
@@ -2648,7 +2845,7 @@ static int doCompass(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &slider)) {
                         int mouseY = p.y;
 
-                        double rel = (double)(slider.y + slider.h - mouseY) / slider.h;
+                        float rel = (double)(slider.y + slider.h - mouseY) / slider.h;
 
                         if (rel < 0.0f) rel = 0.0f;
                         if (rel > 1.0f) rel = 1.0f;
@@ -2746,18 +2943,18 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
             sprintf(msg_stw, "STW: %.1f", cnmea.stw);
 
-        // Magnetic or Net Heel
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rll, "%.0f", fabs(heel=cnmea.heel));
+        // Magnetic or Net Roll
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
+            sprintf(msg_rll, "%.0f", fabsf(roll=cnmea.roll));
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
-            cnmea.heel_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rll, "%.0f", fabs(heel=cnmea.heel));
+            cnmea.roll_i2cts = cnmea.xdr_ts;
+            sprintf(msg_rll, "%.0f", fabsf(roll=cnmea.roll));
         }
 
-        // Calculate clinoMeter heel movement
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
-            if (heel > t_heel) t_heel += 0.8 * (fabsf(heel -t_heel) / 4);
-            else if (heel < t_heel) t_heel -= 0.8 * (fabsf(heel -t_heel) / 4);
+        // Calculate clinoMeter roll movement
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
+            if (roll > t_roll) t_roll += 0.8f * (fabsf(roll -t_roll) / 4.0f);
+            else if (roll < t_roll) t_roll -= 0.8f * (fabsf(roll -t_roll) / 4.0f);
         }
 
         // RMC - Recommended minimum specific GPS/Transit data
@@ -2767,7 +2964,7 @@ static int doCompass(sdl2_app *sdlApp)
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
+            sprintf(msg_dbt, cnmea.dbt > 70.0f? "DBT: %.0f" : "DBT: %.1f", (double)(cnmea.dbt*m2f));
 
         // WND - Apparent wind speed
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
@@ -2775,13 +2972,13 @@ static int doCompass(sdl2_app *sdlApp)
 
         // RUD - Rudder angle
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
-            sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
+            sprintf(msg_rsa, " %.0f ", fabsf(cnmea.rsa));
 
         angle = rotate(roundf(cnmea.hdg), res); res=0;
 
         // Run the compass rose
-        if (angle > t_angle) t_angle += 0.8 * (fabsf(angle -t_angle) / 24);
-        else if (angle < t_angle) t_angle -= 0.8 * (fabsf(angle -t_angle) / 24);
+        if (angle > t_angle) t_angle += 0.8f * (fabsf(angle -t_angle) / 24.0f);
+        else if (angle < t_angle) t_angle -= 0.8f * (fabsf(angle -t_angle) / 24.0f);
      
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0)) {
             angle_a = cnmea.vwra; // 0-180
@@ -2792,8 +2989,8 @@ static int doCompass(sdl2_app *sdlApp)
             angle_a = round(rotate_a(angle_a, res_a)); res_a=0;
 
             // Run red wind arrow
-            if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
-            else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+            if (angle_a > t_angle_a) t_angle_a += 3.2f * (fabsf(angle_a -t_angle_a) / 24.0f);
+            else if (angle_a < t_angle_a) t_angle_a -= 3.2f * (fabsf(angle_a -t_angle_a) / 24.0f);
         }
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
@@ -2813,8 +3010,8 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderCopyEx(sdlApp->renderer, windScale, NULL, &windScaleR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)))
-            SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_heel, NULL, SDL_FLIP_NONE);
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT)))
+            SDL_RenderCopyEx(sdlApp->renderer, clinoMeter, NULL, &clinoMeterR, t_roll, NULL, SDL_FLIP_NONE);
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT || cnmea.vwra == 0))
             SDL_RenderCopyEx(sdlApp->renderer, windDir, NULL, &windDirR, t_angle_a, NULL, SDL_FLIP_NONE);
@@ -2829,8 +3026,8 @@ static int doCompass(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 200, 200, 5, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        if (!(ct - cnmea.heel_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
-            get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontHeel, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+        if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
+            get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -3013,7 +3210,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_DestroyTexture(rsaBar);
     SDL_DestroyTexture(textBox);
     TTF_CloseFont(fontCog);
-    TTF_CloseFont(fontHeel);
+    TTF_CloseFont(fontRoll);
     TTF_CloseFont(fontSrc);
     TTF_CloseFont(fontTod);
 
@@ -3070,12 +3267,12 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Rect needleR        = {120,122,240,240};
 
     int boxItems[] = {86,136,186,236};
-    double t_angle = 0;
-    double angle = 0;
+    float t_angle = 0;
+    float angle = 0;
 
-    double dynUpd;
+    float dynUpd;
 
-    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+    float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     while (1) {
         int boxItem = 0;
@@ -3092,15 +3289,15 @@ static int doSumlog(sdl2_app *sdlApp)
         char msg_spd[40] = { "" };
         time_t ct;
 
-        double speed, wspeed;
+        float speed, wspeed;
 
         // Constants for instrument
-        const double minangle = 13;  // Scale start
-        const double maxangle = 237; // Scale end
-        const double maxspeed = 10;
+        const float minangle = 13;  // Scale start
+        const float maxangle = 237; // Scale end
+        const float maxspeed = 10;
 
-        double sogAvrg = 0;
-        double sogHigh = 0;
+        float sogAvrg = 0;
+        float sogHigh = 0;
 
         int doBreak = 0;
 
@@ -3131,7 +3328,7 @@ static int doSumlog(sdl2_app *sdlApp)
 				SDL_Point p = (SDL_Point){e.button.x, e.button.y};
 
                 if (SDL_PointInRect(&p, &logResetR)) {
-					cnmea.logDist = 0.0;
+					cnmea.logDist = 0.0f;
                 }
 
 				if (SDL_PointInRect(&p, &logResetRT)) {
@@ -3149,7 +3346,7 @@ static int doSumlog(sdl2_app *sdlApp)
 
         // Collect accumulated speed data
         if (cnmea.sogAccRdy && cnmea.sogAccDur >=60) {
-            for (size_t i=0; i < sizeof(cnmea.sogAcc)/sizeof(double); i++) {
+            for (size_t i=0; i < sizeof(cnmea.sogAcc)/sizeof(float); i++) {
                 sogAvrg += cnmea.sogAcc[i];
                 if (cnmea.sogAcc[i] > sogHigh)
                     sogHigh = cnmea.sogAcc[i];
@@ -3159,21 +3356,21 @@ static int doSumlog(sdl2_app *sdlApp)
                 cnmea.sogAccRdy = cnmea.sogAccIndx = cnmea.sogAccDur = 0;
                 memset(cnmea.sogAcc, 0, sizeof(cnmea.sogAcc));
             } else {
-                sprintf(msg_spd, "%d min AVGSOG=%.1f : TOPSOG=%.1f", cnmea.sogAccDur/60, (sogAvrg/(sizeof(cnmea.sogAcc)/sizeof(double))), sogHigh);
+                sprintf(msg_spd, "%d min AVGSOG=%.1f : TOPSOG=%.1f", (int)(cnmea.sogAccDur/60.0f), (sogAvrg/(sizeof(cnmea.sogAcc)/sizeof(float))), sogHigh);
             }
         }
 
         // VHW - Water speed and Heading
          if (ct - cnmea.stw_ts > S_TIMEOUT) {
             sprintf(msg_stw, "----");
-            wspeed = 0.0;
+            wspeed = 0.0f;
         } else {
             sprintf(msg_stw, "%.2f", cnmea.stw);
             wspeed = cnmea.stw;
         }
 
         if (!cnmea.logtReset) {
-		    sprintf(msg_tlg, "TOT LOG:%.1fM", cnmea.logDistT);
+		    sprintf(msg_tlg, "TOT LOG:%.1fM", (double)cnmea.logDistT);
         } else {
             sprintf(msg_tlg, "TOT LOG: RESET");
         }
@@ -3183,11 +3380,11 @@ static int doSumlog(sdl2_app *sdlApp)
             sprintf(msg_sog, "----");
         } else {
             sprintf(msg_sog, "SOG:%.2f", cnmea.sog);
-            if (wspeed == 0.0) {
+            if (wspeed == 0.0f) {
                 wspeed = cnmea.sog;
                 sprintf(msg_stw, "%.2f", cnmea.sog);
             }
-			sprintf(msg_log, "LOG:%.1fM", cnmea.logDist);
+			sprintf(msg_log, "LOG:%.1fM", (double)cnmea.logDist);
         }
        
         // HDG - The direction the bow points
@@ -3200,7 +3397,7 @@ static int doSumlog(sdl2_app *sdlApp)
         
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
+            sprintf(msg_dbt, cnmea.dbt > 70.0f? "DBT: %.0f" : "DBT: %.1f", (double)cnmea.dbt*m2f);
 
         // WND - Apparent wind speed
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
@@ -3212,8 +3409,8 @@ static int doSumlog(sdl2_app *sdlApp)
         angle = roundf(speed+minangle);
 
         // Run needle with smooth acceleration
-        if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
-        else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
+        if (angle > t_angle) t_angle += 3.2f * (fabsf(angle -t_angle) / 24.0f);
+        else if (angle < t_angle) t_angle -= 3.2f * (fabsf(angle -t_angle) / 24.0f);
 
         if (sdlApp->conf->style == 0)
             SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
@@ -3389,7 +3586,7 @@ static int doGps(sdl2_app *sdlApp)
 
     int boxItems[] = {86,136,186,236};
 
-    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+    float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     while (1) {
         int boxItem = 0;
@@ -3447,13 +3644,13 @@ static int doGps(sdl2_app *sdlApp)
 
         // RMC - Recommended minimum specific GPS/Transit data
          if (ct - cnmea.gll_ts < S_TIMEOUT) {
-            double lat_dd = nmea2dd(cnmea.gll, cnmea.glns, 'L');
-            double lon_dd = nmea2dd(cnmea.glo, cnmea.glne, 'O');
+            float lat_dd = nmea2dd(cnmea.gll, cnmea.glns, 'L');
+            float lon_dd = nmea2dd(cnmea.glo, cnmea.glne, 'O');
 
             if (!isnan(lat_dd) && !isnan(lon_dd)) {
-                // Use fabs() when printing, since we already have "N/S" or "E/W" in the cnmea string.
-                sprintf(msg_lat, "LAT: %.3f%s%s", fabs(lat_dd), "\u00B0", cnmea.glns);
-                sprintf(msg_lon, "LON: %.3f%s%s", fabs(lon_dd), "\u00B0", cnmea.glne);
+                // Use fabsf() when printing, since we already have "N/S" or "E/W" in the cnmea string.
+                sprintf(msg_lat, "LAT: %.3f%s%s", fabsf(lat_dd), "\u00B0", cnmea.glns);
+                sprintf(msg_lon, "LON: %.3f%s%s", fabsf(lon_dd), "\u00B0", cnmea.glne);
             } else {
                 sprintf(msg_lat, "LAT: --.---");
                 sprintf(msg_lon, "LON: --.---");
@@ -3485,7 +3682,7 @@ static int doGps(sdl2_app *sdlApp)
 
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
+            sprintf(msg_dbt, cnmea.dbt > 70.0f? "DBT: %.0f" : "DBT: %.1f", (double)cnmea.dbt*m2f);
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
@@ -3506,18 +3703,18 @@ static int doGps(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 0, NULL, SDL_FLIP_NONE);
 
         // Replacement for SDL_RenderDrawLine that supports arbitrary thickness
-        void SDL_RenderDrawLineThick(SDL_Renderer* renderer, double x1, double y1, double x2, double y2, double thickness)
+        void SDL_RenderDrawLineThick(SDL_Renderer* renderer, float x1, float y1, float x2, float y2, float thickness)
         {
             // Calculate the angle and direction of the line
-            double dx = x2 - x1;
-            double dy = y2 - y1;
-            double length = sqrtf(dx * dx + dy * dy);
+            float dx = x2 - x1;
+            float dy = y2 - y1;
+            float length = sqrtf(dx * dx + dy * dy);
 
             if (length == 0.0f) return; // Avoid division by zero
 
             // Calculate a normal vector (90 degrees to the line) with length thickness / 2
-            double nx = -dy / length * (thickness / 2.0f);
-            double ny = dx / length * (thickness / 2.0f);
+            float nx = -dy / length * (thickness / 2.0f);
+            float ny = dx / length * (thickness / 2.0f);
 
             // Create the 4 corners for the rectangle that forms the thick line
             SDL_Vertex vertices[4];
@@ -3548,13 +3745,13 @@ static int doGps(sdl2_app *sdlApp)
             SDL_RenderDrawLineThick(renderer, start_x, start_y, end_x, end_y, 3);
 
             // Calculate the angle of the line to be able to draw the arrowhead pointing backwards.
-            double angle = atan2(end_y - start_y, end_x - start_x);
+            float angle = atan2f(end_y - start_y, end_x - start_x);
 
             // The two rear corners of the arrowhead
-            int arrow_x1 = end_x - arrow_size * cos(angle - M_PI / 6);
-            int arrow_y1 = end_y - arrow_size * sin(angle - M_PI / 6);
-            int arrow_x2 = end_x - arrow_size * cos(angle + M_PI / 6);
-            int arrow_y2 = end_y - arrow_size * sin(angle + M_PI / 6);
+            int arrow_x1 = end_x - arrow_size * cosf(angle - (float)M_PI / 6);
+            int arrow_y1 = end_y - arrow_size * sinf(angle - (float)M_PI / 6);
+            int arrow_x2 = end_x - arrow_size * cosf(angle + (float)M_PI / 6);
+            int arrow_y2 = end_y - arrow_size * sinf(angle + (float)M_PI / 6);
 
             SDL_RenderDrawLineThick(renderer, end_x, end_y, arrow_x1, arrow_y1, 3);
             SDL_RenderDrawLineThick(renderer, end_x, end_y, arrow_x2, arrow_y2, 3);
@@ -3581,26 +3778,26 @@ static int doGps(sdl2_app *sdlApp)
 
         // Drawing the power triangle in a nautical style.
         void draw_vector_triangle(SDL_Renderer* renderer, int center_x, int center_y, int radius,
-                                double hdg, double stw, double cog, double sog, double set, double dft)
+                                float hdg, float stw, float cog, float sog, float set, float dft)
 		{
 	        // Scaling factor: Determines how many pixels correspond to 1 knot.
 	        // We base this on the assumption that the maximum speed (e.g., SOG or STW) should fill approximately 80% of the radius.
-	        double max_speed = (stw > sog) ? stw : sog;
-	        if (max_speed < 1.0) max_speed = 1.0; // Avoid division by zero
-	        double scale = (radius * 0.85) / max_speed;
+	        float max_speed = (stw > sog) ? stw : sog;
+	        if (max_speed < 1.0f) max_speed = 1.0f; // Avoid division by zero
+	        float scale = (radius * 0.85f) / max_speed;
 
 	        //--- PROJECT THE VECTORS ONTO SCREEN COORDINATES ---
 	        // Remember: 0° North is straight up (-Y in SDL), East is right (+X).
 
 	        // Water vector (HDG & STW) – Starts at the center
-	        double hdg_rad = hdg * (M_PI / 180.0);
-	        int water_end_x = center_x + (int)(stw * scale * sin(hdg_rad));
-	        int water_end_y = center_y - (int)(stw * scale * cos(hdg_rad)); // Minus pga SDL Y-axel
+	        float hdg_rad = hdg * ((float)M_PI / 180.0f);
+	        int water_end_x = center_x + (int)(stw * scale * sinf(hdg_rad));
+	        int water_end_y = center_y - (int)(stw * scale * cosf(hdg_rad)); // Minus pga SDL Y-axel
 
 	        // Ground Vector (COG & SOG) – Also starts at the center.
-	        double cog_rad = cog * (M_PI / 180.0);
-	        int ground_end_x = center_x + (int)(sog * scale * sin(cog_rad));
-	        int ground_end_y = center_y - (int)(sog * scale * cos(cog_rad));
+	        float cog_rad = cog * ((float)M_PI / 180.0f);
+	        int ground_end_x = center_x + (int)(sog * scale * sinf(cog_rad));
+	        int ground_end_y = center_y - (int)(sog * scale * cosf(cog_rad));
 
 	        // --- 2. DRAW THE VECTORS (CURRENT TRIANGLE) ---
 			SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -3625,25 +3822,25 @@ static int doGps(sdl2_app *sdlApp)
         }
 
         typedef struct {
-            double x;
-            double y;
+            float x;
+            float y;
         } Vector2D;
 
-        double to_radians(double degrees) { return degrees * (M_PI / 180.0); }
-        double to_degrees(double radians) { return radians * (180.0 / M_PI); }
+        float to_radians(float degrees) { return degrees * ((float)M_PI / 180.0f); }
+        float to_degrees(float radians) { return radians * (180.0f / (float)M_PI); }
 
         // Function to normalize angles to 0–360 degrees
-        double normalize_degrees(double deg) {
-            deg = fmod(deg, 360.0);
-            if (deg < 0.0) deg += 360.0;
+        float normalize_degrees(float deg) {
+            deg = fmodf(deg, 360.0f);
+            if (deg < 0.0f) deg += 360.0f;
             return deg;
         }
 
-        Vector2D nav_to_vector(double course_deg, double speed) {
+        Vector2D nav_to_vector(float course_deg, float speed) {
             Vector2D vec;
-            double rad = to_radians(course_deg);
-            vec.x = speed * sin(rad);
-            vec.y = speed * cos(rad);
+            float rad = to_radians(course_deg);
+            vec.x = speed * sinf(rad);
+            vec.y = speed * cosf(rad);
             return vec;
         }
 
@@ -3656,24 +3853,24 @@ static int doGps(sdl2_app *sdlApp)
         v_drift.y = v_ground.y - v_water.y;
 
         // Calculate SET and DRIFT
-        double dft = sqrt(v_drift.x * v_drift.x + v_drift.y * v_drift.y);
-        double set = to_degrees(atan2(v_drift.x, v_drift.y));
+        float dft = sqrt(v_drift.x * v_drift.x + v_drift.y * v_drift.y);
+        float set = to_degrees(atan2f(v_drift.x, v_drift.y));
         set = normalize_degrees(set);
 
         // Calculate the difference between where we are going (COG) and where we are pointing (HDG)
-        double leeway = cnmea.cog - cnmea.hdg;
+        float leeway = cnmea.cog - cnmea.hdg;
 
         // Normalize the angle to the range -180 to +180 degrees
-        while (leeway > 180.0)  leeway -= 360.0;
-        while (leeway < -180.0) leeway += 360.0;
+        while (leeway > 180.0f)  leeway -= 360.0f;
+        while (leeway < -180.0f) leeway += 360.0f;
 
         // If the difference is too small, we display 0° (no drift)
-        if (fabs(leeway) < 0.5) {
+        if (fabsf(leeway) < 0.5) {
             sprintf(msg_crx, "CRX: 0%s", "\u00B0 CMG");
         } else {
             // If COG is greater than HDG, we drift to starboard (STB); otherwise, to port (PRT)
             // We round to the nearest whole degree (.0f) to match the current display style
-            sprintf(msg_crx, "CRX: %.0f%s %s", fabs(leeway), "\u00B0",(leeway > 0) ? "STB" : "PRT");
+            sprintf(msg_crx, "CRX: %.0f%s %s", fabsf(leeway), "\u00B0",(leeway > 0) ? "STB" : "PRT");
         }
 
         get_text_and_rect(sdlApp->renderer, 294, 134, -1, msg_cog, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, GREEN);
@@ -3868,17 +4065,17 @@ static int doDepth(sdl2_app *sdlApp)
 
     int boxItems[] = {86,136,186,236,286};
 
-    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+    float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
-    double t_angle = 0;
-    double angle = 0;
-    double dynUpd;
+    float t_angle = 0;
+    float angle = 0;
+    float dynUpd;
 
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
-        double depth;
-        double scale;
+        float depth;
+        float scale;
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_dtw[40] = { "" };
@@ -3891,9 +4088,9 @@ static int doDepth(sdl2_app *sdlApp)
         time_t ct;
 
         // Constants for instrument
-        const double minangle = 14;  // Scale start
-        const double maxangle = 236; // Scale end
-        const double maxsdepth = 10;
+        const float minangle = 14;  // Scale start
+        const float maxangle = 236; // Scale end
+        const float maxsdepth = 10;
         int doBreak = 0;
         int doPlot = 0;
         
@@ -3999,16 +4196,16 @@ static int doDepth(sdl2_app *sdlApp)
 
         SDL_UnlockMutex(sdlApp->conf->nm_mutex);
     
-        if (depth > 10.0 && depth < 100) depth /=10.0;
-        if (depth >= 100.0 && depth < 200) { depth -= 100; depth /=10.0; }
-        if (depth >= 200.0) {depth -= 200; depth /=10.0; }
+        if (depth > 10.0f && depth < 100.0f) depth /=10.0f;
+        if (depth >= 100.0f && depth < 200.0f) { depth -= 100.0f; depth /=10.0f; }
+        if (depth >= 200.0f) {depth -= 200.0f; depth /=10.0f; }
 
         scale = depth * (maxangle/maxsdepth);
         angle = roundf(scale+minangle);
 
         // Run needle with smooth acceleration
-        if (angle > t_angle) t_angle += 3.2 * (fabsf(angle -t_angle) / 24) ;
-        else if (angle < t_angle) t_angle -= 3.2 * (fabsf(angle -t_angle) / 24);
+        if (angle > t_angle) t_angle += 3.2f * (fabsf(angle -t_angle) / 24.0f) ;
+        else if (angle < t_angle) t_angle -= 3.2f * (fabsf(angle -t_angle) / 24.0f);
 
         if (sdlApp->conf->style == 0)
             SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
@@ -4023,7 +4220,7 @@ static int doDepth(sdl2_app *sdlApp)
     
         if (!sdlApp->plotMode) {
             SDL_RenderCopyEx(sdlApp->renderer, gauge, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
-            double maxd=cnmea.units == METRIC? 300 : 92;
+            float maxd=cnmea.units == METRIC? 300 : 92;
 
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0) && cnmea.dbt < maxd)
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
@@ -4075,8 +4272,8 @@ static int doDepth(sdl2_app *sdlApp)
 
             int lr = sdlApp->conf->style == 0? 15 : 0;
 
-            double warn_draftw=cnmea.units==US? warn.draftw*3.28084 : warn.draftw;
-            double grd=((warn_draftw*10)*365)/150;
+            float warn_draftw=cnmea.units==US? warn.draftw*3.28084f : warn.draftw;
+            float grd=((warn_draftw*10)*365)/150;
             // Draw the arc using SDL2_gfx
             // Parameters: renderer, cx, cy, radius, start_angle, end_angle, R, G, B, A
             // The angles are in degrees and it moves clockwise.
@@ -4134,11 +4331,11 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
 
-        static double depthHist[DHISTORY];
+        static float depthHist[DHISTORY];
         static int histHead;
         static int histCount;
 
-        inline double auto_scale(double maxDepth)
+        inline float auto_scale(float maxDepth)
         {
             int scale = 10;
 
@@ -4169,7 +4366,7 @@ static int doDepth(sdl2_app *sdlApp)
             int h=DWINDOW_H;
             char buf[32];
 
-            double cnmea_dbt = cnmea.dbt;
+            float cnmea_dbt = cnmea.dbt;
 
             SDL_Rect plot = {80,60,w-120,h-175};
             depthHist[histHead] = cnmea_dbt;
@@ -4179,13 +4376,13 @@ static int doDepth(sdl2_app *sdlApp)
             if(histCount<DHISTORY)
                 histCount++;
 
-            double maxDepth=0;
+            float maxDepth=0;
 
             for(int i=0;i<histCount;i++)
                 if(depthHist[i]>maxDepth)
                     maxDepth=depthHist[i];
 
-            double yMax = auto_scale(maxDepth);
+            float yMax = auto_scale(maxDepth);
 
             SDL_SetRenderDrawColor(sdlApp->renderer,12,18,28,255);
 
@@ -4207,7 +4404,7 @@ static int doDepth(sdl2_app *sdlApp)
 
             // Rita den tonade zonen i 6 steg från redY upp till plot.y
             int steps = 30;
-            double stepHeight = (double)(redY - plot.y) / steps;
+            float stepHeight = (double)(redY - plot.y) / steps;
 
             for (int i = 0; i < steps; i++) {
                 SDL_Rect section;
@@ -4268,7 +4465,7 @@ static int doDepth(sdl2_app *sdlApp)
 
             size_t newest = (histHead+DHISTORY-1)%DHISTORY;
 
-            double stepX = (double)plot.w/(DHISTORY-1);
+            float stepX = (double)plot.w/(DHISTORY-1);
 
             int prevX=0,prevY=0;
 
@@ -4278,7 +4475,7 @@ static int doDepth(sdl2_app *sdlApp)
 
                 size_t idx = (newest+DHISTORY-a)%DHISTORY;
 
-                double v = depthHist[idx];
+                float v = depthHist[idx];
 
                 if(v>yMax) v=yMax;
 
@@ -4450,17 +4647,17 @@ static int doWind(sdl2_app *sdlApp)
 
     int boxItems[] = {86,136,186,236,286};
 
-    double t_angle_a = 0;
-    double t_angle_t = 0;
-    double angle_a = 0;
-    double angle_t = 0;
+    float t_angle_a = 0;
+    float t_angle_t = 0;
+    float angle_a = 0;
+    float angle_t = 0;
     int res = 1;
     int res_a = 1;
-    double dynUpd;
+    float dynUpd;
 
-    const double offset = 131; // For scale
+    const float offset = 131; // For scale
 
-    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+    float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     while (1) {
         int boxItem = 0;
@@ -4478,8 +4675,8 @@ static int doWind(sdl2_app *sdlApp)
         char msg_rsa[40] = { "" };
         time_t ct;
         int doBreak = 0;
-        double windHigh = 0;
-        double windAvrg = 0;
+        float windHigh = 0;
+        float windAvrg = 0;
         
         while (SDL_PollEvent(&e)) {
 
@@ -4515,7 +4712,7 @@ static int doWind(sdl2_app *sdlApp)
 
         // Collect accumulated wind data
         if (cnmea.wsAccRdy && cnmea.wsAccDur >=60) {
-            for (size_t i=0; i < sizeof(cnmea.wsAcc)/sizeof(double); i++) {
+            for (size_t i=0; i < sizeof(cnmea.wsAcc)/sizeof(float); i++) {
                 windAvrg += cnmea.wsAcc[i];
                 if (cnmea.wsAcc[i] > windHigh)
                     windHigh = cnmea.wsAcc[i];
@@ -4525,7 +4722,7 @@ static int doWind(sdl2_app *sdlApp)
                 cnmea.wsAccRdy = cnmea.wsAccIndx = cnmea.wsAccDur = 0;
                 memset(cnmea.wsAcc, 0, sizeof(cnmea.wsAcc));
             } else {
-                sprintf(msg_wav, "%d min AVGA=%.1f : TOPA=%.1f", cnmea.wsAccDur/60, (windAvrg/(sizeof(cnmea.wsAcc)/sizeof(double))), windHigh);
+                sprintf(msg_wav, "%d min AVGA=%.1f : TOPA=%.1f", cnmea.wsAccDur/60, (windAvrg/(sizeof(cnmea.wsAcc)/sizeof(float))), windHigh);
             }
         }
 
@@ -4569,7 +4766,7 @@ static int doWind(sdl2_app *sdlApp)
 
         // RSA - Rudder angle
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT))
-            sprintf(msg_rsa, " %.0f ", fabs(cnmea.rsa));
+            sprintf(msg_rsa, " %.0f ", fabsf(cnmea.rsa));
 
         angle_a = cnmea.vwra; // 0-180
 
@@ -4580,8 +4777,8 @@ static int doWind(sdl2_app *sdlApp)
         angle_a = rotate(angle_a, res); res=0;
 
         // Run needle with smooth acceleration
-        if (angle_a > t_angle_a) t_angle_a += 3.2 * (fabsf(angle_a -t_angle_a) / 24) ;
-        else if (angle_a < t_angle_a) t_angle_a -= 3.2 * (fabsf(angle_a -t_angle_a) / 24);
+        if (angle_a > t_angle_a) t_angle_a += 3.2f * (fabsf(angle_a -t_angle_a) / 24) ;
+        else if (angle_a < t_angle_a) t_angle_a -= 3.2f * (fabsf(angle_a -t_angle_a) / 24.0f);
 
         angle_t = cnmea.vwta; // 0-180
 
@@ -4594,8 +4791,8 @@ static int doWind(sdl2_app *sdlApp)
         angle_t = rotate_a(angle_t, res_a); res_a=0;
         
         // Run needle with smooth acceleration
-        if (angle_t > t_angle_t) t_angle_t += 3.2 * (fabsf(angle_t -t_angle_t) / 24) ;
-        else if (angle_t < t_angle_t) t_angle_t -= 3.2 * (fabsf(angle_t -t_angle_t) / 24);
+        if (angle_t > t_angle_t) t_angle_t += 3.2f * (fabsf(angle_t -t_angle_t) / 24) ;
+        else if (angle_t < t_angle_t) t_angle_t -= 3.2f * (fabsf(angle_t -t_angle_t) / 24);
 
         if (sdlApp->conf->style == 0)
             SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
@@ -4609,7 +4806,7 @@ static int doWind(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeWind, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) {
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9f) {
             SDL_SetTextureBlendMode(gaugeNeedleTrue, SDL_BLENDMODE_BLEND);
             SDL_SetTextureAlphaMod(gaugeNeedleTrue, 230);
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleTrue, NULL, &needleR, t_angle_t, NULL, SDL_FLIP_NONE);
@@ -4628,7 +4825,7 @@ static int doWind(sdl2_app *sdlApp)
         get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9) {
+        if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9f) {
             get_text_and_rect(sdlApp->renderer, 144, 356, 4, msg_vwts, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
@@ -4659,7 +4856,7 @@ static int doWind(sdl2_app *sdlApp)
         }
 
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT)) {
-            double invRsa = cnmea.rsa * -1.0f;
+            float invRsa = cnmea.rsa * -1.0f;
             int y=sdlApp->conf->style == 0? 227 : 230;
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleRudder, NULL, &needleR, invRsa, NULL, SDL_FLIP_NONE);
             get_text_and_rect(sdlApp->renderer, 215, y, 4, msg_rsa, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
@@ -4746,14 +4943,14 @@ static int doWind(sdl2_app *sdlApp)
 }
 
 
-static void set_alsa_volume(sdl2_app *sdlApp, double percent)
+static void set_alsa_volume(sdl2_app *sdlApp, float percent)
 {   
     long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
 
     snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
 }
 
-static double get_current_volume(sdl2_app *sdlApp)
+static float get_current_volume(sdl2_app *sdlApp)
 {
     long volume;
     snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
@@ -4833,21 +5030,21 @@ static int doEnvironment(sdl2_app *sdlApp)
     };
 
     // Scale adjustments
-    double v_maxangle = 102;
-    double v_offset = 6;
-    double v_max = 16;
-    double v_min = 8;
-    double v_scaleoffset = 7.9;
+    float v_maxangle = 102;
+    float v_offset = 6;
+    float v_max = 16;
+    float v_min = 8;
+    float v_scaleoffset = 7.9;
 
-    double c_maxangle = 120;
-    double c_offset = 58;
-    double c_max = 30;
-    double c_scaleoffset = 0;
+    float c_maxangle = 120;
+    float c_offset = 58;
+    float c_max = 30;
+    float c_scaleoffset = 0;
 
-    double t_maxangle = 136;
-    double t_offset = 33;
-    double t_max = 50;
-    double t_scaleoffset = 5;
+    float t_maxangle = 136;
+    float t_offset = 33;
+    float t_max = 50;
+    float t_scaleoffset = 5;
 
     char msg_volt[20] = {"0.0"};
     char msg_curr[20] = {"0.0"};
@@ -4858,7 +5055,7 @@ static int doEnvironment(sdl2_app *sdlApp)
     char msg_temp_loca[20] = {"--"};
 
     // Volume adjustments
-    double volume_percent = 0.0;
+    float volume_percent = 0.0f;
     int dragging = 0;
     int w = 0, h = 0;
 
@@ -4873,10 +5070,10 @@ static int doEnvironment(sdl2_app *sdlApp)
         char msg_stm[40];
         char msg_kWhp[80];
         char msg_kWhn[80];
-        double v_angle, c_angle, t_angle;
-        double volt_value = 0;
-        double curr_value = 0;
-        double temp_value = 0;
+        float v_angle, c_angle, t_angle;
+        float volt_value = 0;
+        float curr_value = 0;
+        float temp_value = 0;
         int doPlot = 0;
         time_t ct;
         int doBreak = 0;
@@ -4899,7 +5096,7 @@ static int doEnvironment(sdl2_app *sdlApp)
                     if (SDL_PointInRect(&p, &slider)) {
                         int mouseY = p.y;
 
-                        double rel = (double)(slider.y + slider.h - mouseY) / slider.h;
+                        float rel = (double)(slider.y + slider.h - mouseY) / slider.h;
 
                         if (rel < 0.0f) rel = 0.0f;
                         if (rel > 1.0f) rel = 1.0f;
@@ -4956,18 +5153,18 @@ static int doEnvironment(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.temp_ts > S_TIMEOUT)) {
             sprintf(msg_temp, "%.1f", cnmea.temp);
-            temp_value=cnmea.units==US? (cnmea.temp-32)/1.8 : cnmea.temp;
+            temp_value=cnmea.units==US? (cnmea.temp-32)/1.8f : cnmea.temp;
             sprintf(msg_temp_loca, "%s", cnmea.temp_loc);
         }
 
         if (cnmea.startTime > 1) {
             strftime(msg_stm, sizeof(msg_stm),"%x:%H:%M", localtime(&cnmea.startTime));
-            if (cnmea.kWhn < 1.0)
+            if (cnmea.kWhn < 1.0f)
                 sprintf(msg_kWhn, "%.3f kWh spent since %s", cnmea.kWhn, msg_stm);
             else
                 sprintf(msg_kWhn, "%.1f kWh spent since %s", cnmea.kWhn, msg_stm);
             
-            if (cnmea.kWhp < 1.0)
+            if (cnmea.kWhp < 1.0f)
                 sprintf(msg_kWhp, "%.3f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
             else
                 sprintf(msg_kWhp, "%.1f kWh charged. Net : %.3f kWh", cnmea.kWhp, cnmea.kWhp - cnmea.kWhn);
@@ -5003,8 +5200,8 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
         if (!(ct -  cnmea.curr_ts > S_TIMEOUT)) {
-            if (fabs(curr_value) < 33 ) {
-                c_angle = (((curr_value*0.5)-c_scaleoffset) * (c_maxangle/c_max)*2)+c_offset;
+            if (fabsf(curr_value) < 33 ) {
+                c_angle = (((curr_value*0.5f)-c_scaleoffset) * (c_maxangle/c_max)*2.0f)+c_offset;
                 SDL_RenderCopyEx(sdlApp->renderer, needleCurr, NULL, &currNeedleR, c_angle, NULL, SDL_FLIP_NONE);
             }
 
@@ -5016,7 +5213,7 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
         if (!(ct -  cnmea.temp_ts > S_TIMEOUT)) {
-            t_angle = ((temp_value-t_scaleoffset) * (t_maxangle/t_max)*1.2)+t_offset;
+            t_angle = ((temp_value-t_scaleoffset) * (t_maxangle/t_max)*1.2f)+t_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleTemp, NULL, &tempNeedleR, t_angle, NULL, SDL_FLIP_NONE);
 
             get_text_and_rect(sdlApp->renderer, 605, 170, 0, msg_temp, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
@@ -5058,13 +5255,13 @@ static int doEnvironment(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
         }
 
-        static double powerHist[PHISTORY];
-        static double voltHist[PHISTORY];
+        static float powerHist[PHISTORY];
+        static float voltHist[PHISTORY];
 
         static int histHead;
         static int histCount;
 
-        inline double auto_scale(double maxVal)
+        inline float auto_scale(float maxVal)
         {
             if(maxVal <= 50) return 50;
             if(maxVal <= 500) return 500;
@@ -5104,8 +5301,8 @@ static int doEnvironment(sdl2_app *sdlApp)
         {
             SDL_Rect plot={100,240,PWINDOW_W-100,PWINDOW_H-120};
 
-            double power = fabs(cnmea.volt * cnmea.curr);
-            double volt = fabs(cnmea.volt);
+            float power = fabsf(cnmea.volt * cnmea.curr);
+            float volt = fabsf(cnmea.volt);
 
             if (!dragging) {
                 powerHist[histHead]=power;
@@ -5117,7 +5314,7 @@ static int doEnvironment(sdl2_app *sdlApp)
                     histCount++;
             }
 
-            double maxPower=0;
+            float maxPower=0;
 
             for(int i=0;i<SCALE_WINDOW;i++)
             {
@@ -5127,7 +5324,7 @@ static int doEnvironment(sdl2_app *sdlApp)
                     maxPower=powerHist[idx];
             }
 
-            double yMax=auto_scale(maxPower);
+            float yMax=auto_scale(maxPower);
 
             SDL_SetRenderDrawColor(sdlApp->renderer,30,40,60,255);
             SDL_RenderFillRect(sdlApp->renderer,&plot);
@@ -5145,7 +5342,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
             int newest=(histHead+PHISTORY-1)%PHISTORY;
 
-            double stepX=(double)plot.w/(PHISTORY-1);
+            float stepX=(double)plot.w/(PHISTORY-1);
 
             int prevPX=0,prevPY=0;
             int prevVX=0,prevVY=0;
@@ -5157,14 +5354,14 @@ static int doEnvironment(sdl2_app *sdlApp)
 
                 int x=plot.x+plot.w-a*stepX;
 
-                double p=powerHist[idx];
+                float p=powerHist[idx];
                 if(p>yMax) p=yMax;
 
                 int py=plot.y+plot.h-(p/yMax)*plot.h;
 
-                double v=voltHist[idx];
+                float v=voltHist[idx];
 
-                int vy=plot.y+plot.h-((v-8.0)/8.0)*plot.h;
+                int vy=plot.y+plot.h-((v-8.0f)/8.0f)*plot.h;
 
                 if(age<histCount)
                 {
@@ -5207,7 +5404,7 @@ static int doEnvironment(sdl2_app *sdlApp)
 
             for(int v=8;v<=16;v++)
             {
-                int y=plot.y+plot.h-((v-8.0)/8.0)*plot.h;
+                int y=plot.y+plot.h-((v-8.0f)/8.0f)*plot.h;
 
                 SDL_SetRenderDrawColor(sdlApp->renderer,120,120,120,255);
 
@@ -5347,10 +5544,10 @@ static int doCamera(sdl2_app *sdlApp)
     AVCodecContext *actx = NULL;
     struct SwrContext *swr = NULL;
 
-    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+    float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     // Volume adjustments
-    double volume_percent = 0.0;
+    float volume_percent = 0.0f;
     int dragging = 0;
 
     int win_w, win_h;
@@ -5596,7 +5793,7 @@ static int doCamera(sdl2_app *sdlApp)
 
                 // DBT - Depth Below Transponder
                 if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-                    sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
+                    sprintf(msg_dbt, cnmea.dbt > 70.0f? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
                 SDL_UnlockMutex(sdlApp->conf->nm_mutex);
             }
@@ -5621,7 +5818,7 @@ static int doCamera(sdl2_app *sdlApp)
                         if (SDL_PointInRect(&p, &slider)) {
                             int mouseY = p.y;
 
-                            double rel = (double)(slider.y + slider.h - mouseY) / slider.h;
+                            float rel = (double)(slider.y + slider.h - mouseY) / slider.h;
 
                             if (rel < 0.0f) rel = 0.0f;
                             if (rel > 1.0f) rel = 1.0f;
@@ -6027,7 +6224,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
     int wasMuted;
 
     // Volume adjustments
-    double volume_percent = 0.0;
+    float volume_percent = 0.0f;
     int dragging = 0;
 
     struct buffer {
@@ -6035,7 +6232,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
         size_t length;
     };
 
-    double m2f=cnmea.units==METRIC? 1 : 3.28084;
+    float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     static audRunner doRun;
 
@@ -6218,7 +6415,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
 
             // DBT - Depth Below Transponder
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-                sprintf(msg_dbt, cnmea.dbt > 70.0? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
+                sprintf(msg_dbt, cnmea.dbt > 70.0f? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
 
             SDL_UnlockMutex(sdlApp->conf->nm_mutex);
         }
@@ -6242,7 +6439,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
                     if (SDL_PointInRect(&p, &slider)) {
                         int mouseY = p.y;
 
-                        double rel = (double)(slider.y + slider.h - mouseY) / slider.h;
+                        float rel = (double)(slider.y + slider.h - mouseY) / slider.h;
 
                         if (rel < 0.0f) rel = 0.0f;
                         if (rel > 1.0f) rel = 1.0f;
@@ -6681,11 +6878,11 @@ static int doWater(sdl2_app *sdlApp)
             while( fgets(tBuff, sizeof(tBuff), tankFd) != NULL) {
                 switch(tankIndx++) {
                     case 0: cnmea.fdate = atol(tBuff); break;
-                    case 1: cnmea.tvol =  atof(tBuff); break;
-                    case 2: cnmea.gvol =  atof(tBuff); break;
-                    case 3: cnmea.tank =  atof(tBuff); break;
+                    case 1: cnmea.tvol =  strtof(tBuff, NULL); break;
+                    case 2: cnmea.gvol =  strtof(tBuff, NULL); break;
+                    case 3: cnmea.tank =  strtof(tBuff, NULL); break;
                     case 4: cnmea.tds  =  atoi(tBuff); break;
-                    case 5: cnmea.ttemp = atof(tBuff);
+                    case 5: cnmea.ttemp = strtof(tBuff, NULL);
                             rval = 0; 
                             break;
                     default: rval = 1; break;
@@ -6752,7 +6949,7 @@ static int doWater(sdl2_app *sdlApp)
             sprintf(msg_flr, "%s",  buffer_t);
             sprintf(msg_tmp, "TEMP: %.0f", cnmea.ttemp);
             sprintf(msg_tds, "TDS:  %d", cnmea.tds);
-            double vleft = floor((((cnmea.tank-cnmea.tvol)/cnmea.tank)*100)+0.5);
+            float vleft = floor((((cnmea.tank-cnmea.tvol)/cnmea.tank)*100)+0.5);
             sprintf(msg_cns, "LEFT: %.0f%c", vleft, '%');
             sprintf(msg_gtv, "GTVL: %.0f", cnmea.gvol); 
             sprintf(msg_use, "USED: %.0f", cnmea.tvol);
@@ -6876,7 +7073,7 @@ static int threadCalibrator(void *ptr)
     int magYmin = 32767;
     int magZmin = 32767;
 
-    if (doRun->declination != 0.0)
+    if (doRun->declination != 0.0f)
         sprintf(dbuf, ", declval = %.2f;\n", doRun->declination); 
     else
         sprintf(dbuf, ";\n");
@@ -6958,7 +7155,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         char buf[250];
         FILE *fd = NULL;        
         CURLcode res = 1;
-        double declination = 0.0;
+        float declination = 0.0f;
         char *dcfile = "/tmp/declination.csv";
         char month[10];
         char year[10];
@@ -6988,8 +7185,8 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
             memset(buf, 0, sizeof(buf));
             sprintf(cmd, "tail -1 %s | cut -d, -f5", dcfile);
             if (fread(buf, 1, 40, (fd=popen(cmd, "r"))) > 0) {
-                declination = (M_PI/180)*atof(buf);
-                if (declination != 0.0)
+                declination = ((float)M_PI/180)*strtof(buf, NULL);
+                if (declination != 0.0f)
                         doRun.declination = declination;
             }
             pclose(fd);
@@ -7606,6 +7803,7 @@ int main(int argc, char *argv[])
     char buf[FILENAME_MAX];
     struct stat stats;
     struct timespec ts;
+    extern mCompass Comppass;
 
     memset(&cnmea, 0, sizeof(cnmea));
     memset(&sdlApp, 0, sizeof(sdlApp));
@@ -7614,6 +7812,7 @@ int main(int argc, char *argv[])
     sdlApp.conf = &configParams;
     cnmea.conf =  &configParams;
     cnmea.calib = &configParams.calib;
+    cnmea.mcomp = &Comppass;
 
     configParams.sdlApp = &sdlApp;
 
@@ -7621,7 +7820,7 @@ int main(int argc, char *argv[])
     memset(cnmea.wsAcc, 0, sizeof(cnmea.wsAcc));
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
-	cnmea.logStart = ts.tv_sec + (ts.tv_nsec / 1000000000.0);
+	cnmea.logStart = ts.tv_sec + (ts.tv_nsec / 1000000000.0f);
 
     sdlApp.fontPath = DEFAULT_FONT;
 
@@ -7672,7 +7871,7 @@ int main(int argc, char *argv[])
                 break;
             case 't':   configParams.runTcp = atoi(optarg);   // Enable TCP nmea Server @ portn
                 break;
-            case 'z':   configParams.scale = atof(optarg);    // Scale the screen
+            case 'z':   configParams.scale = strtof(optarg, NULL);    // Scale the screen
                 break;
             case 'r':
                 fprintf(stderr, "revision: %s\n", SWREV);

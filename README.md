@@ -22,7 +22,8 @@ This instrument can work independently and always provide compass, heading, posi
 
 Currently there are eight virtual pages with instruments working:
 
-    Compass       : With heading, roll and rudder angle from NMEA-net and/or from BerryGPS-IMUv2
+    Compass       : With heading, pitch and rudder/wind angle from NMEA-net and/or from BerryGPS-IMUv2
+    Compass 3D    : OpenGL compass with roll, pitch, wind angle, target steering and and audible warnings for course deviations
     GPS           : Lo, Lat, Heading, course over ground, drift a graphical Vector Triangle showing current Set, Drift, and Drift Angle (CRX).
     Log           : SOW, SOG from NMEA-net
     Wind          : Real, Relative and speed from NMEA-net
@@ -169,7 +170,7 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 - Modern Flat GUI style examples
 <img src="https://hedmanshome.se/sdlspeedometer29.png" width=100%>
 -- 3D Compass page in OpenGL. All axis are moving live
-<img src="https://hedmanshome.se/sdlspeedometer46.png" width=100%>
+<img src="https://hedmanshome.se/sdlspeedometer47.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer30.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer39.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer35.png" width=100%>
