@@ -83,6 +83,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - Touch COG or HDG: Engage  the course aid and lock current course over ground
 - Touch the green LCK* text: Disengage the course aid
 - Touch ROLL: or PTC: Toggle precision for integers or decimals
+- Touch the center of the compass and slide up or down: Set the vertical view (mixed with pitch)
 - A course lock from an AP will override the manual course aid
 - Severe course deviations will raise visible animations and spoken messages if speaker systems  are present
 
