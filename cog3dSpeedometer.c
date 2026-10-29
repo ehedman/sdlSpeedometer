@@ -1304,7 +1304,7 @@ int doCog3d(sdl2_app *sdlApp)
             do_cog = 1;
         } else do_cog = 0;
 
-        angle_cg = update_angle(angle_cg, cnmea.cog, 0.2);
+        angle_cg = update_angle(angle_cg, cnmea.cog, 0.2f);
 
         // HDG - The direction the bow points. Magnetic BerryGPS or from Net/USB.
         if (!(ct - cnmea.hdg_i2cts > S_TIMEOUT)) {
@@ -1313,11 +1313,11 @@ int doCog3d(sdl2_app *sdlApp)
             sprintf(msg_hdg, "HDG: %.0f%s", cnmea.hdg, "\u00B0");
         }
 
-        angle_hd = update_angle(angle_hd, cnmea.hdg, 0.2);
+        angle_hd = update_angle(angle_hd, cnmea.hdg, 0.2f);
 
         // Run the compass rose with smooth acceleration and handle 0/360 transitions
         // Go Track-mode on COG lock
-        angle_cc = update_angle(angle_cc, target_course >0 && do_cog? angle_cg : angle_hd, 0.06);
+        angle_cc = update_angle(angle_cc, target_course >0 && do_cog? angle_cg : angle_hd, 0.06f);
         compass_angle=360-angle_cc;
 
         // VHW - Water speed
@@ -1368,7 +1368,7 @@ int doCog3d(sdl2_app *sdlApp)
             angle_a -= 360;
             angle_a += angle_hd;            // Normalize the angles towards the compass rose
 
-            angle_cw = update_angle(angle_cw, angle_a, 0.1);
+            angle_cw = update_angle(angle_cw, angle_a, 0.1f);
         }
 
         // Get AP Lock status

@@ -1005,10 +1005,6 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     if (ts - cnmea.vwr_ts > S_TIMEOUT/2) { // If not from MWV
         int isKnots = 0;    // Default is metric m/s
 
-        if (!strncmp(getf(4, nmeastr_p1),"N",1)) {
-            isKnots = 1;
-        }
-
         float roll = 0.0f;
         if (!(ts - cnmea.roll_i2cts > S_TIMEOUT) || (!(ts - cnmea.xdr_ts > S_TIMEOUT))) {
             roll = cnmea.roll;
@@ -1019,6 +1015,10 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             cnmea.vwrs=strtof(getf(3, nmeastr_p1), NULL);
             cnmea.vwrd=strncmp(getf(2, nmeastr_p1),"R",1)==0? 0:1;
             cnmea.vwr_ts = ts;
+
+           if (!strncmp(getf(4, nmeastr_p1),"N",1)) {
+                isKnots = 1;
+            }
 
             if (cnmea.wsAccIndx < sizeof(cnmea.wsAcc)/sizeof(float) && wlastTs+2 < ts) {
                 cnmea.wsAcc[cnmea.wsAccIndx++] = cnmea.vwrs;
