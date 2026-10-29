@@ -80,7 +80,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### Notes on the OpenGL 3D Compass
 - There are a number of touch sensitive areas on the screen
-- Touch COG or HDG: Engage  the course aid and lock current course over ground
+- Touch COG or HDG: Engage  the course aid and lock to the current course over ground
 - Touch the green LCK* text: Disengage the course aid
 - Touch ROLL: or PTC: Toggle precision for integers or decimals
 - Touch the center of the compass and slide up or down: Set the vertical view (mixed with pitch)
