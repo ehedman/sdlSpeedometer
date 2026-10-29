@@ -1336,10 +1336,10 @@ int doCog3d(sdl2_app *sdlApp)
 
         // Magnetic or Net Roll
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT)) {
-            sprintf(msg_rol, rltxt==0? rltxt0:rltxt1, fabsf(cnmea.roll));
+            sprintf(msg_rol, rltxt==0? rltxt0:rltxt1, rltxt==0? fabsf(cnmea.roll) : cnmea.roll);
         } else if (!(ct - cnmea.xdr_ts > S_TIMEOUT)) {
             cnmea.roll_i2cts = cnmea.xdr_ts;
-            sprintf(msg_rol, rltxt==0? rltxt0:rltxt1, fabsf(cnmea.roll));
+            sprintf(msg_rol, rltxt==0? rltxt0:rltxt1, rltxt==0? fabsf(cnmea.roll) : cnmea.roll);
         }
 
         // RUD - Rudder angle
@@ -1357,7 +1357,7 @@ int doCog3d(sdl2_app *sdlApp)
         {
             angle_cr = update_angle(angle_cr, cnmea.roll * -1.0f, 0.2f);  // Switch sign to match 2D COG page
             angle_cp = update_angle(angle_cp, cnmea.pitch * -1.0f, 0.3f);
-            sprintf(msg_ptc, pitxt==0? pitxt0:pitxt1, fabsf(cnmea.pitch));
+            sprintf(msg_ptc, pitxt==0? pitxt0:pitxt1, pitxt==0? fabsf(cnmea.pitch) : cnmea.pitch);
         } else {angle_cr=angle_cp=0;}
  
         // Run red wind badge
