@@ -59,7 +59,7 @@
 #define DEF_VNC_PORT    5903
 
 #define TRGPS       1.5f    // Min speed to be trusted as real movement from GPS RMC
-#define NMPARSE(str, nsent) !strncmp(nsent, &str[3], strlen(nsent))
+#define NMPARSE(str, nsent) (!strncmp((nsent), &(str)[3], strlen(nsent)))
 
 #define DEFAULT_SCREEN_SIZE     "800x480"   // Default screen size
 #define DEFAULT_SCREEN_SCALE    1.0
@@ -395,7 +395,7 @@ static int configureDb(configuration *configParams)
     return rval;
 }
 
- // Extract an item from an NMEA sentence
+// Extract an item from an NMEA sentence
 static char *getf(int pos, const char *str)
 {
     int len=strnlen(str, NMBUFF);
@@ -409,7 +409,7 @@ static char *getf(int pos, const char *str)
     for (i=0; i<len;i++) {
         if (str[i]==',') {
             if (npos++ == pos) {
-                strcat(out, &str[++i]);
+                strncat(out, &str[++i], sizeof(out)-1);
                 j=strlen(out);
                 for (k=0; k<j; k++) {
                     if (out[k] == ',') {
@@ -670,6 +670,7 @@ static float lastCogturns;
 static Uint32 cogTicks;
 #endif
 
+// #define NMDBG
 static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 {  
     time_t ts = time(NULL);    // Get a timestamp for this turn
@@ -710,6 +711,24 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         memcpy(cnmea.tcp_buff, nmeastr_p1, cnt);
         SDL_UnlockMutex(cnmea.conf->tcp_mutex);
     }
+
+    if (nmeastr_p1[0] == '$' && nmeastr_p1[1] == 'P') {
+        // It is a proprietary sentence (eg $PDGY, $PSRT, $PGRM)
+        return;
+    }
+
+#ifdef NMDBG
+    if (    // Filter them  out or let them spill thtough?
+        NMPARSE(nmeastr_p1, "VDM") || NMPARSE(nmeastr_p1, "VDO") || NMPARSE(nmeastr_p1, "GBS") ||
+        NMPARSE(nmeastr_p1, "GBS") || NMPARSE(nmeastr_p1, "ROT") || NMPARSE(nmeastr_p1, "DTM") ||
+        NMPARSE(nmeastr_p1, "ROT") || NMPARSE(nmeastr_p1, "MDA") || NMPARSE(nmeastr_p1, "VLW") ||
+        NMPARSE(nmeastr_p1, "GGA") || NMPARSE(nmeastr_p1, "VDR") || NMPARSE(nmeastr_p1, "TXT") ||
+        NMPARSE(nmeastr_p1, "TSX") || NMPARSE(nmeastr_p1, "ALR")
+    )
+    {
+        return;
+    }
+#endif
 
     if (!wlastDur) wlastDur=ts;
     if (!slastDur) slastDur=ts;
@@ -1115,7 +1134,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         return;
     }
 
-    // Format: GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
+    // Format: $GPENV,volt,bank,current,bank,temp,where,kWhp,kWhn,startTime*cs
     // "$P". These extended messages are not standardized.
     if (NMPARSE(nmeastr_p1, "ENV")) {
         hasGPENV = 1;
@@ -1212,6 +1231,9 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
         }
         return;
     }
+#ifdef NMDBG
+    printf("Unsupported or ignored NMEA-0183 sentence: %s\n", nmeastr_p1);
+#endif
 }
 
 // Collect serial NMEA sentences
