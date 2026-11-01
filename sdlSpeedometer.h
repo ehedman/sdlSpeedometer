@@ -55,6 +55,7 @@
 #define RMAX_FILENAME 256
 #define RMAX_FILES 256
 #define RVISIBLE_FILES 5
+#define MVISIBLE_FILES 8
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
@@ -129,6 +130,7 @@ typedef struct {
     char snd_card_name[256];
     char cam_url[200];
     char vid_device[60];
+    char media_path[RMAX_FILENAME];
     SDL_mutex* nm_mutex;
     SDL_mutex* tcp_mutex;
     int rwfilez;
@@ -258,6 +260,11 @@ typedef struct {
     char    glns[2];    // North (N) or South (S)
     char    glne[2];    // East (E) or West (W)
     time_t  net_ts;     // Data valid from network
+
+    float   cset;       // Current angle
+    float   cdrift;     // Current drift
+    time_t  cset_ts;    // Data valid from network
+
     // Sensors $P type messages
     float   volt;       // Sensor Volt
     char    volt_bank[20];  // Batery sensor bank #
