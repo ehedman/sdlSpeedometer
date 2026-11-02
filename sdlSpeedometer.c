@@ -3104,13 +3104,13 @@ static int doMedia(sdl2_app *sdlApp)
         // Draw file selector
         for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < playlist.count; i++)
         {
-            int item_y = 40 + (i * 22);
+            int item_y = 40 + (i * 24);
 
             // Save clickable area for the file
             file_click_areas[i].x = 50;
             file_click_areas[i].y = item_y;
             file_click_areas[i].w = 400;
-            file_click_areas[i].h = 20;
+            file_click_areas[i].h = 22;
  
             // Highlight the row faintly to indicate that it is interactive.
             SDL_SetRenderDrawColor(sdlApp->renderer, 45, 45, 45, 255);
@@ -3120,7 +3120,7 @@ static int doMedia(sdl2_app *sdlApp)
             //  Highlight the current row just clicked
             if (playlist.active) {
                 SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(sdlApp->renderer, 255 , 255, 255, 20);
+                SDL_SetRenderDrawColor(sdlApp->renderer, 255 , 255, 255, 22);
                 SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[playlist.index - scrl_offset]);
             }
 
@@ -3137,7 +3137,19 @@ static int doMedia(sdl2_app *sdlApp)
             char *p = strrchr(filenm, '.');
             if (p != NULL) {*p = '\0';}
 
-            get_text_and_rect(sdlApp->renderer, 55, item_y + 2, 0, filenm, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, dcol);
+            // Remove any leading track numbers
+            char *display_name = filenm;
+            if (isdigit((unsigned char)filenm[0])) {
+                int dummy_index;
+                int bytes_read = 0;
+                // %d reads the numbers, %n counts the total number of bytes read,
+                // and " " (the space) matches whitespace following the number
+                if (sscanf(filenm, "%d %n", &dummy_index, &bytes_read) >= 1) {
+                    display_name = filenm + bytes_read;
+                }
+            }
+
+            get_text_and_rect(sdlApp->renderer, 55, item_y + 2, 0, display_name, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, dcol);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -3241,35 +3253,37 @@ static int doMedia(sdl2_app *sdlApp)
             // Fetch meta data and show them
             show_audio_metadata(&playlist);
           
-            get_text_and_rect(sdlApp->renderer, 60, 224, 0, playlist.title,
+            int  indx = 244; int incr=20;
+            get_text_and_rect(sdlApp->renderer, 60, indx, 0, playlist.title,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 60, 244, 0, playlist.artist,
+            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.artist,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 60, 264, 0, playlist.album,
+            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.album,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 60, 284, 0, playlist.album_artist,
+            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.album_artist,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 60, 304, 0, playlist.genre,
+            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.genre,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-            get_text_and_rect(sdlApp->renderer, 60, 324, 0, playlist.date,
+            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.date,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 60, 344, 0, playlist.track,
+#if 0
+            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.track,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+#endif
 
-            get_text_and_rect(sdlApp->renderer, 60, 364, 0, playlist.duration,
+            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.duration,
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
