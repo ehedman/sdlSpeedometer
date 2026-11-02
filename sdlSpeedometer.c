@@ -177,18 +177,19 @@ static int configureDb(configuration *configParams)
                         "camurl TEXT, "
                         "nmtot REAL, "
                         "units INTEGER, "
-                        "rwfilez INTEGER)", 
+                        "rwfilez INTEGER, "
+                        "mpath TEXT)",
                         -1, &res, &tail);
                     sqlite3_step(res);
                     sqlite3_finalize(res);
 
-                    // Förbered INSERT med platshållare (?)
+                    // Prepare INSERT with placeholders (?)
                     sqlite3_prepare_v2(conn, 
-                        "INSERT INTO config (rev, tty, baud, server, port, vncport, style, audiodev, camurl, nmtot, units, rwfilez) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                        "INSERT INTO config (rev, tty, baud, server, port, vncport, style, audiodev, camurl, nmtot, units, rwfilez, mpath) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
                         -1, &res, &tail);
 
-                    // Bind värdena till rätt index (1-12)
+                    // Bind the values ​​to the correct index (1–13)
                     sqlite3_bind_text(res, 1, SWREV, -1, SQLITE_TRANSIENT);
                     sqlite3_bind_text(res, 2, TTY_SERIAL, -1, SQLITE_TRANSIENT);
                     sqlite3_bind_int(res, 3, 9600);
@@ -201,6 +202,7 @@ static int configureDb(configuration *configParams)
                     sqlite3_bind_double(res, 10, 0.0);
                     sqlite3_bind_int(res, 11, 0);
                     sqlite3_bind_int(res, 12, 10000);
+                    sqlite3_bind_text(res, 13, "/media/Music", -1, SQLITE_STATIC);
 
                     sqlite3_step(res);
                     sqlite3_finalize(res);
@@ -351,7 +353,7 @@ static int configureDb(configuration *configParams)
     }
 
     // Fetch configuration
-    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot, units, rwfilez from config", -1, &res, &tail);
+    rval = sqlite3_prepare_v2(conn, "select tty,baud,server,port,vncport,style, audiodev, camurl, nmtot, units, rwfilez, mpath from config", -1, &res, &tail);
     if (rval == SQLITE_OK && sqlite3_step(res) == SQLITE_ROW) {
         strcpy(configParams->tty,       (char*)sqlite3_column_text(res, 0));
         configParams->baud =            sqlite3_column_int(res, 1);
@@ -364,6 +366,7 @@ static int configureDb(configuration *configParams)
 		cnmea.logDistT =         		sqlite3_column_double(res, 8);
         cnmea.units =         		    sqlite3_column_int(res, 9);
         configParams->rwfilez =         sqlite3_column_int(res, 10);
+        strcpy(configParams->media_path, (char*)sqlite3_column_text(res, 11));
     } else {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to fetch configutation from database: %s", (char*)sqlite3_errmsg(conn));
     }
@@ -2703,14 +2706,30 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
     return eType;
 }
 
-#define doit 1
+// Analog volume control (HDMI has its own on the device)
+static void set_alsa_volume(sdl2_app *sdlApp, float percent)
+{
+    long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
 
+    snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
+}
+
+static float get_current_volume(sdl2_app *sdlApp)
+{
+    long volume;
+    snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
+
+    return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
+}
+
+// Show the media page
 static int doMedia(sdl2_app *sdlApp)
 {
     SDL_Event e;
     int eType = 0;
-    struct stat stats;
+    int wasMuted;
 
+    struct stat stats;
     char curDir[PATH_MAX];
 
     TTF_Font* fontMsg = TTF_OpenFont(sdlApp->fontPath, 16);
@@ -2752,12 +2771,11 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect playR      = {90,h-80,60,60}; 
     SDL_Rect pauseR     = {playR.x+70,  playR.y,60,60};
     SDL_Rect stopR      = {pauseR.x+70, playR.y,60,60};
-    SDL_Rect nextR      = {stopR.x+70,  playR.y,60,60};
-    SDL_Rect prevR      = {nextR.x+70,  playR.y,60,60};
-    SDL_Rect vupR       = {prevR.x+90,  playR.y,60,60};
-    SDL_Rect vdownR     = {vupR.x+70,   playR.y,60,60};
-    SDL_Rect mquitR     = {vdownR.x+100, playR.y,60,60};
-
+    SDL_Rect prevR      = {stopR.x+70,  playR.y,60,60};
+    SDL_Rect nextR      = {prevR.x+70,  playR.y,60,60};
+    SDL_Rect vdownR     = {nextR.x+90,   playR.y,60,60};
+    SDL_Rect vupR       = {vdownR.x+70,  playR.y,60,60};
+    SDL_Rect mquitR     = {vupR.x+100, playR.y,60,60};
     SDL_Rect arttBoxR   = {w-230,60,200,200};
     SDL_Rect textBoxR   = {arttBoxR.x-20,arttBoxR.y-14,arttBoxR.w+34,arttBoxR.h+34};
 
@@ -2769,7 +2787,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect scrl_dn_rect = { rMargin-40, 160, 40, 40 };
     SDL_Rect file_click_areas[MVISIBLE_FILES];
 
-    SDL_Rect mutebarR   = {w-40,h-60,25,25};
+    SDL_Rect mutebarR   = {w-60,h-60,25,25};
 
     char folder_path[RMAX_FILENAME];
     strcpy(folder_path, sdlApp->conf->media_path);
@@ -2799,57 +2817,62 @@ static int doMedia(sdl2_app *sdlApp)
     }
 #endif
 
+    // Shared properties
+    static AudioProps apropps;
+
+    wasMuted = sdlApp->conf->muted;
+    sdlApp->conf->muted = 1;    // Prevent warnings
+    int muted = 0;
+
     chdir(folder_path);
 
-    audio.mutex = SDL_CreateMutex();
+    apropps.audio.mutex =    SDL_CreateMutex();
+    apropps.commands.mutex = SDL_CreateMutex();
+    apropps.commands.cond =  SDL_CreateCond();
 
-    commands.mutex = SDL_CreateMutex();
-    commands.cond = SDL_CreateCond();
-
-    if (!audio.mutex || !commands.mutex || !commands.cond)
+    if (!apropps.audio.mutex || !apropps.commands.mutex || !apropps.commands.cond)
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia: Mutex/condition error: %s", SDL_GetError());
         return eType;
     }
 
     SDL_AudioSpec wanted, obtained;
-
     SDL_zero(wanted);
 
-    wanted.freq = AUDIO_RATE;
-    wanted.format = AUDIO_S16SYS;
-    wanted.channels = AUDIO_CHANNELS;
-    wanted.samples = AUDIO_BUFFER;
-    wanted.callback = audio_callback;
+    wanted.freq =       AUDIO_RATE;
+    wanted.format =     AUDIO_S16SYS;
+    wanted.channels =   AUDIO_CHANNELS;
+    wanted.samples =    AUDIO_BUFFER;
+    wanted.callback =   audio_callback;
 
     if (sdlApp->conf->snd_useMixer) {
-        if ((audio_device = SDL_OpenAudioDevice(sdlApp->conf->snd_card_name, 0, &wanted,  &obtained, 0)) == 0) {
-            if ((audio_device = SDL_OpenAudioDevice(NULL, 0, &wanted, &obtained, 0)) == 0) { // Open default
+        if ((apropps.audio_device = SDL_OpenAudioDevice(sdlApp->conf->snd_card_name, 0, &wanted,  &obtained, SDL_AUDIO_ALLOW_ANY_CHANGE)) == 0) {
+            if ((apropps.audio_device = SDL_OpenAudioDevice(NULL, 0, &wanted, &obtained, 0)) == 0) { // Open default
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                    "Failed to SDL_OpenAudioDevice %s: %s", sdlApp->conf->snd_card_name, SDL_GetError()); 
+                "Failed to SDL_OpenAudioDevice %s: %s", sdlApp->conf->snd_card_name, SDL_GetError()); 
             }
         }
     }
 
-    if (!audio_device)
+    if (!apropps.audio_device)
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia: Audio error: %s", SDL_GetError());
         return eType;
     }
 
+    // Init shared data structures
+    player_init(&apropps);
+
     SDL_Log("doMedia: %d Hz, %d channels\n", obtained.freq, obtained.channels);
 
-#if doit
     /* Start control thread */
-    SDL_Thread *control = SDL_CreateThread(
-        control_thread, "audio-control", &playlist);
+    SDL_Thread *control = SDL_CreateThread(control_thread, "audio-control", &playlist);
 
     if (!control)
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia: Control thread error %s", SDL_GetError());
         return eType;
     }
-#endif
 
     int eSkip = 1;
     int running = 1;
@@ -2865,13 +2888,25 @@ static int doMedia(sdl2_app *sdlApp)
         playlist.count = 0;
     }
 
+    float volume_percent = 0.0f;
+    float volume_rel = 0.0f;
+
+    if (sdlApp->conf->snd_useMixer) {
+        volume_percent = get_current_volume(sdlApp);
+    }
+
     while (running) {
+
+        char msg_tod[40] = { "" };
 
         sdlApp->textFieldArrIndx = 0;
 
          while(SDL_PollEvent(&e)) {
 
             SDL_Point p;
+
+            if (!running)
+                break;
 
             if (--eSkip > 0)
                 continue;
@@ -2905,17 +2940,34 @@ static int doMedia(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &prevR)) {
                     command_push(CMD_PREVIOUS);
                 }
-                if (SDL_PointInRect(&p, &vdownR)) {
 
+                if (sdlApp->conf->snd_useMixer && !muted) {
+
+                    if (SDL_PointInRect(&p, &vupR)) {
+
+                        volume_rel += 0.1f;
+                        if (volume_rel < 0.0f) volume_rel = 0.0f;
+                        if (volume_rel > 1.0f) volume_rel = 1.0f;
+
+                        volume_percent = volume_rel;
+                        set_alsa_volume(sdlApp, volume_percent);
+
+                    } else if (SDL_PointInRect(&p, &vdownR)) {
+
+                        volume_rel -= 0.1f;
+                        if (volume_rel < 0.0f) volume_rel = 0.0f;
+                        if (volume_rel > 1.0f) volume_rel = 1.0f;
+
+                        volume_percent = volume_rel;
+                        set_alsa_volume(sdlApp, volume_percent);
+                    }
                 }
-                if (SDL_PointInRect(&p, &vdownR)) {
 
-                } 
                 if (SDL_PointInRect(&p, &mutebarR)) {
-                    sdlApp->conf->muted = !sdlApp->conf->muted;
+                    muted = ! muted;
+                    SDL_PauseAudioDevice(apropps.audio_device, muted);
                 }
                 if (SDL_PointInRect(&p, &mquitR)) {
-                    command_push(CMD_SHUTDOWN);
                     running=0;
                     continue;
                 }
@@ -2949,9 +3001,8 @@ static int doMedia(sdl2_app *sdlApp)
                 // Click on a file name in the list.
                 for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < playlist.count; i++) {
                     if (SDL_PointInRect(&p, &file_click_areas[i])) {
-
                         if (stat(playlist.files[i + scrl_offset], &stats)) {
-                            perror("stat");
+                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "doMedia: Couldn't stat %s %s", playlist.files[i + scrl_offset], SDL_GetError());
                             continue;
                         }
                         if (S_ISDIR(stats.st_mode)) {
@@ -2976,14 +3027,16 @@ static int doMedia(sdl2_app *sdlApp)
 
         if (!running) break;
 
+        time_t ct = time(NULL);
+        strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
+
         if (newDir == 1) {
-#if doit
+
             while (command_push(CMD_SHUTDOWN) < 0)
                 SDL_Delay(10);
 
             SDL_WaitThread(control, NULL);
             control = NULL;
-#endif
             doClean();
 
             if (albumArt) {
@@ -3003,7 +3056,6 @@ static int doMedia(sdl2_app *sdlApp)
                 running = 0;
                 continue;
             }
-
 #if 0
             // Print all saved filenames
             printf("\Found %zu files:\n", playlist.count);
@@ -3014,9 +3066,9 @@ static int doMedia(sdl2_app *sdlApp)
 #endif
             chdir(folder_path);
             newDir = 0;
-#if doit
+
             control = SDL_CreateThread( control_thread, "audio-control", &playlist);
-#endif
+
             continue;
         }
 
@@ -3036,12 +3088,14 @@ static int doMedia(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, pause, NULL, &pauseR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, stop,  NULL, &stopR,  0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, next,  NULL, &nextR,  0, NULL, SDL_FLIP_NONE);
-        SDL_RenderCopyEx(sdlApp->renderer, prev,  NULL, &prevR,  0, NULL, SDL_FLIP_NONE);   
-        SDL_RenderCopyEx(sdlApp->renderer, vup,   NULL, &vupR,   0, NULL, SDL_FLIP_NONE);
-        SDL_RenderCopyEx(sdlApp->renderer, vdown, NULL, &vdownR, 0, NULL, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(sdlApp->renderer, prev,  NULL, &prevR,  0, NULL, SDL_FLIP_NONE);
+        if (sdlApp->conf->snd_showMixer) {
+            SDL_RenderCopyEx(sdlApp->renderer, vup,   NULL, &vupR,   0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, vdown, NULL, &vdownR, 0, NULL, SDL_FLIP_NONE);
+        }
         SDL_RenderCopyEx(sdlApp->renderer, mquit, NULL, &mquitR, 0, NULL, SDL_FLIP_NONE);
 
-        if (sdlApp->conf->muted == 0) {
+        if (muted == 0) {
             SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
         } else {
             SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
@@ -3070,13 +3124,20 @@ static int doMedia(sdl2_app *sdlApp)
                 SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[playlist.index - scrl_offset]);
             }
 
+
+            int dcol = WHITE;
+            stat(playlist.files[i + scrl_offset], &stats);
+            if (S_ISDIR(stats.st_mode)) {
+                dcol = GREEN;
+            }
+
             // Present a file item without the suffix
             char filenm[PATH_MAX];
             strncpy(filenm, playlist.files[i + scrl_offset], sizeof(filenm)-1);
             char *p = strrchr(filenm, '.');
             if (p != NULL) {*p = '\0';}
 
-            get_text_and_rect(sdlApp->renderer, 55, item_y + 2, 0, filenm, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+            get_text_and_rect(sdlApp->renderer, 55, item_y + 2, 0, filenm, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, dcol);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
@@ -3090,6 +3151,9 @@ static int doMedia(sdl2_app *sdlApp)
         if (strncmp(folder_path, sdlApp->conf->media_path, sizeof(folder_path)-1)) {
             SDL_RenderCopyEx(sdlApp->renderer, back, NULL, &scrl_bk_rect, 0, NULL, SDL_FLIP_NONE);
         }
+
+        get_text_and_rect(sdlApp->renderer, 570, 10, 0, msg_tod, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
+        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
         // Draw the progress bar
         void draw_progress_bar(SDL_Renderer *renderer,
@@ -3209,12 +3273,6 @@ static int doMedia(sdl2_app *sdlApp)
                 fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-#if 0
-            get_text_and_rect(sdlApp->renderer, 60, 384, 0, playlist.comment,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-#endif
-
             Uint64 now = player_paused ? pause_start_ms : SDL_GetTicks64();
             double current_position = (double)(now - track_start_ms - paused_total_ms) / 1000.0;
 
@@ -3222,7 +3280,12 @@ static int doMedia(sdl2_app *sdlApp)
 
             // Show album art
             if (albumArt == NULL) {
-                albumArt = IMG_LoadTexture(sdlApp->renderer, albumArtPath);
+                if (!strncmp(sdlApp->conf->media_path, albumArtPath, sizeof(albumArtPath)-1)) {
+                    char path[PATH_MAX];
+                    snprintf(path, sizeof(path)-1, "%s/%s%s", curDir, IMAGE_PATH, DEF_ACOVER);
+                    albumArt = IMG_LoadTexture(sdlApp->renderer, path);
+                } else
+                    albumArt = IMG_LoadTexture(sdlApp->renderer, albumArtPath);
             }
             if (albumArt != NULL) {
                 SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
@@ -3249,22 +3312,22 @@ static int doMedia(sdl2_app *sdlApp)
     }
 
     /* Shutdown */
-#if doit
     if (control != NULL) {
         while (command_push(CMD_SHUTDOWN) < 0)
             SDL_Delay(10);
 
         SDL_WaitThread(control, NULL);
     }
-#endif
+
+    control = NULL;
     doClean();
 
     chdir(curDir);
 
-    SDL_CloseAudioDevice(audio_device);
-    SDL_DestroyCond(commands.cond);
-    SDL_DestroyMutex(commands.mutex);
-    SDL_DestroyMutex(audio.mutex);
+    SDL_CloseAudioDevice(apropps.audio_device);
+    SDL_DestroyCond(apropps.commands.cond);
+    SDL_DestroyMutex(apropps.commands.mutex);
+    SDL_DestroyMutex(apropps.audio.mutex);
 
     TTF_CloseFont(fontMsg);
 
@@ -3283,6 +3346,8 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(albumArt);
     SDL_DestroyTexture(textBox);
+
+    sdlApp->conf->muted = wasMuted;
 
     return eType;
 }
@@ -5545,23 +5610,6 @@ static int doWind(sdl2_app *sdlApp)
 
     return e.type;
 }
-
-
-static void set_alsa_volume(sdl2_app *sdlApp, float percent)
-{   
-    long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
-
-    snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
-}
-
-static float get_current_volume(sdl2_app *sdlApp)
-{
-    long volume;
-    snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
-
-    return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
-}
-
 
 // Present Environmant page (Non standard NMEA)
 static int doEnvironment(sdl2_app *sdlApp)
@@ -8297,10 +8345,24 @@ static void init_av(configuration *configParams)
 
     configParams->elem = snd_mixer_find_selem(configParams->mixer, sid);
 
+    // FALLBACK: If PCM was not found
+    if (!configParams->elem) {
+        snd_mixer_selem_id_set_name(sid, "Playback");
+        configParams->elem = snd_mixer_find_selem(configParams->mixer, sid);
+    }
+    if (!configParams->elem) {
+        snd_mixer_selem_id_set_name(sid, "Speaker");
+        configParams->elem = snd_mixer_find_selem(configParams->mixer, sid);
+    }
+
     if (!configParams->elem) {
         configParams->snd_useMixer = 0;
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element for %s", adev);
-    } else {
+        if (configParams->mixer) {
+            snd_mixer_close(configParams->mixer);
+            configParams->mixer = NULL;
+        }
+        } else {
         setenv("SDL_AUDIODRIVER", "alsa", 1);
         SDL_Init(SDL_INIT_AUDIO);
         configParams->snd_useMixer = 1;
@@ -8417,8 +8479,6 @@ int main(int argc, char *argv[])
     cnmea.conf =  &configParams;
     cnmea.calib = &configParams.calib;
     cnmea.mcomp = &Comppass;
-
-strcpy(configParams.media_path, "/media/Musik/");
 
     configParams.sdlApp = &sdlApp;
 

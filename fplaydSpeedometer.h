@@ -9,6 +9,8 @@
 #define RING_SIZE        (AUDIO_RATE * AUDIO_CHANNELS * 2 * 2)
 #define COMMAND_QUEUE    16
 
+#define DEF_ACOVER      "defsound.png"
+
 /* -------------------------------------------------- */
 /* Commands                                           */
 /* -------------------------------------------------- */
@@ -98,13 +100,19 @@ typedef struct
 
 } CommandQueue;
 
-extern AudioBuffer audio;
-extern CommandQueue commands;
+typedef struct
+{
+    AudioBuffer audio;
+    CommandQueue commands;
+    SDL_AudioDeviceID audio_device;
 
+} AudioProps;
+
+extern AudioProps apropps;
+extern void player_init(AudioProps *propps);
 extern void audio_callback(void *userdata, Uint8 *stream, int len);
 extern int control_thread(void *arg);
 extern int command_push(PlayerCommand cmd);
-extern SDL_AudioDeviceID audio_device;
 extern int scandirs(Playlist *plist);
 extern void show_audio_metadata(Playlist *pl);
 

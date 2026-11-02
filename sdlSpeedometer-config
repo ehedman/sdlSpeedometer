@@ -384,6 +384,19 @@ Enter the audible high current level warning message
   fi
 }
 
+do_set_media_path() {
+    whiptail --msgbox "\
+Enter the folder path to audio files
+" 20 70 1
+
+  CURRENT_CURRENT_MEDIA_PATH=$(sqlite3 $SPEEDOMETER_DB 'SELECT mpath FROM config;')
+  NEW_MEDIA_PATH=$(whiptail --inputbox "Please enter the root media folder for audio files" 20 60 -- "$CURRENT_CURRENT_MEDIA_PATH" 3>&1 1>&2 2>&3)
+  if [ -n "$NEW_MEDIA_PATH" ]; then
+    NEW_MEDIA_PATH="${NEW_MEDIA_PATH%/}/"
+    echo "UPDATE config SET mpath = '$NEW_MEDIA_PATH' WHERE Id=1;" >> "$SQLFILE"
+  fi
+}
+
 is_pulseaudio() {
   pgrep pulseaudio > /dev/null || pgrep pipewire-pulse > /dev/null
   return $?
@@ -512,7 +525,8 @@ do_config_menu() {
     "20 Wessel draft" "Enter the wessel draft level warning" \
     "22 Voltage warning" "Enter the audible low voltage level warning" \
     "22 Current warning" "Enter the audible high current level warning" \
-    "23 Audio Device" "Enter the audio device used for spoken warnings" \
+    "23 Audio Device" "Enter the audio device used for warnings and media" \
+    "24 Media Path" "Enter the path to audio files (Music)" \
     "24 RTSP Camera" "Enter the URL for an RTSP Camera" \
     "25 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
@@ -544,8 +558,9 @@ do_config_menu() {
       21\ *) do_set_voltage_warning ;;
       22\ *) do_set_current_warning ;;
       23\ *) do_set_audio_device ;;
-      24\ *) do_set_camera_url ;;
-      25\ *) do_raspi_config ;;
+      24\ *) do_set_media_path ;;
+      25\ *) do_set_camera_url ;;
+      26\ *) do_raspi_config ;;
       *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   fi

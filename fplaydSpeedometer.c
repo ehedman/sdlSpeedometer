@@ -17,9 +17,16 @@
 #include "sdlSpeedometer.h"
 #include "fplaydSpeedometer.h"
 
-AudioBuffer audio;
-CommandQueue commands;
-SDL_AudioDeviceID audio_device;
+static AudioBuffer audio;
+static CommandQueue commands;
+static SDL_AudioDeviceID audio_device;
+
+void player_init(AudioProps *apropps)
+{
+    audio = apropps->audio;
+    commands = apropps->commands;
+    audio_device = apropps->audio_device;
+}
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -662,14 +669,11 @@ int control_thread(void *arg)
     DecoderJob *job = NULL;
     SDL_Thread *decoder = NULL;
 
-//    int index = 0;
-//    int active = 0;
-//    int paused = 0;
     int running = 1;
 
     while (running)
     {
-        PlayerCommand cmd;
+        PlayerCommand cmd = 0;
 
         if (command_pop(&cmd))
         {
