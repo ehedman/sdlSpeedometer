@@ -2722,6 +2722,269 @@ static float get_current_volume(sdl2_app *sdlApp)
     return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
 }
 
+
+
+#define _POSIX_C_SOURCE 200809L
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>     // strcasecmp()
+#include <dirent.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+
+typedef struct {
+    char **paths;
+    size_t count;
+} CoverList;
+
+
+// ------------------------------------------------------------
+// Kontrollera filändelse, skiftlägesokänsligt
+// ------------------------------------------------------------
+
+static int has_extension(const char *name, const char *ext)
+{
+    size_t name_len = strlen(name);
+    size_t ext_len  = strlen(ext);
+
+    if (name_len < ext_len)
+        return 0;
+
+    return strcasecmp(name + name_len - ext_len, ext) == 0;
+}
+
+
+// ------------------------------------------------------------
+// Kontrollera om filen är en omslagsbild
+// ------------------------------------------------------------
+
+static int is_image_file(const char *name)
+{
+    return has_extension(name, ".png") ||
+           has_extension(name, ".jpg");
+}
+
+
+// ------------------------------------------------------------
+// Kontrollera om filen är en ljudfil
+// ------------------------------------------------------------
+
+static int is_audio_file(const char *name)
+{
+    return has_extension(name, ".mp3")  ||
+           has_extension(name, ".flac") ||
+           has_extension(name, ".wav");
+}
+
+
+// ------------------------------------------------------------
+// Skapa fullständig sökväg
+// ------------------------------------------------------------
+
+static char *make_path(const char *dir, const char *name)
+{
+    size_t dir_len  = strlen(dir);
+    size_t name_len = strlen(name);
+
+    int add_slash = (dir_len > 0 && dir[dir_len - 1] != '/');
+
+    char *path = malloc(dir_len + add_slash + name_len + 1);
+
+    if (!path)
+        return NULL;
+
+    memcpy(path, dir, dir_len);
+
+    if (add_slash)
+        path[dir_len++] = '/';
+
+    memcpy(path + dir_len, name, name_len + 1);
+
+    return path;
+}
+
+
+// ------------------------------------------------------------
+// Lägg till sökväg i resultatlistan
+// ------------------------------------------------------------
+
+static int coverlist_add(CoverList *list, const char *path)
+{
+    char **temp = realloc(list->paths,
+                          (list->count + 1) * sizeof(*list->paths));
+
+    if (!temp)
+        return -1;
+
+    list->paths = temp;
+
+    list->paths[list->count] = strdup(path);
+
+    if (!list->paths[list->count])
+        return -1;
+
+    list->count++;
+
+    return 0;
+}
+
+
+// ------------------------------------------------------------
+// Frigör resultatlistan
+// ------------------------------------------------------------
+
+void coverlist_free(CoverList *list)
+{
+    if (!list)
+        return;
+
+    for (size_t i = 0; i < list->count; i++)
+        free(list->paths[i]);
+
+    free(list->paths);
+
+    list->paths = NULL;
+    list->count = 0;
+}
+
+
+// ------------------------------------------------------------
+// Rekursiv katalogskanning
+// ------------------------------------------------------------
+
+static int scan_directory(const char *base_path, CoverList *list)
+{
+    DIR *dir = opendir(base_path);
+
+    if (!dir) {
+        perror(base_path);
+        return -1;
+    }
+
+    struct dirent *entry;
+
+    char **images = NULL;
+    size_t image_count = 0;
+
+    int audio_found = 0;
+    int result = 0;
+
+    while ((entry = readdir(dir)) != NULL) {
+
+        // Hoppa över "." och ".."
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        char *full_path = make_path(base_path, entry->d_name);
+
+        if (!full_path) {
+            result = -1;
+            break;
+        }
+
+        struct stat st;
+
+        // lstat gör att vi inte följer symboliska länkar
+        if (lstat(full_path, &st) != 0) {
+            free(full_path);
+            continue;
+        }
+
+        // Rekursion i underkataloger
+        if (S_ISDIR(st.st_mode)) {
+
+            if (scan_directory(full_path, list) != 0)
+                result = -1;
+
+            free(full_path);
+
+            if (result != 0)
+                break;
+
+            continue;
+        }
+
+        // Ignorera allt som inte är vanliga filer
+        if (!S_ISREG(st.st_mode)) {
+            free(full_path);
+            continue;
+        }
+
+        // Hitta ljudfiler i aktuell katalog
+        if (is_audio_file(entry->d_name)) {
+            audio_found = 1;
+        }
+
+        // Samla bildfiler i aktuell katalog
+        if (is_image_file(entry->d_name) && image_count < 1) {
+
+            char **temp = realloc(images,
+                                  (image_count + 1) * sizeof(*images));
+
+            if (!temp) {
+                free(full_path);
+                result = -1;
+                break;
+            }
+
+            images = temp;
+            images[image_count++] = full_path;
+
+        } else {
+            free(full_path);
+        }
+    }
+
+    closedir(dir);
+
+    // Lägg till bilderna endast om katalogen innehåller ljud
+    if (result == 0 && audio_found) {
+
+        for (size_t i = 0; i < image_count; i++) {
+
+            if (coverlist_add(list, images[i]) != 0) {
+                result = -1;
+                break;
+            }
+        }
+    }
+
+    // Frigör lokala bildsökvägar
+    for (size_t i = 0; i < image_count; i++)
+        free(images[i]);
+
+    free(images);
+
+    return result;
+}
+
+
+// ------------------------------------------------------------
+// Publik funktion
+// ------------------------------------------------------------
+
+int scan_cover_art(const char *base_path, CoverList *list)
+{
+    if (!base_path || !list)
+        return -1;
+
+    list->paths = NULL;
+    list->count = 0;
+
+    if (scan_directory(base_path, list) != 0) {
+        coverlist_free(list);
+        return -1;
+    }
+
+    return 0;
+}
+
+
 // Show the media page
 static int doMedia(sdl2_app *sdlApp)
 {
@@ -2778,6 +3041,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect mquitR     = {vupR.x+100, playR.y,60,60};
     SDL_Rect arttBoxR   = {w-230,60,200,200};
     SDL_Rect textBoxR   = {arttBoxR.x-20,arttBoxR.y-14,arttBoxR.w+34,arttBoxR.h+34};
+    SDL_Rect sliderR    = {10, 40, 30, 200};
 
     // Scroll variables for the file selector
     int rMargin = w/2+100;
@@ -2804,9 +3068,27 @@ static int doMedia(sdl2_app *sdlApp)
     playlist.path = folder_path;
     playlist.apath = albumArtPath;
 
-    // Fetch media root content
-    if (scandirs(&playlist))
-        return eType;
+#if 0
+    CoverList covers = {0};
+
+    if (scan_cover_art("/home/erland/Musik", &covers) == 0) {
+
+        printf("Hittade %zu omslagsbilder\n", covers.count);
+
+        for (size_t i = 0; i < covers.count; i++) {
+            printf("[%zu] %s\n", i, covers.paths[i]);
+        }
+
+        // covers.paths[i] kan nu användas som SDL_image-sökväg
+        // SDL_Surface *surface = IMG_Load(covers.paths[0]);
+
+        coverlist_free(&covers);
+    }
+#endif
+
+        // Fetch media root content
+        if (scandirs(&playlist))
+            return eType;
 
 #if 0
     // Print all saved filenames
@@ -2874,9 +3156,13 @@ static int doMedia(sdl2_app *sdlApp)
         return eType;
     }
 
-    int eSkip = 1;
-    int running = 1;
-    int newDir = 0;
+    int eSkip;
+    int running;
+    int dragging;
+    int newDir;
+
+    dragging = newDir = 0;
+    running  = eSkip  = 1;
 
     void doClean()
     {
@@ -2915,6 +3201,29 @@ static int doMedia(sdl2_app *sdlApp)
                 running=0;
                 eType=e.type;
 
+            } else if (e.type == SDL_MOUSEMOTION && dragging == 1) {
+
+                    SDL_Point p = (SDL_Point){e.motion.x, e.motion.y};
+
+                    if (SDL_PointInRect(&p, &sliderR)) {
+                        int mouseY = p.y;
+                        static int lastY;
+                        int newY;
+
+                        newY = mouseY/26;
+
+                        if (abs(newY - lastY) <= 26) {  // ~row step within the scroll ed area
+
+                            if (newY > lastY) {
+                                if (scrl_offset < playlist.count - MVISIBLE_FILES) {scrl_offset++;}
+                            } else if (newY < lastY) {
+                                if (scrl_offset > 0) scrl_offset--;
+                            }
+
+                            lastY = newY;
+                        }
+                }
+
             } else if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
                 int x, y;
                 if (e.type == SDL_FINGERDOWN) {
@@ -2922,7 +3231,7 @@ static int doMedia(sdl2_app *sdlApp)
                     y = e.tfinger.y* h;
                     p = (SDL_Point){ x, y };
                 } else {
-                    p = (SDL_Point){e.button.x/sdlApp->conf->scale, e.button.y/sdlApp->conf->scale};
+                    p = (SDL_Point){e.button.x, e.button.y};
                 }
 
                 if (SDL_PointInRect(&p, &playR)) {
@@ -2939,6 +3248,10 @@ static int doMedia(sdl2_app *sdlApp)
                 }
                 if (SDL_PointInRect(&p, &prevR)) {
                     command_push(CMD_PREVIOUS);
+                }
+
+                if (SDL_PointInRect(&p, &sliderR)) {
+                    dragging = 1;
                 }
 
                 if (sdlApp->conf->snd_useMixer && !muted) {
@@ -3023,10 +3336,13 @@ static int doMedia(sdl2_app *sdlApp)
 
             } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wroll input
                 if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
-                else if (e.wheel.y < 0 && scrl_offset < playlist.count - RVISIBLE_FILES) scrl_offset++;
+                else if (e.wheel.y < 0 && scrl_offset < playlist.count - MVISIBLE_FILES) scrl_offset++;
             }
 
-            eSkip = 2;  // inadvertent double-click
+            eSkip = 1;  // inadvertent double-click
+
+            if (e.type == SDL_MOUSEBUTTONUP)
+                dragging = 0;
         }
 
         if (!running) break;
@@ -3049,6 +3365,7 @@ static int doMedia(sdl2_app *sdlApp)
             }
 
             memset(&playlist, 0 , sizeof(playlist));
+            scrl_offset = 0;
 
             playlist.path = folder_path;
             playlist.apath = albumArtPath;
@@ -3111,7 +3428,7 @@ static int doMedia(sdl2_app *sdlApp)
         for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < playlist.count; i++)
         {
             int item_y = 40 + (i * 24);
-
+            sliderR.h = item_y - 18;
             // Save clickable area for the file
             file_click_areas[i].x = 50;
             file_click_areas[i].y = item_y;
@@ -3159,6 +3476,12 @@ static int doMedia(sdl2_app *sdlApp)
 
             get_text_and_rect(sdlApp->renderer, 55, item_y + 2, 0, display_name, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, dcol);
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        }
+
+        /* Slider background */
+        if (playlist.count >  MVISIBLE_FILES) {
+            SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &sliderR);
         }
 
         // Draw scroll buttons

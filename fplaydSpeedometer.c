@@ -275,6 +275,12 @@ int scandirs(Playlist *plist)
             continue;
         }
 
+        snprintf(q_path, sizeof(q_path), "%s%s", plist->path, entry->d_name);
+
+        if (lstat(q_path, &stats)) {
+            continue;
+        }
+
         char *p = strrchr(entry->d_name, '.');
     
         if (p != NULL) {
@@ -292,8 +298,6 @@ int scandirs(Playlist *plist)
             }
 
         }
-
-        snprintf(q_path, sizeof(q_path), "%s%s", plist->path, entry->d_name);
 
         stat(q_path, &stats);
         if (S_ISDIR(stats.st_mode)) {
