@@ -1,6 +1,8 @@
 #ifndef SPEEDOMETER_H
 #define SPEEDOMETER_H
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <sqlite3.h>
 #ifdef HAS_SMBUS_H
 #include <i2c/smbus.h>

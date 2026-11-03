@@ -29,8 +29,6 @@ void player_init(AudioProps *apropps)
     audio_device = apropps->audio_device;
 }
 
-#define _POSIX_C_SOURCE 200809L
-
 /* ---------------------------------------------------------------- */
 /* Find track number based on a file name i.e "00 Dinah-Moe Humm"   */
 /* ---------------------------------------------------------------- */

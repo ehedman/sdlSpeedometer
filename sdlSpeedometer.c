@@ -2722,10 +2722,6 @@ static float get_current_volume(sdl2_app *sdlApp)
     return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
 }
 
-
-
-#define _POSIX_C_SOURCE 200809L
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -3046,9 +3042,9 @@ static int doMedia(sdl2_app *sdlApp)
     // Scroll variables for the file selector
     int rMargin = w/2+100;
     int scrl_offset = 0;
-    SDL_Rect scrl_bk_rect = { rMargin-40, 60,  40, 40 };
-    SDL_Rect scrl_up_rect = { rMargin-40, 110, 40, 40 };
-    SDL_Rect scrl_dn_rect = { rMargin-40, 160, 40, 40 };
+    SDL_Rect scrl_bk_rect = { rMargin-30, 60,  50, 50 };
+    SDL_Rect scrl_up_rect = { rMargin-30, 120, 50, 50 };
+    SDL_Rect scrl_dn_rect = { rMargin-30, 180, 50, 50 };
     SDL_Rect file_click_areas[MVISIBLE_FILES];
 
     SDL_Rect mutebarR   = {w-60,h-60,25,25};
@@ -3447,7 +3443,6 @@ static int doMedia(sdl2_app *sdlApp)
                 SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[playlist.index - scrl_offset]);
             }
 
-
             int dcol = WHITE;
             stat(playlist.files[i + scrl_offset], &stats);
             if (S_ISDIR(stats.st_mode)) {
@@ -3478,22 +3473,23 @@ static int doMedia(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
-        /* Slider background */
-        if (playlist.count >  MVISIBLE_FILES) {
-            SDL_SetRenderDrawColor(sdlApp->renderer, 80, 80, 80, 255);
+        // Slider background
+        if (playlist.count >  MVISIBLE_FILES) {            
+            SDL_SetRenderDrawColor(sdlApp->renderer, dragging == 0?80:130, dragging == 0?80:130, dragging == 0?80:130, 255);
             SDL_RenderFillRect(sdlApp->renderer, &sliderR);
-        }
-
-        // Draw scroll buttons
-        if (playlist.count >= MVISIBLE_FILES)
-        {
-            SDL_RenderCopyEx(sdlApp->renderer, up, NULL, &scrl_up_rect, 0, NULL, SDL_FLIP_NONE);
-            SDL_RenderCopyEx(sdlApp->renderer, down, NULL, &scrl_dn_rect, 0, NULL, SDL_FLIP_NONE);
+        
+            // Draw scroll buttons
+            if (playlist.count >= MVISIBLE_FILES)
+            {
+                SDL_RenderCopyEx(sdlApp->renderer, up, NULL, &scrl_up_rect, 0, NULL, SDL_FLIP_NONE);
+                SDL_RenderCopyEx(sdlApp->renderer, down, NULL, &scrl_dn_rect, 0, NULL, SDL_FLIP_NONE);
+            }
         }
 
         if (strncmp(folder_path, sdlApp->conf->media_path, sizeof(folder_path)-1)) {
             SDL_RenderCopyEx(sdlApp->renderer, back, NULL, &scrl_bk_rect, 0, NULL, SDL_FLIP_NONE);
         }
+
 
         get_text_and_rect(sdlApp->renderer, 570, 10, 0, msg_tod, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
         SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
