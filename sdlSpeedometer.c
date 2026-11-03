@@ -3225,11 +3225,11 @@ static int doMedia(sdl2_app *sdlApp)
         }
 
         // Data to manage the progress bar
-        Uint64 track_start_ms;
-        Uint64 pause_start_ms;
-        Uint64 paused_total_ms;
-        int player_paused;
-        int pgIndx;
+        static Uint64 track_start_ms;
+        static Uint64 pause_start_ms;
+        static Uint64 paused_total_ms;
+        static int player_paused;
+        static int pgIndx;
 
         // Draw now playing fields whit meta data
         if (playlist.active) { 
