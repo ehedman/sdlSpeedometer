@@ -287,13 +287,13 @@ int scandirs(Playlist *plist)
                   continue;
             }
 
-            if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0) {
+            if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0 && strcmp(p, "wav") != 0) {
                 continue; //Ignore other file types completely
             }
 
         }
 
-        snprintf(q_path, sizeof(q_path), "%s/%s", plist->path, entry->d_name);
+        snprintf(q_path, sizeof(q_path), "%s%s", plist->path, entry->d_name);
 
         stat(q_path, &stats);
         if (S_ISDIR(stats.st_mode)) {
@@ -335,7 +335,7 @@ int scandirs(Playlist *plist)
     dir = NULL;
 
     /* Sorting Section */
-
+#if 1
     typedef struct {
         char *filename;
         int track;
@@ -353,7 +353,12 @@ int scandirs(Playlist *plist)
 
     for (int i = 0; i < plist->count; i++) {
 
-        snprintf(q_path, sizeof(q_path), "%s/%s", plist->path, plist->files[i]);
+        snprintf(q_path, sizeof(q_path), "%s%s", plist->path, plist->files[i]);
+
+        stat(q_path, &stats);
+        if (S_ISDIR(stats.st_mode)) {
+            continue;
+        }
 
         char *ext = strrchr(q_path, '.');
         track_no = -1;
@@ -364,7 +369,7 @@ int scandirs(Playlist *plist)
             } else if (strcmp(ext, ".mp3") == 0) {
                 track_no = get_mp3_track(q_path);
             } else {
-               track_no = get_track_from_filename(q_path);
+               track_no = get_track_from_filename(plist->files[i]);
             }
         }
 
@@ -399,6 +404,8 @@ int scandirs(Playlist *plist)
     for (int i = 0; i < plist->count; i++) {
         printf("File %d: %s\n", i + 1, plist->files[i]);
     }
+#endif
+
 #endif
 
 cleanup:
@@ -662,7 +669,7 @@ static void print_tag(AVDictionary *dict, const char *key, char *str)
 
     if (tag && tag->value) {
 //        printf("%-12s: %s\n", key, tag->value);
-        snprintf(str, 79, "%-12s: %s", key, tag->value);
+        snprintf(str, 46, "%-12s: %s", key, tag->value); // Don't spill through GUI limits
     }
 }
 

@@ -2810,7 +2810,7 @@ static int doMedia(sdl2_app *sdlApp)
 
 #if 0
     // Print all saved filenames
-    printf("\Found %zu files:\n", playlist.count);
+    printf("Found in root dir %zu files:\n", playlist.count);
 
     for (size_t i = 0; i < playlist.count; i++) {
         printf("[%zu]: %s\n", i, playlist.files[i]);
@@ -2978,7 +2978,7 @@ static int doMedia(sdl2_app *sdlApp)
                 }
 
                 if (SDL_PointInRect(&p, &scrl_dn_rect)) {
-                    if (scrl_offset < playlist.count - MVISIBLE_FILES) scrl_offset++;
+                    if (scrl_offset < playlist.count - MVISIBLE_FILES) {scrl_offset++;}
                 }
 
                 // Move backwards in file path
@@ -3020,6 +3020,10 @@ static int doMedia(sdl2_app *sdlApp)
                 }
 
                 if (newDir) {break;}
+
+            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wroll input
+                if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
+                else if (e.wheel.y < 0 && scrl_offset < playlist.count - RVISIBLE_FILES) scrl_offset++;
             }
 
             eSkip = 2;  // inadvertent double-click
@@ -3058,7 +3062,7 @@ static int doMedia(sdl2_app *sdlApp)
             }
 #if 0
             // Print all saved filenames
-            printf("\Found %zu files:\n", playlist.count);
+            printf("Found in new dir %zu files:\n", playlist.count);
 
             for (size_t i = 0; i < playlist.count; i++) {
                 printf("[%zu]: %s\n", i, playlist.files[i]);
@@ -3101,6 +3105,8 @@ static int doMedia(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        if (scrl_offset >= playlist.count) {scrl_offset = 0;}
+
         // Draw file selector
         for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < playlist.count; i++)
         {
@@ -3134,6 +3140,8 @@ static int doMedia(sdl2_app *sdlApp)
             // Present a file item without the suffix
             char filenm[PATH_MAX];
             strncpy(filenm, playlist.files[i + scrl_offset], sizeof(filenm)-1);
+
+            filenm[38] = '\0';  // Don't spill through the rect.
             char *p = strrchr(filenm, '.');
             if (p != NULL) {*p = '\0';}
 
@@ -3254,43 +3262,55 @@ static int doMedia(sdl2_app *sdlApp)
             show_audio_metadata(&playlist);
           
             int  indx = 244; int incr=20;
-            get_text_and_rect(sdlApp->renderer, 60, indx, 0, playlist.title,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.artist,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.album,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.album_artist,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.genre,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.date,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            if (strlen(playlist.title)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx, 0, playlist.title,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
+            if (strlen(playlist.artist)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.artist,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
+            if (strlen(playlist.album)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.album,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
+            if (strlen(playlist.album_artist)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.album_artist,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
+            if (strlen(playlist.genre)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.genre,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
+            if (strlen(playlist.date)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.date,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
 #if 0
-            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.track,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            if (strlen(playlist.track)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.track,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
 #endif
-
-            get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.duration,
-                fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            if (strlen(playlist.duration)) {
+                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.duration,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            }
 
             Uint64 now = player_paused ? pause_start_ms : SDL_GetTicks64();
             double current_position = (double)(now - track_start_ms - paused_total_ms) / 1000.0;
 
-            draw_progress_bar(sdlApp->renderer, 300, 366, 364, 14, current_position, playlist.s_duration);
+            if (strlen(playlist.duration)) {
+                draw_progress_bar(sdlApp->renderer, 300, indx, 364, 14, current_position, playlist.s_duration);
+            }
 
             // Show album art
             if (albumArt == NULL) {
