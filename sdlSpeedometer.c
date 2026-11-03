@@ -3173,6 +3173,9 @@ static int doMedia(sdl2_app *sdlApp)
     float volume_percent = 0.0f;
     float volume_rel = 0.0f;
 
+    int left_dirs[200];
+    int left_dirs_indx = 0;
+
     if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
     }
@@ -3303,6 +3306,7 @@ static int doMedia(sdl2_app *sdlApp)
                             }
                         }
                         command_push(CMD_STOP);
+                        if (left_dirs_indx > 0) --left_dirs_indx;
                         newDir = 1;
                     }
                 }
@@ -3319,6 +3323,7 @@ static int doMedia(sdl2_app *sdlApp)
                             strncat(folder_path, "/", sizeof(folder_path)-1);
                             command_push(CMD_STOP);
                             newDir = 1;
+                            left_dirs[left_dirs_indx++] = scrl_offset;
                         } else {
                             strncpy(current_input, playlist.files[i + scrl_offset], RMAX_FILENAME);
                             playlist.index = i + scrl_offset;
@@ -3361,8 +3366,7 @@ static int doMedia(sdl2_app *sdlApp)
             }
 
             memset(&playlist, 0 , sizeof(playlist));
-            scrl_offset = 0;
-
+            scrl_offset = left_dirs[left_dirs_indx];
             playlist.path = folder_path;
             playlist.apath = albumArtPath;
 
@@ -3423,6 +3427,7 @@ static int doMedia(sdl2_app *sdlApp)
         // Draw file selector
         for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < playlist.count; i++)
         {
+
             int item_y = 40 + (i * 24);
             sliderR.h = item_y - 18;
             // Save clickable area for the file
