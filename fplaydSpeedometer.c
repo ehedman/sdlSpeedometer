@@ -23,7 +23,7 @@ static CommandQueue commands;
 static SDL_AudioDeviceID audio_device;
 
 /* ---------------------------------------------------------------- */
-/* Initialize things                                                */
+/* Initialize things to start with                                  */
 /* ---------------------------------------------------------------- */
 
 void player_init(AudioProps *apropps)
@@ -45,7 +45,7 @@ static int get_track_from_filename(const char *filepath)
     struct stat stats;
 
     stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode))
+    if (S_ISDIR(stats.st_mode)) // Should not happen
         return -1;
 
     const char *p = filepath;
@@ -62,23 +62,23 @@ static int get_track_from_filename(const char *filepath)
     }
 
     // Found no introductory tracks (e.g., "Intro.mp3")
-    return 1;
+    return 0;
 }
 
 /* -------------------------------------------------- */
 /* Find track number in meta data for wav             */
 /* -------------------------------------------------- */
 
-int get_wav_track(const char *filepath)
+static int get_wav_track(const char *filepath)
 {
     struct stat stats;
 
+    stat(filepath, &stats);
+    if (S_ISDIR(stats.st_mode)) // Should not happen
+        return -1;
+
     FILE *file = fopen(filepath, "rb");
     if (!file) return -1;
-
-    stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode))
-        return -1;
 
     char id[4];
     uint32_t chunk_size;
@@ -86,12 +86,12 @@ int get_wav_track(const char *filepath)
     // Verify RIFF/WAVE header (the first 12 bytes)
     if (fread(id, 1, 4, file) != 4 || memcmp(id, "RIFF", 4) != 0) {
         fclose(file);
-        return 1;
+        return 0;
     }
     fseek(file, 4, SEEK_CUR); // Skip total file size
     if (fread(id, 1, 4, file) != 4 || memcmp(id, "WAVE", 4) != 0) {
         fclose(file);
-        return 1;
+        return 0;
     }
 
     // Loop through the top-level chunks in the file by skipping over their size
@@ -181,7 +181,7 @@ int get_wav_track(const char *filepath)
 
     fclose(file);
 
-    return 1; // Didn't find a tracking number
+    return 0; // Didn't find a tracking number
 }
 
 /* -------------------------------------------------- */
@@ -193,7 +193,7 @@ static int get_mp3_track(const char *filepath)
     struct stat stats;
 
     stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode))
+    if (S_ISDIR(stats.st_mode)) // Should not happen
         return -1;
 
     FILE *f = fopen(filepath, "rb");
@@ -202,13 +202,13 @@ static int get_mp3_track(const char *filepath)
     unsigned char id3_header[10];
     if (fread(id3_header, 1, 10, f) != 10) {
         fclose(f);
-        return -1;
+        return 0;
     }
 
     // Check that the file actually has an ID3v2 tag first.
     if (memcmp(id3_header, "ID3", 3) != 0) {
         fclose(f);
-        return 1;  // No ID3v2 tag found
+        return 0;  // No ID3v2 tag found
     }
 
     // Calculate the size of the ID3 block (Synchsafe integer: 4 bytes of 7 bits each)
@@ -221,19 +221,19 @@ static int get_mp3_track(const char *filepath)
     unsigned char *buffer = malloc(id3_size);
     if (!buffer) {
         fclose(f);
-        return -1;
+        return 0;
     }
 
     if (fread(buffer, 1, id3_size, f) != id3_size) {
         free(buffer);
         fclose(f);
-        return -1;
+        return 0;
     }
 
     unsigned int ptr = 0;
     int track_num = -1;
 
-    // 3. Sscan through the ID3 block for the "TRCK" frame
+    // Scan through the ID3 block for the "TRCK" frame
     while (ptr + 10 < id3_size) {
         // A frame header is 10 bytes (4 bytes name, 4 bytes size, 2 bytes flags)
         unsigned char *frame_id = &buffer[ptr];
@@ -279,7 +279,8 @@ static int get_mp3_track(const char *filepath)
 /* Find track number in meta data for flac            */
 /* -------------------------------------------------- */
 
-static int get_flac_track(const char *filepath) {
+static int get_flac_track(const char *filepath)
+{
 
     struct stat stats;
 
@@ -293,7 +294,7 @@ static int get_flac_track(const char *filepath) {
     char header[4];
     if (fread(header, 1, 4, f) != 4 || memcmp(header, "fLaC", 4) != 0) {
         fclose(f);
-        return 1;  // Not a valid FLAC file
+        return 0;  // Not a valid FLAC file
     }
 
     int is_last = 0;
@@ -309,7 +310,7 @@ static int get_flac_track(const char *filepath) {
 
         if (block_type == 4) { // VORBIS_COMMENT block
             unsigned char *buffer = malloc(block_size);
-            if (!buffer) { fclose(f); return 1; }
+            if (!buffer) { fclose(f); return 0; }
 
             if (fread(buffer, 1, block_size, f) == block_size) {
                 unsigned int ptr = 0;
@@ -324,7 +325,7 @@ static int get_flac_track(const char *filepath) {
                 unsigned int user_comment_list_length = buffer[ptr] | (buffer[ptr+1] << 8) | (buffer[ptr+2] << 16) | (buffer[ptr+3] << 24);
                 ptr += 4;
 
-                // 3. Loop through all tags safely
+                //  Loop through all tags safely
                 for (unsigned int i = 0; i < user_comment_list_length; i++) {
                     if (ptr + 4 > block_size) break;
                     unsigned int comment_len = buffer[ptr] | (buffer[ptr+1] << 8) | (buffer[ptr+2] << 16) | (buffer[ptr+3] << 24);
@@ -360,17 +361,17 @@ static int get_flac_track(const char *filepath) {
 
     fclose(f);
 
-    return 1;
+    return 0;
 }
 
 /* -------------------------------------------------- */
-/* Find media files function                                */
+/* Find media files function                          */
 /* -------------------------------------------------- */
 
 int scandirs(Playlist *plist)
 {
     int rval = 0;
-    int track_no;
+    int sqtrack_no = 0;
     int folder_count = 0;
     char q_path[PATH_MAX];
 
@@ -418,7 +419,7 @@ int scandirs(Playlist *plist)
             }
 
             if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0 && strcmp(p, "wav") != 0) {
-                continue; //Ignore other file types completely
+                continue;   // Ignore other file types completely
             }
 
         }
@@ -448,12 +449,16 @@ int scandirs(Playlist *plist)
             goto cleanup;
         }
 
+        if (!S_ISDIR(stats.st_mode))
+            plist->seq_track_no[plist->count] = ++sqtrack_no;
+
 #if 0
         // Diagnostics
-        printf("DEBUG: [%zu] ptr=%p name=%s\n",
+        if (!S_ISDIR(stats.st_mode))
+        printf("DEBUG: [%zu] ptr=%p name=%s  fallback track_no=%d   item=%d\n",
                plist->count,
                (void *)plist->files[plist->count],
-               plist->files[plist->count]);
+               plist->files[plist->count], plist->seq_track_no[plist->count] , sqtrack_no);
 #endif
 
         plist->count++;
@@ -484,7 +489,7 @@ int scandirs(Playlist *plist)
         snprintf(q_path, sizeof(q_path), "%s%s", plist->path, plist->files[i]);
 
         char *ext = strrchr(q_path, '.');
-        track_no = -1;
+        int track_no = -1;
 
         if (ext != NULL) {
             if (strcmp(ext, ".flac") == 0) {
@@ -499,14 +504,20 @@ int scandirs(Playlist *plist)
         }
 
         stat(q_path, &stats);
-        if (S_ISDIR(stats.st_mode)) { // Pick the first letter a-z-A-Z - usually the artist or album name
+
+        if (track_no <= 0 && !S_ISDIR(stats.st_mode)) {
+            track_no = plist->seq_track_no[i];
+            SDL_Log("doMedia(sort): Using sequential track no %d since it is not found in meta data for file %s", track_no, plist->files[i]);
+        }
+
+        // Simple sort. Pick the first letter a-z-A-Z - usually the artist or album name
+        if (S_ISDIR(stats.st_mode)) {
             track_no = tolower(plist->files[i][0]);
         }
 
         if (track_no > 0) {
 //            printf("TRACK for %s is %d\n", plist->files[i], track_no);
-
-            // Smove the pointer to the filename and track number in our sorting list
+            // Move the pointer to the filename and track number in our sorting list
             sort_list[valid_track_count].filename = plist->files[i];
             sort_list[valid_track_count].track = track_no;
             valid_track_count++;
@@ -524,7 +535,7 @@ int scandirs(Playlist *plist)
 
     // Update the counter in case any files were filtered out (e.g., files without track numbers)
     if (plist->count != valid_track_count) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia(sortdirs): Corrupted track count =%d : Should be=%d",
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia(sortdirs): Fatal: Corrupted track count =%d : Should be=%d",
             (int)valid_track_count, (int)plist->count);
         valid_track_count = plist->count;
     }

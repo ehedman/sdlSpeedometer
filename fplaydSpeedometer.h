@@ -67,6 +67,7 @@ typedef struct
     int index;
     int active;
     int paused;
+    int seq_track_no[80];
     float s_duration;
     char **files;
     char *path;
