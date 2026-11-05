@@ -1,15 +1,17 @@
 #ifndef SPEEDOMETER_H
 #define SPEEDOMETER_H
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <sqlite3.h>
 #ifdef HAS_SMBUS_H
 #include <i2c/smbus.h>
 #endif
 #include <alsa/asoundlib.h>
 
-#define S_TIMEOUT   4       // Invalidate current sentences after # seconds without a refresh from talker.
-#define METRIC 0    // Metric units
-#define US 1        // US Customary units
+#define S_TIMEOUT   4   // Invalidate current sentences after # seconds without a refresh from talker.
+#define METRIC 0        // Metric units
+#define US 1            // US Customary units
 #define TIMEDATFMT  "%x - %H:%M %Z"
 
 #ifdef HAS_IKONVERT_WORKAROUNDS
@@ -19,7 +21,6 @@
 
 // Dendent on project  https://github.com/ehedman/flowSensor
 //#define DIGIFLOW
-
 
 // Volume slider
 #define SWINDOW_WIDTH 20
@@ -56,6 +57,7 @@
 #define RMAX_FILENAME 256
 #define RMAX_FILES 256
 #define RVISIBLE_FILES 5
+#define MVISIBLE_FILES 8
 
 // See: BerryIMU/compass_tutorial03_calibration
 // Defaults if db fails
@@ -130,6 +132,8 @@ typedef struct {
     char snd_card_name[256];
     char cam_url[200];
     char vid_device[60];
+    char media_path[RMAX_FILENAME];
+    char *klicked_media_path;
     SDL_mutex* nm_mutex;
     SDL_mutex* tcp_mutex;
     int rwfilez;
@@ -259,6 +263,11 @@ typedef struct {
     char    glns[2];    // North (N) or South (S)
     char    glne[2];    // East (E) or West (W)
     time_t  net_ts;     // Data valid from network
+
+    float   cset;       // Current angle
+    float   cdrift;     // Current drift
+    time_t  cset_ts;    // Data valid from network
+
     // Sensors $P type messages
     float   volt;       // Sensor Volt
     char    volt_bank[20];  // Batery sensor bank #

@@ -1,27 +1,26 @@
 /*
-    A simple program that demonstrates how to program a magnetometer
-    on the Raspberry Pi and includes tilt compensation.
-    http://ozzmaker.com/2014/12/01/compass1
-
-
-    Copyright (C) 2014  Mark Williams
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-    Library General Public License for more details.
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 59 Temple Place - Suite 330, Boston,
-    MA 02111-1307, USA
-
-    2018 Erland Hedman: Rewritten as a library component with code
-    added from other BerryIMU examples.
-*/
+ * A program that demonstrates how to program a magnetometer
+ * on the Raspberry Pi and includes tilt compensation.
+ * http://ozzmaker.com/2014/12/01/compass1
+ *
+ * Copyright (C) 2014  Mark Williams
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Library General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Library General Public License for more details.
+ * You should have received a copy of the GNU Library General Public
+ * License along with this library; if not, write to the Free
+ * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston,
+ * MA 02111-1307, USA
+ *
+ * 2018-2026 Erland Hedman: Rewritten as a library component with code
+ * added from other BerryIMU examples.
+ */
 #include <stdint.h>
 #include "LSM9DS0.h"
 #include "LSM9DS1.h"
@@ -32,14 +31,18 @@
 #include <stdlib.h>
 #include <math.h>
 #include <errno.h>
-#include <SDL2/SDL.h>   // For the purpose of logging
+#include <SDL2/SDL.h>
 #include "sdlSpeedometer.h"
+
+#ifndef M_PIf
+#define M_PIf 3.14159265358979323846f
+#endif
 
 #define MAG_LPF_FACTOR  0.4
 #define ACC_LPF_FACTOR  0.1
 
-#define RAD_TO_DEG      57.29578
-#define AA      0.97    // complementary filter constan
+#define RAD_TO_DEG  57.29578
+#define AA          0.97    // complementary filter constan
 
 static int LSM9DS0 = 0;
 static int LSM9DS1 = 0;
@@ -276,10 +279,10 @@ int i2cinit(int bus)
 
 // The lower the ALPHA, the more stable (but slower) the meter becomes.
 // 0.05 to 0.15 is usually perfect for marine instruments.
-#define RALFA 0.1f
+#define RALFA 0.05f
 
 // Threshold for when we consider the boat to be perfectly level (in degrees)
-#define RDEAD_ZONE 0.3f
+#define RDEAD_ZONE 0.9f
 
 static float filterRoll(float rawData) {
     static float filtered_roll = 0.0f;
@@ -295,8 +298,8 @@ static float filterRoll(float rawData) {
     return filtered_roll;
 }
 
-#define PALFA 0.1f
-#define PDEAD_ZONE 0.3f
+#define PALFA 0.05f
+#define PDEAD_ZONE 0.9f
 
 static float filterPitch(float rawData) {
     static float filtered_pitch = 0.0f;
@@ -464,7 +467,7 @@ float i2cReadHdm(int file, calibration *calib)
                 +magRaw[2]*sinf(roll)*cosf(pitch); 
     }
 
-    heading = 180.0f * atan2f(magYcomp, magXcomp) / M_PI;
+    heading = 180.0f * atan2f(magYcomp, magXcomp) / M_PIf;
 
     if (heading < 0.0f)
         heading += 360.0f;

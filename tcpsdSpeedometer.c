@@ -1,3 +1,17 @@
+/*
+ * tcpsdSpeedometer.c
+ *
+ *  Copyright (C) 2018-2026 by Erland Hedman <erland@hedmanshome.se>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
+ *
+ * Description
+ * Relay server for forwarding NMEA-0183 strings from a 10110 port server
+ * and/or using data recorded by this application to clients on the network.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

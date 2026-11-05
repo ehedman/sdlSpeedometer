@@ -1,4 +1,4 @@
-SRCS=sdlSpeedometer.c i2cSpeedometer.c cog3dSpeedometer.c tcpsdSpeedometer.c
+SRCS=sdlSpeedometer.c i2cSpeedometer.c cog3dSpeedometer.c tcpsdSpeedometer.c fplaydSpeedometer.c
 HDRS=sdlSpeedometer.h LSM9DS0.h
 BIN=sdlSpeedometer
 CC=gcc
