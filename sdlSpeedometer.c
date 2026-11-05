@@ -2586,7 +2586,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                     memset(current_input, 0, sizeof(current_input));
                     snprintf(statusMsg, sizeof(statusMsg), "File operation stopped");
                 }
-            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wroll input
+            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll input
                 if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
                 else if (e.wheel.y < 0 && scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
             }
@@ -2722,25 +2722,14 @@ static float get_current_volume(sdl2_app *sdlApp)
     return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
 }
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <strings.h>     // strcasecmp()
-#include <dirent.h>
-#include <sys/stat.h>
-#include <errno.h>
-
-
 typedef struct {
     char **paths;
     size_t count;
+    SDL_Texture **cover;
+    SDL_Renderer *renderer;
 } CoverList;
 
-
-// ------------------------------------------------------------
-// Kontrollera filändelse, skiftlägesokänsligt
-// ------------------------------------------------------------
-
+// Check file extension, case-insensitive
 static int has_extension(const char *name, const char *ext)
 {
     size_t name_len = strlen(name);
@@ -2752,22 +2741,14 @@ static int has_extension(const char *name, const char *ext)
     return strcasecmp(name + name_len - ext_len, ext) == 0;
 }
 
-
-// ------------------------------------------------------------
-// Kontrollera om filen är en omslagsbild
-// ------------------------------------------------------------
-
+// Check if the file is a cover image
 static int is_image_file(const char *name)
 {
     return has_extension(name, ".png") ||
            has_extension(name, ".jpg");
 }
 
-
-// ------------------------------------------------------------
-// Kontrollera om filen är en ljudfil
-// ------------------------------------------------------------
-
+// Check whether the file is an audio file
 static int is_audio_file(const char *name)
 {
     return has_extension(name, ".mp3")  ||
@@ -2775,11 +2756,7 @@ static int is_audio_file(const char *name)
            has_extension(name, ".wav");
 }
 
-
-// ------------------------------------------------------------
-// Skapa fullständig sökväg
-// ------------------------------------------------------------
-
+// Create full path
 static char *make_path(const char *dir, const char *name)
 {
     size_t dir_len  = strlen(dir);
@@ -2802,55 +2779,69 @@ static char *make_path(const char *dir, const char *name)
     return path;
 }
 
-
-// ------------------------------------------------------------
-// Lägg till sökväg i resultatlistan
-// ------------------------------------------------------------
-
+// Add path to the results list
 static int coverlist_add(CoverList *list, const char *path)
 {
-    char **temp = realloc(list->paths,
-                          (list->count + 1) * sizeof(*list->paths));
+    char **temp = realloc(list->paths, (list->count + 1) * sizeof(*list->paths));
 
     if (!temp)
         return -1;
 
     list->paths = temp;
 
+    // Expand the array using a pointer
     list->paths[list->count] = strdup(path);
 
     if (!list->paths[list->count])
         return -1;
+
+    // Reallocate memory for the textures (cover)
+    SDL_Texture **temp_covers = realloc(list->cover, (list->count + 1) * sizeof(*list->cover));
+    if (!temp_covers) {
+        free(list->paths[list->count]);
+        return -1;
+    }
+    list->cover = temp_covers;
+
+
+    list->cover[list->count] = IMG_LoadTexture(list->renderer, list->paths[list->count]);
+    if (!list->cover[list->count]) {
+        list->cover[list->count] = NULL;
+    }
+
+    list->cover[list->count] = IMG_LoadTexture(list->renderer, list->paths[list->count]);
 
     list->count++;
 
     return 0;
 }
 
-
-// ------------------------------------------------------------
-// Frigör resultatlistan
-// ------------------------------------------------------------
-
-void coverlist_free(CoverList *list)
+// Detach the results list
+static void coverlist_free(CoverList *list)
 {
     if (!list)
         return;
 
     for (size_t i = 0; i < list->count; i++)
-        free(list->paths[i]);
+    {
+        if (list->cover && list->cover[i]) {
+            SDL_DestroyTexture(list->cover[i]);
+        }
+
+        if (list->paths && list->paths[i]) {
+            free(list->paths[i]);
+        }
+    }
 
     free(list->paths);
+    free(list->cover);
 
     list->paths = NULL;
+    list->cover = NULL;
     list->count = 0;
 }
 
-
-// ------------------------------------------------------------
-// Rekursiv katalogskanning
-// ------------------------------------------------------------
-
+// Recursive directory scanning
 static int scan_directory(const char *base_path, CoverList *list)
 {
     DIR *dir = opendir(base_path);
@@ -2870,7 +2861,7 @@ static int scan_directory(const char *base_path, CoverList *list)
 
     while ((entry = readdir(dir)) != NULL) {
 
-        // Hoppa över "." och ".."
+        // Skip "." and ".."
         if (strcmp(entry->d_name, ".") == 0 ||
             strcmp(entry->d_name, "..") == 0) {
             continue;
@@ -2885,13 +2876,13 @@ static int scan_directory(const char *base_path, CoverList *list)
 
         struct stat st;
 
-        // lstat gör att vi inte följer symboliska länkar
+        // lstat ensures that we do not follow symbolic links
         if (lstat(full_path, &st) != 0) {
             free(full_path);
             continue;
         }
 
-        // Rekursion i underkataloger
+        // Recursion into subdirectories
         if (S_ISDIR(st.st_mode)) {
 
             if (scan_directory(full_path, list) != 0)
@@ -2905,22 +2896,21 @@ static int scan_directory(const char *base_path, CoverList *list)
             continue;
         }
 
-        // Ignorera allt som inte är vanliga filer
+        // Ignore everything that is not a regular file
         if (!S_ISREG(st.st_mode)) {
             free(full_path);
             continue;
         }
 
-        // Hitta ljudfiler i aktuell katalog
+        // Find audio files in the current directory
         if (is_audio_file(entry->d_name)) {
             audio_found = 1;
         }
 
-        // Samla bildfiler i aktuell katalog
+        // Collect image files in the current directory
         if (is_image_file(entry->d_name) && image_count < 1) {
 
-            char **temp = realloc(images,
-                                  (image_count + 1) * sizeof(*images));
+            char **temp = realloc(images,(image_count + 1) * sizeof(*images));
 
             if (!temp) {
                 free(full_path);
@@ -2938,7 +2928,7 @@ static int scan_directory(const char *base_path, CoverList *list)
 
     closedir(dir);
 
-    // Lägg till bilderna endast om katalogen innehåller ljud
+    // Add the images only if the catalog contains audio
     if (result == 0 && audio_found) {
 
         for (size_t i = 0; i < image_count; i++) {
@@ -2950,7 +2940,7 @@ static int scan_directory(const char *base_path, CoverList *list)
         }
     }
 
-    // Frigör lokala bildsökvägar
+    // Release local image paths
     for (size_t i = 0; i < image_count; i++)
         free(images[i]);
 
@@ -2958,28 +2948,6 @@ static int scan_directory(const char *base_path, CoverList *list)
 
     return result;
 }
-
-
-// ------------------------------------------------------------
-// Publik funktion
-// ------------------------------------------------------------
-
-int scan_cover_art(const char *base_path, CoverList *list)
-{
-    if (!base_path || !list)
-        return -1;
-
-    list->paths = NULL;
-    list->count = 0;
-
-    if (scan_directory(base_path, list) != 0) {
-        coverlist_free(list);
-        return -1;
-    }
-
-    return 0;
-}
-
 
 // Show the media page
 static int doMedia(sdl2_app *sdlApp)
@@ -3064,27 +3032,9 @@ static int doMedia(sdl2_app *sdlApp)
     playlist.path = folder_path;
     playlist.apath = albumArtPath;
 
-#if 0
-    CoverList covers = {0};
-
-    if (scan_cover_art("/home/erland/Musik", &covers) == 0) {
-
-        printf("Hittade %zu omslagsbilder\n", covers.count);
-
-        for (size_t i = 0; i < covers.count; i++) {
-            printf("[%zu] %s\n", i, covers.paths[i]);
-        }
-
-        // covers.paths[i] kan nu användas som SDL_image-sökväg
-        // SDL_Surface *surface = IMG_Load(covers.paths[0]);
-
-        coverlist_free(&covers);
-    }
-#endif
-
-        // Fetch media root content
-        if (scandirs(&playlist))
-            return eType;
+    // Fetch media root content
+    if (scandirs(&playlist))
+        return eType;
 
 #if 0
     // Print all saved filenames
@@ -3141,7 +3091,7 @@ static int doMedia(sdl2_app *sdlApp)
     // Init shared data structures
     player_init(&apropps);
 
-    SDL_Log("doMedia: %d Hz, %d channels\n", obtained.freq, obtained.channels);
+    SDL_Log("doMedia: Open: %d Hz, %d channels\n", obtained.freq, obtained.channels);
 
     /* Start control thread */
     SDL_Thread *control = SDL_CreateThread(control_thread, "audio-control", &playlist);
@@ -3335,7 +3285,7 @@ static int doMedia(sdl2_app *sdlApp)
 
                 if (newDir) {break;}
 
-            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll wroll input
+            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll input
                 if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
                 else if (e.wheel.y < 0 && scrl_offset < playlist.count - MVISIBLE_FILES) scrl_offset++;
             }
@@ -3344,6 +3294,14 @@ static int doMedia(sdl2_app *sdlApp)
 
             if (e.type == SDL_MOUSEBUTTONUP)
                 dragging = 0;
+        }
+
+        if (sdlApp->conf->klicked_media_path != NULL) {
+            strncpy(folder_path, sdlApp->conf->klicked_media_path, RMAX_FILENAME);
+            strncat(folder_path, "/", sizeof(folder_path)-1);
+            sdlApp->conf->klicked_media_path = NULL;
+            command_push(CMD_PLAY);
+            newDir = 1;
         }
 
         if (!running) break;
@@ -3710,6 +3668,257 @@ static int doMedia(sdl2_app *sdlApp)
     return eType;
 }
 
+// ------------------------------------------------------------
+// Publik funktion
+// ------------------------------------------------------------
+
+int scan_cover_art(const char *base_path, CoverList *list)
+{
+    if (!base_path || !list)
+        return -1;
+
+    list->paths = NULL;
+    list->count = 0;
+
+    if (scan_directory(base_path, list) != 0) {
+        coverlist_free(list);
+        return -1;
+    }
+
+    return 0;
+}
+
+// Show the media by (album) cover page
+static int doMediaByCover(sdl2_app *sdlApp)
+{
+    SDL_Texture* mquit = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mclose.png");
+
+    TTF_Font* fontMsg = TTF_OpenFont(sdlApp->fontPath, 16);
+
+    SDL_Event e;
+    int eType = 0;
+
+    char folder_path[RMAX_FILENAME];
+    static char klicked_folder_path[RMAX_FILENAME];
+
+    CoverList covers = {0};
+
+    if (!strlen(sdlApp->conf->media_path))
+        return -1;
+
+    strcpy(folder_path, sdlApp->conf->media_path);
+    sdlApp->conf->klicked_media_path = NULL;
+
+    covers.paths = NULL;
+    covers.cover = NULL;
+    covers.count = 0;
+    covers.renderer = sdlApp->renderer;
+
+    int w, h;
+    SDL_GetWindowSize(sdlApp->window, &w, &h);
+
+    SDL_Rect pictBarR = {30,30,140,140};
+    SDL_Rect mquitR     = {w-75, h-40 ,64,30};
+    SDL_Rect slider = {w-36,26,20,h-80};
+
+    int dragging = 0;
+    int pic_indx = 0;
+
+    const int x_start = 40;
+    const int y_start = 20;
+    const int w_start = 130;
+    const int h_start = 130;
+    const int wh_padding = 10;
+
+    inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
+    {
+        SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
+        SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
+
+        SDL_Rect d={x,y,s->w,s->h};
+
+        SDL_RenderCopy(r,t,NULL,&d);
+
+        SDL_FreeSurface(s);
+        SDL_DestroyTexture(t);
+    }
+
+    SDL_Event dummy_event;
+    while (SDL_PollEvent(&dummy_event)) {
+        // clear the event queue
+    }
+
+    if (scan_cover_art(folder_path, &covers) == 0) {
+
+        int running = 1;
+
+        while (running)
+        {
+
+            char msg_src[40] = { "" };
+
+            while(SDL_PollEvent(&e)) {
+
+                SDL_Point p;
+
+                if (!running)
+                    break;
+
+                if(e.type==SDL_QUIT) {
+                    running=0;
+                    eType=e.type;
+                }
+
+                if (e.type == SDL_MOUSEMOTION && dragging) {
+
+                    SDL_Point p = (SDL_Point){e.motion.x, e.motion.y};
+
+                    if (SDL_PointInRect(&p, &slider)) {
+
+                            int mouseY = p.y;
+                            static int lastY;
+                            int newY;
+
+                            newY = mouseY/26;
+
+                            if (abs(newY - lastY) <= 26) {  // ~row step within the scroll ed area
+
+                                if (newY > lastY) {
+                                    if (pic_indx < covers.count - 3) pic_indx += 5;
+                                } else if (newY < lastY) {
+                                    if (pic_indx > 0) pic_indx -= 5;
+                                }
+
+                                lastY = newY;
+                            }
+                    }
+
+                } else if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+                    int x, y;
+                    if (e.type == SDL_FINGERDOWN) {
+                        x = e.tfinger.x* w;
+                        y = e.tfinger.y* h;
+                        p = (SDL_Point){ x, y };
+                    } else {
+                        p = (SDL_Point){e.button.x, e.button.y};
+                    }
+
+                    if (SDL_PointInRect(&p, &pictBarR)) {
+                        running=0;
+                        continue;
+                    }
+
+                    if (SDL_PointInRect(&p, &mquitR)) {
+                        running=0;
+                        sdlApp->conf->klicked_media_path = NULL;
+                        continue;
+                    }
+
+                    if (SDL_PointInRect(&p, &slider)) {
+                        dragging = 1;
+                    }
+
+                    if (p.x >= x_start && p.y >= y_start) {
+                        // Calculate which column and row the mouse is over
+                        int clicked_col = (p.x - x_start) / (w_start + wh_padding);
+                        int clicked_row = (p.y - y_start) / (h_start + wh_padding);
+
+                        // Check that the click is within the  5x3 matrix (15 elements in total)
+                        if (clicked_col >= 0 && clicked_col < 5 && clicked_row >= 0 && clicked_row < 3) {
+
+                            // Verify that the click actually hit the image and did not land in the padding.
+                            int local_x = (p.x - x_start) % (w_start + wh_padding);
+                            int local_y = (p.y - y_start) % (h_start + wh_padding);
+
+                            if (local_x <= w_start && local_y <= h_start) {
+                                // Calculate the linear index (j) in the loop
+                                int j = (clicked_row * 5) + clicked_col;
+
+                                // Convert to the actual index in the 'covers' array
+                                int clicked_index = pic_indx + j;
+
+                                if (clicked_index < (int)covers.count && covers.cover[clicked_index] != NULL) {
+                                    // clicked_index is the index of the image in covers.cover[]
+                                    strncpy(klicked_folder_path, covers.paths[clicked_index], sizeof(klicked_folder_path));
+                                    char *p = strrchr(klicked_folder_path, '/');
+                                    if (p != NULL)  {
+                                        *p = '\0';
+                                        sdlApp->conf->klicked_media_path = klicked_folder_path;
+                                        doMedia(sdlApp);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll input
+                    if (e.wheel.y > 0 && pic_indx > 0) pic_indx -= 5;
+                    else if (e.wheel.y < 0 && pic_indx < covers.count - 3) pic_indx += 5;
+                }
+
+                if (e.type == SDL_MOUSEBUTTONUP)
+                    dragging = 0;
+            }
+
+            if (sdlApp->conf->style == 0)
+                SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+            else
+                SDL_SetRenderDrawColor(sdlApp->renderer, 105, 100, 110, 255);
+
+            SDL_RenderClear(sdlApp->renderer);
+
+            if (sdlApp->conf->style == 0) {
+                SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
+            }
+
+            SDL_Rect pictBarR = {x_start, y_start, w_start, h_start};
+
+            for (int i = pic_indx, j = 0; (i < 15 + pic_indx) && (i < (int)covers.count); i++, j++)
+            {
+                // % 5 yields the column (0, 1, 2, 3, 4
+                int col = j % 5;
+
+                // / 5 yields the row (0, 1, 2)
+                int row = j / 5;
+
+                pictBarR.x = x_start + (col * (w_start+wh_padding));
+                pictBarR.y = y_start + (row * (h_start+wh_padding));
+
+                if (covers.cover[i] != NULL) {
+                    SDL_RenderCopyEx(sdlApp->renderer, covers.cover[i], NULL, &pictBarR, 0, NULL, SDL_FLIP_NONE);
+                }
+            }
+
+            // Slider background
+            SDL_SetRenderDrawColor(sdlApp->renderer, dragging == 0?80:130, dragging == 0?80:130, dragging == 0?80:130, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &slider);
+
+            SDL_RenderCopyEx(sdlApp->renderer, mquit, NULL, &mquitR, 0, NULL, SDL_FLIP_NONE);
+
+            snprintf(msg_src, sizeof(msg_src), "Found %ld albums", covers.count);
+
+            SDL_Color c = (SDL_Color){255,255,255,255};
+
+            draw_textc(sdlApp->renderer,fontMsg,msg_src, x_start ,h-40, c);
+
+            SDL_RenderPresent(sdlApp->renderer);
+
+            SDL_Delay(100);
+        }
+
+        coverlist_free(&covers);
+
+    } else { eType = -1;}
+
+    TTF_CloseFont(fontMsg);
+    SDL_DestroyTexture(mquit);
+
+    if (eType == -1)
+        return doMedia(sdlApp);
+    else return eType;
+
+}
+
 // Present the compass with heading and roll
 static int doCompass(sdl2_app *sdlApp)
 {
@@ -3782,9 +3991,9 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect rsaRbarR       = {600,370,146,15};
     SDL_Rect rsaMbarR       = {590,370,18,18};
     SDL_Rect rsaIbarR       = {458,370,292,15};
-    SDL_Rect recordbarR     = {win_w/2,20,30,30};
-    SDL_Rect i3dbarR        = {recordbarR.x+50,20,33,33};
-    SDL_Rect mediaBarR      = {i3dbarR.x+50,20,33,33};
+    SDL_Rect recordbarR     = {(win_w/2)-10,16,42,42};
+    SDL_Rect i3dbarR        = {recordbarR.x+60,recordbarR.y,recordbarR.w,recordbarR.h};
+    SDL_Rect mediaBarR      = {i3dbarR.x+60,recordbarR.y,recordbarR.w,recordbarR.h};
 
     if (sdlApp->conf->style == 1) {
         compassR.x=29;compassR.y=28;compassR.w=420;compassR.h=420;
@@ -3922,7 +4131,7 @@ static int doCompass(sdl2_app *sdlApp)
                     break;
                 }
                 if (SDL_PointInRect(&p, &mediaBarR)) {
-                    if ((e.type=doMedia(sdlApp))== SDL_QUIT) {
+                    if ((e.type=doMediaByCover(sdlApp))== SDL_QUIT) {
                         doBreak = 1;
                         break;
                     }

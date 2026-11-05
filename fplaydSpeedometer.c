@@ -498,10 +498,11 @@ int scandirs(Playlist *plist)
                 track_no = get_mp3_track(q_path);
             } else if (strcmp(ext, ".wav") == 0) {
                 track_no = get_wav_track(q_path);
-            } else {
-                track_no = get_track_from_filename(plist->files[i]);
             }
         }
+
+        if (track_no <= 0)
+            track_no = get_track_from_filename(plist->files[i]);
 
         stat(q_path, &stats);
 

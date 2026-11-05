@@ -133,6 +133,7 @@ typedef struct {
     char cam_url[200];
     char vid_device[60];
     char media_path[RMAX_FILENAME];
+    char *klicked_media_path;
     SDL_mutex* nm_mutex;
     SDL_mutex* tcp_mutex;
     int rwfilez;
