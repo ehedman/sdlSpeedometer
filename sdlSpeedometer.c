@@ -778,7 +778,9 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 				lastCt = ts;
 
 		        if (sqlite3_open_v2(SQLDBPATH, &configParams.conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0)) {
+#ifdef PATH_INSTALL
 					SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open configuration databas : %s", (char*)sqlite3_errmsg(configParams.conn));
+#endif
 					(void)sqlite3_close(configParams.conn);
 					configParams.conn = NULL;
 				} else {
@@ -2960,6 +2962,7 @@ static int doMedia(sdl2_app *sdlApp)
     char curDir[PATH_MAX];
 
     TTF_Font* fontMsg = TTF_OpenFont(sdlApp->fontPath, 16);
+    TTF_Font* fontWar = TTF_OpenFont(sdlApp->fontPath, 32);
 
     SDL_Texture* play =  IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "play.png");
     SDL_Texture* pause = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "pause.png");
@@ -3013,6 +3016,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect scrl_bk_rect = { rMargin-30, 60,  50, 50 };
     SDL_Rect scrl_up_rect = { rMargin-30, 120, 50, 50 };
     SDL_Rect scrl_dn_rect = { rMargin-30, 180, 50, 50 };
+    SDL_Rect dbtR = {w-370, h-160, 300, 32};
     SDL_Rect file_click_areas[MVISIBLE_FILES];
 
     SDL_Rect mutebarR   = {w-60,h-60,25,25};
@@ -3102,13 +3106,14 @@ static int doMedia(sdl2_app *sdlApp)
         return eType;
     }
 
-    int eSkip;
     int running;
     int dragging;
     int newDir;
 
     dragging = newDir = 0;
-    running  = eSkip  = 1;
+    running = 1;
+
+    float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     void doClean()
     {
@@ -3125,6 +3130,7 @@ static int doMedia(sdl2_app *sdlApp)
 
     int left_dirs[200];
     int left_dirs_indx = 0;
+    int show_dbtw = 1;
 
     if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
@@ -3133,22 +3139,24 @@ static int doMedia(sdl2_app *sdlApp)
     while (running) {
 
         char msg_tod[40] = { "" };
+        char msg_dbt[40] = { "" };
 
         sdlApp->textFieldArrIndx = 0;
+
+        time_t ct = time(NULL);    // Get a timestamp for this turn
+
+        // DBT - Depth Below Transponder
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
+            sprintf(msg_dbt, "DEPTH WARNING: %.1f", (double)(cnmea.dbt*m2f));
 
          while(SDL_PollEvent(&e)) {
 
             SDL_Point p;
 
-            if (!running)
-                break;
-
-            if (--eSkip > 0)
-                continue;
-
             if(e.type==SDL_QUIT) {
                 running=0;
                 eType=e.type;
+                break;
 
             } else if (e.type == SDL_MOUSEMOTION && dragging == 1) {
 
@@ -3173,16 +3181,16 @@ static int doMedia(sdl2_app *sdlApp)
                         }
                 }
 
-            } else if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+            } else if  (e.type == SDL_MOUSEBUTTONDOWN) {
                 int x, y;
-                if (e.type == SDL_FINGERDOWN) {
+
+            if (e.type == SDL_FINGERDOWN) {
                     x = e.tfinger.x* w;
                     y = e.tfinger.y* h;
                     p = (SDL_Point){ x, y };
                 } else {
                     p = (SDL_Point){e.button.x, e.button.y};
                 }
-
                 if (SDL_PointInRect(&p, &playR)) {
                     command_push(CMD_PLAY);
                 }
@@ -3198,9 +3206,11 @@ static int doMedia(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &prevR)) {
                     command_push(CMD_PREVIOUS);
                 }
-
                 if (SDL_PointInRect(&p, &sliderR)) {
                     dragging = 1;
+                }
+                if (SDL_PointInRect(&p, &dbtR)) {
+                    show_dbtw = !show_dbtw;
                 }
 
                 if (sdlApp->conf->snd_useMixer && !muted) {
@@ -3233,12 +3243,10 @@ static int doMedia(sdl2_app *sdlApp)
                     running=0;
                     continue;
                 }
-
                 // Clicking the scroll buttons
                 if (SDL_PointInRect(&p, &scrl_up_rect)) {
                     if (scrl_offset > 0) scrl_offset--;
                 }
-
                 if (SDL_PointInRect(&p, &scrl_dn_rect)) {
                     if (scrl_offset < playlist.count - MVISIBLE_FILES) {scrl_offset++;}
                 }
@@ -3290,8 +3298,6 @@ static int doMedia(sdl2_app *sdlApp)
                 else if (e.wheel.y < 0 && scrl_offset < playlist.count - MVISIBLE_FILES) scrl_offset++;
             }
 
-            eSkip = 1;  // inadvertent double-click
-
             if (e.type == SDL_MOUSEBUTTONUP)
                 dragging = 0;
         }
@@ -3306,7 +3312,6 @@ static int doMedia(sdl2_app *sdlApp)
 
         if (!running) break;
 
-        time_t ct = time(NULL);
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
         if (newDir == 1) {
@@ -3582,7 +3587,7 @@ static int doMedia(sdl2_app *sdlApp)
             }
 #endif
             if (strlen(playlist.duration)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, playlist.duration,
+                get_text_and_rect(sdlApp->renderer, 60, 364, 0, playlist.duration,
                     fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
@@ -3591,7 +3596,7 @@ static int doMedia(sdl2_app *sdlApp)
             double current_position = (double)(now - track_start_ms - paused_total_ms) / 1000.0;
 
             if (strlen(playlist.duration)) {
-                draw_progress_bar(sdlApp->renderer, 300, indx, 364, 14, current_position, playlist.s_duration);
+                draw_progress_bar(sdlApp->renderer, 300, 364, 364, 14, current_position, playlist.s_duration);
             }
 
             // Show album art
@@ -3615,6 +3620,13 @@ static int doMedia(sdl2_app *sdlApp)
             paused_total_ms = 0;
             player_paused = 0;
             pgIndx=0;
+        }
+
+        if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw && ct % 5 && show_dbtw)
+        {   // A Media Player with Depth Warnings :-)
+            get_text_and_rect(sdlApp->renderer, dbtR.x, dbtR.y, 0, msg_dbt,
+                fontWar, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, RED);
+            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
         }
 
         SDL_RenderPresent(sdlApp->renderer);
@@ -3646,6 +3658,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_DestroyMutex(apropps.audio.mutex);
 
     TTF_CloseFont(fontMsg);
+    TTF_CloseFont(fontWar);
 
     SDL_DestroyTexture(play);
     SDL_DestroyTexture(pause);
@@ -3678,6 +3691,7 @@ int scan_cover_art(const char *base_path, CoverList *list)
         return -1;
 
     list->paths = NULL;
+    list->cover = NULL;
     list->count = 0;
 
     if (scan_directory(base_path, list) != 0) {
@@ -3697,6 +3711,9 @@ static int doMediaByCover(sdl2_app *sdlApp)
 
     SDL_Event e;
     int eType = 0;
+
+    int wasMuted = sdlApp->conf->muted;
+    sdlApp->conf->muted = 1;    // Prevent warnings
 
     char folder_path[RMAX_FILENAME];
     static char klicked_folder_path[RMAX_FILENAME];
@@ -3761,12 +3778,10 @@ static int doMediaByCover(sdl2_app *sdlApp)
 
                 SDL_Point p;
 
-                if (!running)
-                    break;
-
                 if(e.type==SDL_QUIT) {
                     running=0;
                     eType=e.type;
+                    break;
                 }
 
                 if (e.type == SDL_MOUSEMOTION && dragging) {
@@ -3793,7 +3808,7 @@ static int doMediaByCover(sdl2_app *sdlApp)
                             }
                     }
 
-                } else if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+                } else if (e.type == SDL_MOUSEBUTTONDOWN) {
                     int x, y;
                     if (e.type == SDL_FINGERDOWN) {
                         x = e.tfinger.x* w;
@@ -3844,7 +3859,11 @@ static int doMediaByCover(sdl2_app *sdlApp)
                                     if (p != NULL)  {
                                         *p = '\0';
                                         sdlApp->conf->klicked_media_path = klicked_folder_path;
-                                        doMedia(sdlApp);
+                                        if (doMedia(sdlApp) == SDL_QUIT) {
+                                            eType = SDL_QUIT;
+                                            running = 0;
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -3893,6 +3912,8 @@ static int doMediaByCover(sdl2_app *sdlApp)
             SDL_SetRenderDrawColor(sdlApp->renderer, dragging == 0?80:130, dragging == 0?80:130, dragging == 0?80:130, 255);
             SDL_RenderFillRect(sdlApp->renderer, &slider);
 
+            SDL_SetTextureBlendMode(mquit, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureAlphaMod(mquit, 128);
             SDL_RenderCopyEx(sdlApp->renderer, mquit, NULL, &mquitR, 0, NULL, SDL_FLIP_NONE);
 
             snprintf(msg_src, sizeof(msg_src), "Found %ld albums", covers.count);
@@ -3912,6 +3933,11 @@ static int doMediaByCover(sdl2_app *sdlApp)
 
     TTF_CloseFont(fontMsg);
     SDL_DestroyTexture(mquit);
+
+    if (covers.paths != NULL)
+        coverlist_free(&covers);
+
+    sdlApp->conf->muted = wasMuted;
 
     if (eType == -1)
         return doMedia(sdlApp);
@@ -4026,8 +4052,6 @@ static int doCompass(sdl2_app *sdlApp)
 
     float m2f=cnmea.units==METRIC? 1.0f : 3.28084f;
 
-    int eSkip = 1;
-
     while (1) {
         int boxItem = 0;
         sdlApp->textFieldArrIndx = 0;
@@ -4039,7 +4063,7 @@ static int doCompass(sdl2_app *sdlApp)
         char msg_dbt[40] = { "" };
         char msg_mtw[40] = { "" };
         char msg_src[40] = { "" };
-        char msg_rsa[40] = { " 0 " };
+        char msg_rsa[40] = { " 0 "};
         char msg_tod[40] = { "" };
         time_t ct;
 
@@ -4048,9 +4072,6 @@ static int doCompass(sdl2_app *sdlApp)
         ct = time(NULL);    // Get a timestamp for this turn
         
         while (SDL_PollEvent(&e)) {
-
-            if (--eSkip > 0)
-                continue;
 
             static int last_ct;
 
@@ -4081,7 +4102,7 @@ static int doCompass(sdl2_app *sdlApp)
             }
 
 
-            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_FINGERMOTION)
+            if (e.type == SDL_MOUSEBUTTONDOWN)
             {
                 if ((e.type=pageSelect(sdlApp, &e))) {
                     doBreak = 1;
@@ -4118,7 +4139,6 @@ static int doCompass(sdl2_app *sdlApp)
                         break;
                     }
                     hideBrBar=0;
-                    eSkip = 2;  // inadvertent double-click
                     break;
                 }
                 if (SDL_PointInRect(&p, &i3dbarR)) {
@@ -4127,7 +4147,6 @@ static int doCompass(sdl2_app *sdlApp)
                         break;
                     }
                     hideBrBar=0;
-                    eSkip = 2;  // inadvertent double-click
                     break;
                 }
                 if (SDL_PointInRect(&p, &mediaBarR)) {
@@ -4136,7 +4155,6 @@ static int doCompass(sdl2_app *sdlApp)
                         break;
                     }
                     hideBrBar=0;
-                    eSkip = 2;  // inadvertent double-click
                     break;
                 }
             }
@@ -7049,7 +7067,7 @@ static int doCamera(sdl2_app *sdlApp)
                     }
                 }
 
-                if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_FINGERMOTION)
+                if (e.type == SDL_MOUSEBUTTONDOWN)
                 {
 
                     SDL_Point p;
@@ -7670,7 +7688,7 @@ static int doVideoCapture(sdl2_app *sdlApp)
                 }
             }
 
-            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_FINGERMOTION)
+            if (e.type == SDL_MOUSEBUTTONDOWN)
             {
                 SDL_Point p;
                 int x, y;
@@ -7961,7 +7979,7 @@ static int doVideo(sdl2_app *sdlApp)
             if (checkConsole(e, sdlApp))
                 break;
 
-            if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN)
+            if (e.type == SDL_MOUSEBUTTONDOWN)
             {
                 SDL_Point p;
                 int x, y;
@@ -8564,6 +8582,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         }
 
 		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+        SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
 
         if ((sdlApp->conf->nm_mutex = SDL_CreateMutex()) == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateMutex nm_mutex failed: %s", SDL_GetError());
@@ -8670,9 +8689,9 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
                     int status;
                     waitpid(vnc_pid, &status, 0); // Clean the zombie
                     if (kill(spedoMeterPid, 0) != 0) {
-                        SDL_Log("wayvnc exit");
                         _exit(0);
                     }
+                    if (configParams->runVnc == 0) break;
                     SDL_Log("wayvnc exited, restarting in 3 seconds...");
                     sleep(3);
                 } else {
@@ -8858,8 +8877,6 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     // You've picked my bones clean, speak now ...
     waitpid(configParams->subTaskPID, &status, 0);
     // ... before I reclaim the meat. (Solonius)
-
-    configParams->subTaskPID = 0;
 
     if (!configParams->runTcp)
     {
@@ -9392,9 +9409,15 @@ int main(int argc, char *argv[])
     }
 
 	if (configParams.wayvncPid > 0 && kill(configParams.wayvncPid, 0) == 0) {
+        configParams.runVnc = 0;
 		kill(configParams.wayvncPid, SIGTERM);
 		SDL_Log("Taking down wayvnc");
 	}
+
+    if (configParams.subTaskPID > 0) {
+        kill(-configParams.subTaskPID, SIGTERM);    // TERM by process group
+        SDL_Log("Taking down any subtask pid=%d", configParams.subTaskPID);
+    }
 
     // Terminate the threads - 2 times since restart can happen in the time slice
     configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runWrn = configParams.runPlb = configParams.runTcp = 0;

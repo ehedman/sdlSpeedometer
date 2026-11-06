@@ -285,7 +285,7 @@ static int get_flac_track(const char *filepath)
     struct stat stats;
 
     stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode))
+    if (S_ISDIR(stats.st_mode)) // Should not happen
         return -1;
 
     FILE *f = fopen(filepath, "rb");
@@ -335,7 +335,7 @@ static int get_flac_track(const char *filepath)
 
                     // Check whether this tag begins with "TRACK NUMBER=" (case-insensitive)
                     if (comment_len > 12 && strncasecmp((char*)&buffer[ptr], "TRACKNUMBER=", 12) == 0) {
-                        // Skapa en tillfällig nollterminerad sträng för atoi
+                        // Create a temporary null-terminated string for atoi
                         char track_str[16] = {0};
                         unsigned int val_len = comment_len - 12;
                         if (val_len > 15) val_len = 15;

@@ -1205,7 +1205,6 @@ int doCog3d(sdl2_app *sdlApp)
     target_limit = cnmea.calib->toledd;
 
     int eType = 0;
-    int eSkip = 1;
 
     int w,h;
     SDL_GL_GetDrawableSize(win,&w,&h);
@@ -1250,12 +1249,10 @@ int doCog3d(sdl2_app *sdlApp)
         SDL_Event e;
         while(SDL_PollEvent(&e)) {
 
-            if (--eSkip > 0)
-                continue;
-
             if(e.type==SDL_QUIT) {
                 running=0;
                 eType=e.type;
+                break;
             } else if (e.type == SDL_MOUSEMOTION ) {
                 if (e.motion.x > (w/2)-50 && e.motion.x < (w/2)+50  &&  e.motion.y > 100 && e.motion.y < h-100) {
                     if (y_tilt < e.motion.y)
@@ -1265,7 +1262,7 @@ int doCog3d(sdl2_app *sdlApp)
 
                     y_tilt=e.motion.y;
                 }
-            } else if (e.type == SDL_FINGERDOWN || e.type == SDL_MOUSEBUTTONDOWN) {
+            } else if (e.type == SDL_MOUSEBUTTONDOWN) {
                 SDL_Point p;
                 int x, y;
                 if (e.type == SDL_FINGERDOWN) {
@@ -1287,7 +1284,6 @@ int doCog3d(sdl2_app *sdlApp)
                     pitxt = !pitxt;
                 }
             }
-            eSkip = 2;  // inadvertent double-click
         }
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
