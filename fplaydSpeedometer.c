@@ -134,7 +134,7 @@ static int get_wav_track(const char *filepath)
             long id3_start = ftell(file);
             char sub_id[4];
 
-            // Search for "TRYCK" inside the ID3 block
+            // Search for "TRCK" inside the ID3 block
             while (ftell(file) < id3_start + chunk_size - 10) {
                 if (fread(sub_id, 1, 4, file) != 4) break;
 
@@ -570,6 +570,10 @@ cleanup:
     return rval;
 }
 
+/* ------------------------------------------------------------------------ */
+/*                             Player Section                               */
+/* ------------------------------------------------------------------------ */
+
 /* -------------------------------------------------- */
 /* Command FIFO                                       */
 /* -------------------------------------------------- */
@@ -597,7 +601,6 @@ int command_push(PlayerCommand cmd)
 
     return 0;
 }
-
 
 static int command_pop(PlayerCommand *cmd)
 {
@@ -627,7 +630,6 @@ static int command_pop(PlayerCommand *cmd)
     return 1;
 }
 
-
 /* -------------------------------------------------- */
 /* PCM ringbuffer                                     */
 /* -------------------------------------------------- */
@@ -643,7 +645,6 @@ static void ring_clear(void)
 
     SDL_UnlockMutex(audio.mutex);
 }
-
 
 static int ring_write(DecoderJob *job,
                       uint8_t *data, int len)
@@ -692,7 +693,6 @@ static int ring_write(DecoderJob *job,
     return written;
 }
 
-
 /* -------------------------------------------------- */
 /* SDL audio callback                                 */
 /* -------------------------------------------------- */
@@ -725,7 +725,6 @@ void audio_callback(void *userdata,
 
     SDL_UnlockMutex(audio.mutex);
 }
-
 
 /* -------------------------------------------------- */
 /* Convert decoded frame to PCM                       */
@@ -778,7 +777,6 @@ static int convert_frame(DecoderJob *job,
 
     return samples;
 }
-
 
 /* -------------------------------------------------- */
 /* Receive decoded frames                             */
@@ -1029,7 +1027,6 @@ cleanup:
     return 0;
 }
 
-
 /* -------------------------------------------------- */
 /* Audio control thread                               */
 /* -------------------------------------------------- */
@@ -1046,7 +1043,6 @@ static int ring_finished(void)
 
     return finished;
 }
-
 
 static void stop_decoder(DecoderJob **job,
                          SDL_Thread **thread)
@@ -1067,7 +1063,6 @@ static void stop_decoder(DecoderJob **job,
 
     ring_clear();
 }
-
 
 static int start_track(Playlist *playlist,
                        int index,
@@ -1106,7 +1101,6 @@ static int start_track(Playlist *playlist,
 
     return 0;
 }
-
 
 int control_thread(void *arg)
 {

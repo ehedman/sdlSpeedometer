@@ -3387,15 +3387,18 @@ static int doMedia(sdl2_app *sdlApp)
 
         if (scrl_offset >= playlist.count) {scrl_offset = 0;}
 
+        int last_item_y;
+        const int irow_height = 24;
+
         // Draw file selector
         for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < playlist.count; i++)
         {
 
-            int item_y = 40 + (i * 24);
+            int item_y = 40 + (i * irow_height);
             sliderR.h = item_y - 18;
             // Save clickable area for the file
             file_click_areas[i].x = 50;
-            file_click_areas[i].y = item_y;
+            file_click_areas[i].y = last_item_y = item_y;
             file_click_areas[i].w = 400;
             file_click_areas[i].h = 22;
  
@@ -3404,8 +3407,9 @@ static int doMedia(sdl2_app *sdlApp)
             SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[i]);
             SDL_SetRenderDrawColor(sdlApp->renderer, 200, 200, 200, 255);
 
-            //  Highlight the current row just clicked
-            if (playlist.active) {
+            //  Highlight the current row just clicked and/or advance scrl_offset if auto-play ++
+            if (playlist.active && playlist.index - scrl_offset >=0 && playlist.index - scrl_offset < MVISIBLE_FILES)
+            {
                 SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
                 SDL_SetRenderDrawColor(sdlApp->renderer, 255 , 255, 255, 22);
                 SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[playlist.index - scrl_offset]);
@@ -3548,7 +3552,7 @@ static int doMedia(sdl2_app *sdlApp)
             // Fetch meta data and show them
             show_audio_metadata(&playlist);
           
-            int  indx = 244; int incr=20;
+            int  indx = last_item_y+irow_height+10; const int incr=20;
             if (strlen(playlist.title)) {
                 get_text_and_rect(sdlApp->renderer, 60, indx, 0, playlist.title,
                     fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
