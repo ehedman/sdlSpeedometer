@@ -3003,12 +3003,12 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect stopR      = {pauseR.x+70, playR.y,60,60};
     SDL_Rect prevR      = {stopR.x+70,  playR.y,60,60};
     SDL_Rect nextR      = {prevR.x+70,  playR.y,60,60};
-    SDL_Rect vdownR     = {nextR.x+90,   playR.y,60,60};
-    SDL_Rect vupR       = {vdownR.x+70,  playR.y,60,60};
-    SDL_Rect mquitR     = {vupR.x+100, playR.y,60,60};
+    SDL_Rect vdownR     = {nextR.x+90,  playR.y,60,60};
+    SDL_Rect vupR       = {vdownR.x+70, playR.y,60,60};
+    SDL_Rect mquitR     = {vupR.x+100,  playR.y,60,60};
     SDL_Rect arttBoxR   = {w-230,60,200,200};
-    SDL_Rect textBoxR   = {arttBoxR.x-20,arttBoxR.y-14,arttBoxR.w+34,arttBoxR.h+34};
     SDL_Rect sliderR    = {10, 40, 30, 200};
+    SDL_Rect textBoxR   = {arttBoxR.x-20,arttBoxR.y-14,arttBoxR.w+34,arttBoxR.h+34};
 
     // Scroll variables for the file selector
     int rMargin = w/2+100;
@@ -4351,7 +4351,10 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderCopyEx(sdlApp->renderer, recordBar, NULL, &recordbarR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, i3dBar, NULL, &i3dbarR, 0, NULL, SDL_FLIP_NONE);
-        SDL_RenderCopyEx(sdlApp->renderer, mediaBar, NULL, &mediaBarR, 0, NULL, SDL_FLIP_NONE);
+
+        if (sdlApp->conf->runWrn) {
+            SDL_RenderCopyEx(sdlApp->renderer, mediaBar, NULL, &mediaBarR, 0, NULL, SDL_FLIP_NONE);
+        }
 
         if (sdlApp->conf->i2cFile != 0) {
             SDL_RenderCopyEx(sdlApp->renderer, calBar, NULL, &calbarR, 0, NULL, SDL_FLIP_NONE);
@@ -8902,6 +8905,7 @@ static void init_av(configuration *configParams)
 {
     const char *adev = configParams->snd_card;  // e.g., "hw:2,0" for SDL2
     char card[sizeof(configParams->snd_card)];
+    int rval = 0;
 
     if (adev) {
         // copy up to comma or end of string
@@ -8919,10 +8923,27 @@ static void init_av(configuration *configParams)
         strcpy(card, "default");
     }
 
-    snd_mixer_open(&configParams->mixer, 0);
-    snd_mixer_attach(configParams->mixer, card);
-    snd_mixer_selem_register(configParams->mixer, NULL, NULL);
-    snd_mixer_load(configParams->mixer);
+    configParams->snd_showMixer = 1;
+
+    if ((rval = snd_mixer_open(&configParams->mixer, 0)) <0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open audio mixer for %s: %s", adev, snd_strerror(rval));
+    } else {
+
+        if ((rval = snd_mixer_attach(configParams->mixer, card)) <0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to attach audio mixer for %s: %s", adev, snd_strerror(rval));
+            configParams->snd_showMixer = 0;
+        }
+
+        if ((rval = snd_mixer_selem_register(configParams->mixer, NULL, NULL)) <0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to register audio mixer for %s:  %s", adev, snd_strerror(rval));
+            configParams->snd_showMixer = 0;
+        }
+
+        if ((rval = snd_mixer_load(configParams->mixer)) <0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to load audio mixer for %s: %s",  adev, snd_strerror(rval));
+            configParams->snd_showMixer = 0;
+        }
+    }
 
     snd_mixer_selem_id_t *sid;
     snd_mixer_selem_id_alloca(&sid);
@@ -8934,81 +8955,79 @@ static void init_av(configuration *configParams)
     configParams->elem = snd_mixer_find_selem(configParams->mixer, sid);
 
     // FALLBACK: If PCM was not found
-    if (!configParams->elem) {
+    if (configParams->elem == NULL) {
         snd_mixer_selem_id_set_name(sid, "Playback");
         configParams->elem = snd_mixer_find_selem(configParams->mixer, sid);
     }
-    if (!configParams->elem) {
+    if (configParams->elem == NULL) {
         snd_mixer_selem_id_set_name(sid, "Speaker");
         configParams->elem = snd_mixer_find_selem(configParams->mixer, sid);
     }
 
-    if (!configParams->elem) {
+    if (configParams->elem == NULL) {
         configParams->snd_useMixer = 0;
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element for %s", adev);
+        configParams->snd_showMixer = 0;
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize ALSA sound: Cannot find mixer element for %s:", adev);
         if (configParams->mixer) {
             snd_mixer_close(configParams->mixer);
             configParams->mixer = NULL;
         }
-        } else {
-        setenv("SDL_AUDIODRIVER", "alsa", 1);
-        SDL_Init(SDL_INIT_AUDIO);
-        configParams->snd_useMixer = 1;
-        configParams->snd_showMixer = 1;
-        snd_mixer_selem_get_playback_volume_range(configParams->elem, &configParams->snd_minv, &configParams->snd_maxv);
+    } else {
+            setenv("SDL_AUDIODRIVER", "alsa", 1);
+            SDL_Init(SDL_INIT_AUDIO);
+            configParams->snd_useMixer = 1;
+            snd_mixer_selem_get_playback_volume_range(configParams->elem, &configParams->snd_minv, &configParams->snd_maxv);
 
-        const char *target_card_num = 0;
-        const char *colon = strchr(card, ':');
-        if (colon && *(colon + 1)) {
-            target_card_num = colon + 1;
-        }
+            const char *target_card_num = 0;
+            const char *colon = strchr(card, ':');
+            if (colon && *(colon + 1)) {
+                target_card_num = colon + 1;
+            }
 
-        int cardn = -1;
-        char sdl_compat_name[256] = {'\0'};
+            int cardn = -1;
+            char sdl_compat_name[256] = {'\0'};
 
-        while (snd_card_next(&cardn) == 0 && cardn >= 0) {
-            if (cardn == atoi(target_card_num)) {
-                char *card_short;
-                snd_card_get_name(cardn, &card_short);
+            while (snd_card_next(&cardn) == 0 && cardn >= 0) {
+                if (cardn == atoi(target_card_num)) {
+                    char *card_short;
+                    snd_card_get_name(cardn, &card_short);
 
-                // Find PCM name
-                char hw_name[60];
-                sprintf(hw_name, "hw:%d", cardn);
+                    // Find PCM name
+                    char hw_name[60];
+                    sprintf(hw_name, "hw:%d", cardn);
 
-                snd_ctl_t *handle;
-                if (snd_ctl_open(&handle, hw_name, 0) >= 0) {
-                    snd_pcm_info_t *pcminfo;
-                    snd_pcm_info_alloca(&pcminfo);
+                    snd_ctl_t *handle;
+                    if (snd_ctl_open(&handle, hw_name, 0) >= 0) {
+                        snd_pcm_info_t *pcminfo;
+                        snd_pcm_info_alloca(&pcminfo);
 
-                    // Check unit (0) to get the name
-                    snd_pcm_info_set_device(pcminfo, 0);
-                    snd_pcm_info_set_subdevice(pcminfo, 0);
-                    snd_pcm_info_set_stream(pcminfo, SND_PCM_STREAM_PLAYBACK);
+                        // Check unit (0) to get the name
+                        snd_pcm_info_set_device(pcminfo, 0);
+                        snd_pcm_info_set_subdevice(pcminfo, 0);
+                        snd_pcm_info_set_stream(pcminfo, SND_PCM_STREAM_PLAYBACK);
 
-                    if (snd_ctl_pcm_info(handle, pcminfo) >= 0) {
-                        const char *device_name = snd_pcm_info_get_name(pcminfo);
-                        // Create the the format "ShortName, UnitName"
-                        // Example: "USB Audio, USB Audio"
-                        snprintf(sdl_compat_name, sizeof(sdl_compat_name), "%s, %s", card_short, device_name);
+                        if (snd_ctl_pcm_info(handle, pcminfo) >= 0) {
+                            const char *device_name = snd_pcm_info_get_name(pcminfo);
+                            // Create the the format "ShortName, UnitName"
+                            // Example: "USB Audio, USB Audio"
+                            snprintf(sdl_compat_name, sizeof(sdl_compat_name), "%s, %s", card_short, device_name);
+                        }
+                        snd_ctl_close(handle);
                     }
-                    snd_ctl_close(handle);
-                }
 
-                if (strlen(sdl_compat_name)) {
-                    if (strstr(sdl_compat_name, "hdmi")) configParams->snd_showMixer = 0; // Goes to decoder/tv mixer
-                    strncpy(configParams->snd_card_name, sdl_compat_name, sizeof(((configuration *)0)->snd_card_name));
-                    SDL_Log("Using ALSA device %s named \"%s\"", card, configParams->snd_card_name);
-                } else {
-                    configParams->snd_showMixer = 0;
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to find audio device name for %s", card);
-                }
+                    if (strlen(sdl_compat_name)) {
+                        strncpy(configParams->snd_card_name, sdl_compat_name, sizeof(((configuration *)0)->snd_card_name));
+                        SDL_Log("Using ALSA device %s named \"%s\"", card, configParams->snd_card_name);
+                    } else {
+                        configParams->snd_showMixer = 0;
+                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to find audio mixer device name for %s", card);
+                    }
 
-                free(card_short);
-                break;
+                    free(card_short);
+                    break;
+                }
             }
         }
-
-    }
 
     /** Video **/
     int fd=0;
