@@ -67,6 +67,7 @@ typedef struct
     int index;
     int active;
     int paused;
+    int kalle;
     int seq_track_no[80];
     float s_duration;
     char **files;
@@ -109,12 +110,13 @@ typedef struct
 
 } AudioProps;
 
-extern AudioProps apropps;
+//extern AudioProps apropps;
 extern void player_init(AudioProps *propps);
 extern void audio_callback(void *userdata, Uint8 *stream, int len);
 extern int control_thread(void *arg);
 extern int command_push(PlayerCommand cmd);
 extern int scandirs(Playlist *plist);
 extern void show_audio_metadata(Playlist *pl);
+extern void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len);
 
 #endif /* FPLAYSPEEDOMETER_H */

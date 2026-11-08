@@ -468,7 +468,6 @@ int scandirs(Playlist *plist)
     dir = NULL;
 
     /* Sorting Section */
-#if 1
     typedef struct {
         char *filename;
         int track;
@@ -552,8 +551,6 @@ int scandirs(Playlist *plist)
     }
 #endif
 
-#endif
-
 cleanup:
     if (dir != NULL)
         closedir(dir);
@@ -573,6 +570,59 @@ cleanup:
 /* ------------------------------------------------------------------------ */
 /*                             Player Section                               */
 /* ------------------------------------------------------------------------ */
+
+/* -------------------------------------------------- */
+/* Callback for the HDMI audio source                 */
+/* -------------------------------------------------- */
+
+void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len) {
+    audRunner *doRun = (audRunner *)userdata;
+
+    if (doRun->mute || !doRun->hdmi_resampler) {
+        return;
+    }
+
+    // Feed the 48kHz data from the HDMI card into the resampler.
+    SDL_AudioStreamPut(doRun->hdmi_resampler, stream, len);
+
+    // Check how much 44.1 kHz data we have obtained after resampling.
+    int available_bytes = SDL_AudioStreamAvailable(doRun->hdmi_resampler);
+    if (available_bytes <= 0) return;
+
+    // Allocate a temporary buffer for the resampled data
+    Uint8 *converted_buffer = malloc(available_bytes);
+    if (!converted_buffer) return;
+
+    SDL_AudioStreamGet(doRun->hdmi_resampler, converted_buffer, available_bytes);
+
+    // Lock the mutex and write the data to your existing ring buffer.
+    SDL_LockMutex(audio.mutex);
+
+    Uint32 bytes_to_copy = available_bytes;
+
+    // If the ring buffer is too full, prevent overflow
+    if (bytes_to_copy > (Uint32)(RING_SIZE - audio.count)) {
+        bytes_to_copy = RING_SIZE - audio.count;
+    }
+
+    if (bytes_to_copy > 0) {
+        int first = RING_SIZE - audio.write_pos;
+        if (first > (int)bytes_to_copy) {
+            first = bytes_to_copy;
+        }
+
+        // Copy the data
+        memcpy(audio.data + audio.write_pos, converted_buffer, first);
+        memcpy(audio.data, converted_buffer + first, bytes_to_copy - first);
+
+        // Update the ring buffer's counter
+        audio.write_pos = (audio.write_pos + bytes_to_copy) % RING_SIZE;
+        audio.count += bytes_to_copy;
+    }
+
+    SDL_UnlockMutex(audio.mutex);
+    free(converted_buffer);
+}
 
 /* -------------------------------------------------- */
 /* Command FIFO                                       */
@@ -1071,6 +1121,8 @@ static int start_track(Playlist *playlist,
 {
     stop_decoder(job, thread);
 
+    // printf("index=%d    playlist->count=%d   file=%s\n", index, playlist->count, playlist->files[index]);
+
     if (index < 0 || index >= playlist->count)
         return -1;
 
@@ -1079,13 +1131,9 @@ static int start_track(Playlist *playlist,
     if (!*job)
         return -1;
 
-    (*job)->filename = playlist->files[index];
+    (*job)->filename = playlist->files[index+playlist->kalle];
 
     SDL_AtomicSet(&(*job)->cancel, 0);
-
-#if 0
-    printf("Playing: %s\n", (*job)->filename);
-#endif
 
     *thread = SDL_CreateThread(
         decoder_thread, "decoder", *job);
@@ -1099,6 +1147,7 @@ static int start_track(Playlist *playlist,
 
     SDL_PauseAudioDevice(audio_device, 0);
 
+    playlist->kalle = 0;
     return 0;
 }
 
@@ -1137,6 +1186,7 @@ int control_thread(void *arg)
                     break;
 
                 case CMD_PLAYSEL:
+
 
                     if (playlist->paused)
                     {

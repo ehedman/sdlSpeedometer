@@ -9,6 +9,8 @@
 #endif
 #include <alsa/asoundlib.h>
 
+#include "fplaydSpeedometer.h"
+
 #define S_TIMEOUT   4   // Invalidate current sentences after # seconds without a refresh from talker.
 #define METRIC 0        // Metric units
 #define US 1            // US Customary units
@@ -96,7 +98,7 @@ typedef struct {
     int runi2c;
     int runNet;
     int runVnc;
-    int runWrn;
+    int runAudio;
     int runTyd;
     int runPlb;
     int runPlbAlive;
@@ -130,6 +132,12 @@ typedef struct {
     int snd_showMixer;
     char snd_card[60];
     char snd_card_name[256];
+    SDL_AudioDeviceID deviceId;
+    SDL_AudioSpec wanted;
+    SDL_AudioSpec obtained;
+    AudioProps apropps;
+    SDL_Thread *audioThread;
+    Playlist playlist;
     char cam_url[200];
     char vid_device[60];
     char media_path[RMAX_FILENAME];
@@ -196,6 +204,8 @@ typedef struct {
     int astat;
     char snd_card[60];
     char snd_card_dev[60];
+    SDL_AudioStream *hdmi_resampler;
+    configuration *conf;
 } audRunner;
 
 
