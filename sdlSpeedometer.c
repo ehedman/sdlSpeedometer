@@ -6871,15 +6871,10 @@ static int doCamera(sdl2_app *sdlApp)
             want.channels = 2;
             want.samples = 4096;
 
-            if (sdlApp->conf->snd_useMixer) {
-                if ((deviceId = SDL_OpenAudioDevice(sdlApp->conf->snd_card_name, 0, &want, NULL, 0)) == 0) { 
-                    if ((deviceId = SDL_OpenAudioDevice(NULL, 0, &want, NULL, 0)) == 0) { // Open default
-                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                            "Failed to SDL_OpenAudioDevice %s: %s", sdlApp->conf->snd_card_name, SDL_GetError()); 
-                    }
-                }
-            }
+            rtsp_audio.muted = 0;
+            //sdlApp->conf->apropps.commands->rtsp_audio.muted = 0;
 
+            deviceId  = sdlApp->conf->deviceId;
             if (deviceId)
                 SDL_PauseAudioDevice(deviceId,0);
 
@@ -7210,7 +7205,37 @@ static int doCamera(sdl2_app *sdlApp)
                     if (out_samples > 0 && deviceId > 0 && !muted)
                     {
                         int out_size = out_samples * 2 * 2;
-                        SDL_QueueAudio(deviceId,audio_buf,out_size);
+
+                        SDL_LockMutex(rtsp_audio.mutex);
+
+                        // Verify that there is actually space in the buffer
+                        if (rtsp_audio.count + out_size <= RTSP_RING_SIZE) 
+                        {
+                            // Calculate where we should start writing
+                            int write_pos = (rtsp_audio.read_pos + rtsp_audio.count) % RTSP_RING_SIZE;
+                            int first_chunk = RTSP_RING_SIZE - write_pos;
+
+                            if (first_chunk > out_size) {
+                                first_chunk = out_size;
+                            }
+
+                            // Copy the first part
+                            memcpy(rtsp_audio.data + write_pos, audio_buf, first_chunk);
+
+                            // Copy the second part if we wrapped around the ring edge (wraparound)
+                            if (out_size > first_chunk) {
+                                memcpy(rtsp_audio.data, audio_buf + first_chunk, out_size - first_chunk);
+                            }
+
+                            rtsp_audio.count += out_size;
+                        }
+                        else
+                        {
+                            // The buffer is full (the network is delivering data faster than the sound card is playing it back,
+                            // or the app is lagging). We discard the packet to avoid A/V desync.
+                        }
+
+                        SDL_UnlockMutex(rtsp_audio.mutex);
                     }
                 }
             }
@@ -7222,15 +7247,14 @@ static int doCamera(sdl2_app *sdlApp)
         SDL_Delay(1000);
     }
 
+    rtsp_audio.muted = 1;
+
     if (vctx) avcodec_free_context(&vctx);
     if (actx) avcodec_free_context(&actx);
     if (frame) av_frame_free(&frame);
     if (swr) swr_free(&swr);
     if (audio_buf) free(audio_buf);
 
-    if (deviceId) {
-        SDL_CloseAudioDevice(deviceId);
-    }
 
     TTF_CloseFont(fontSmall);
     TTF_CloseFont(fontCog);
@@ -8552,7 +8576,7 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
 
 			pid_t vnc_pid = -1;
 
-            while(1) {
+            while(configParams->runVnc) {
 
 				if (kill(spedoMeterPid, 0) != 0) {
 					kill(vnc_pid, SIGTERM);
@@ -8905,11 +8929,13 @@ static void init_av(configuration *configParams)
 
                     if (configParams->snd_showMixer)
                     {
-                        configParams->apropps.audio.mutex =    SDL_CreateMutex();
-                        configParams->apropps.commands.mutex = SDL_CreateMutex();
-                        configParams->apropps.commands.cond =  SDL_CreateCond();
+                        configParams->apropps.audio.mutex           = SDL_CreateMutex();
+                        configParams->apropps.commands.mutex        = SDL_CreateMutex();
+                        configParams->apropps.commands.cond         = SDL_CreateCond();
+                        configParams->apropps.commands.rtsp_mutex   = SDL_CreateMutex();
 
-                        if (!configParams->apropps.audio.mutex || !configParams->apropps.commands.mutex || !configParams->apropps.commands.cond)
+                        if (!configParams->apropps.audio.mutex || !configParams->apropps.commands.mutex
+                            || !configParams->apropps.commands.cond || !configParams->apropps.commands.rtsp_mutex)
                         {
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "initAv: Mutex/condition error: %s", SDL_GetError());
                         }

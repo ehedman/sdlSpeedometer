@@ -9,6 +9,8 @@
 #define RING_SIZE        (AUDIO_RATE * AUDIO_CHANNELS * 2 * 2)
 #define COMMAND_QUEUE    16
 
+#define RTSP_RING_SIZE  131072
+
 #define DEF_ACOVER      "defsound.png"
 
 /* -------------------------------------------------- */
@@ -85,6 +87,19 @@ typedef struct
 } Playlist;
 
 
+#define RTSP_RING_SIZE  131072
+
+typedef struct {
+    Uint8 data[RTSP_RING_SIZE];
+    int read_pos;
+    int write_pos;  // Optional, but makes writing within the FFmpeg loop easier
+    int count;
+    int enabled;
+    int muted;
+    SDL_mutex *mutex;
+} RTSPAudioBuffer;
+
+
 /* -------------------------------------------------- */
 /* Command FIFO                                       */
 /* -------------------------------------------------- */
@@ -99,6 +114,7 @@ typedef struct
 
     SDL_mutex *mutex;
     SDL_cond *cond;
+    SDL_mutex *rtsp_mutex;
 
 } CommandQueue;
 
@@ -118,5 +134,6 @@ extern int command_push(PlayerCommand cmd);
 extern int scandirs(Playlist *plist);
 extern void show_audio_metadata(Playlist *pl);
 extern void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len);
+extern RTSPAudioBuffer rtsp_audio;
 
 #endif /* FPLAYSPEEDOMETER_H */

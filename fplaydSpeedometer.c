@@ -18,22 +18,6 @@
 #include "sdlSpeedometer.h"
 #include "fplaydSpeedometer.h"
 
-static AudioBuffer audio;
-static CommandQueue commands;
-static SDL_AudioDeviceID audio_device;
-
-/* ---------------------------------------------------------------- */
-/* Initialize things to start with                                  */
-/* ---------------------------------------------------------------- */
-
-void player_init(AudioProps *apropps)
-{
-    audio = apropps->audio;
-    commands = apropps->commands;
-    audio_device = apropps->audio_device;
-    av_log_set_level(AV_LOG_ERROR);
-}
-
 /* ---------------------------------------------------------------- */
 /* Find track number based on a file name i.e "02 Dinah-Moe Humm"   */
 /* ---------------------------------------------------------------- */
@@ -571,57 +555,36 @@ cleanup:
 /*                             Player Section                               */
 /* ------------------------------------------------------------------------ */
 
-/* -------------------------------------------------- */
-/* Callback for the HDMI audio source                 */
-/* -------------------------------------------------- */
 
-void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len) {
-    audRunner *doRun = (audRunner *)userdata;
+static AudioBuffer audio;
+static CommandQueue commands;
+static SDL_AudioDeviceID audio_device;
 
-    if (doRun->mute || !doRun->hdmi_resampler) {
-        return;
-    }
+RTSPAudioBuffer rtsp_audio;
 
-    // Feed the 48kHz data from the HDMI card into the resampler.
-    SDL_AudioStreamPut(doRun->hdmi_resampler, stream, len);
+/* ---------------------------------------------------------------- */
+/* Initialize things to start with                                  */
+/* ---------------------------------------------------------------- */
 
-    // Check how much 44.1 kHz data we have obtained after resampling.
-    int available_bytes = SDL_AudioStreamAvailable(doRun->hdmi_resampler);
-    if (available_bytes <= 0) return;
+static void init_rtsp_audio(AudioProps *apropps)
+{
+    memset(&rtsp_audio, 0, sizeof(RTSPAudioBuffer));
 
-    // Allocate a temporary buffer for the resampled data
-    Uint8 *converted_buffer = malloc(available_bytes);
-    if (!converted_buffer) return;
+    rtsp_audio.enabled = 1; // Activate the stream
+    rtsp_audio.muted = 1;   // Make sure it is muted until user wants it
 
-    SDL_AudioStreamGet(doRun->hdmi_resampler, converted_buffer, available_bytes);
+    // Mutex used in the callback and FFmpeg thread.
+    rtsp_audio.mutex = apropps->commands.rtsp_mutex;
+}
 
-    // Lock the mutex and write the data to your existing ring buffer.
-    SDL_LockMutex(audio.mutex);
+void player_init(AudioProps *apropps)
+{
+    audio = apropps->audio;
+    commands = apropps->commands;
+    audio_device = apropps->audio_device;
+    av_log_set_level(AV_LOG_ERROR);
 
-    Uint32 bytes_to_copy = available_bytes;
-
-    // If the ring buffer is too full, prevent overflow
-    if (bytes_to_copy > (Uint32)(RING_SIZE - audio.count)) {
-        bytes_to_copy = RING_SIZE - audio.count;
-    }
-
-    if (bytes_to_copy > 0) {
-        int first = RING_SIZE - audio.write_pos;
-        if (first > (int)bytes_to_copy) {
-            first = bytes_to_copy;
-        }
-
-        // Copy the data
-        memcpy(audio.data + audio.write_pos, converted_buffer, first);
-        memcpy(audio.data, converted_buffer + first, bytes_to_copy - first);
-
-        // Update the ring buffer's counter
-        audio.write_pos = (audio.write_pos + bytes_to_copy) % RING_SIZE;
-        audio.count += bytes_to_copy;
-    }
-
-    SDL_UnlockMutex(audio.mutex);
-    free(converted_buffer);
+    init_rtsp_audio(apropps);
 }
 
 /* -------------------------------------------------- */
@@ -744,36 +707,115 @@ static int ring_write(DecoderJob *job,
 }
 
 /* -------------------------------------------------- */
-/* SDL audio callback                                 */
+/* Callback for the HDMI audio source                 */
 /* -------------------------------------------------- */
 
-void audio_callback(void *userdata,
-                           Uint8 *stream, int len)
+void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len) {
+    audRunner *doRun = (audRunner *)userdata;
+
+    if (doRun->mute || !doRun->hdmi_resampler) {
+        return;
+    }
+
+    // Feed the 48kHz data from the HDMI card into the resampler.
+    SDL_AudioStreamPut(doRun->hdmi_resampler, stream, len);
+
+    // Check how much 44.1 kHz data we have obtained after resampling.
+    int available_bytes = SDL_AudioStreamAvailable(doRun->hdmi_resampler);
+    if (available_bytes <= 0) return;
+
+    // Allocate a temporary buffer for the resampled data
+    Uint8 *converted_buffer = malloc(available_bytes);
+    if (!converted_buffer) return;
+
+    SDL_AudioStreamGet(doRun->hdmi_resampler, converted_buffer, available_bytes);
+
+    // Lock the mutex and write the data to your existing ring buffer.
+    SDL_LockMutex(audio.mutex);
+
+    Uint32 bytes_to_copy = available_bytes;
+
+    // If the ring buffer is too full, prevent overflow
+    if (bytes_to_copy > (Uint32)(RING_SIZE - audio.count)) {
+        bytes_to_copy = RING_SIZE - audio.count;
+    }
+
+    if (bytes_to_copy > 0) {
+        int first = RING_SIZE - audio.write_pos;
+        if (first > (int)bytes_to_copy) {
+            first = bytes_to_copy;
+        }
+
+        // Copy the data
+        memcpy(audio.data + audio.write_pos, converted_buffer, first);
+        memcpy(audio.data, converted_buffer + first, bytes_to_copy - first);
+
+        // Update the ring buffer's counter
+        audio.write_pos = (audio.write_pos + bytes_to_copy) % RING_SIZE;
+        audio.count += bytes_to_copy;
+    }
+
+    SDL_UnlockMutex(audio.mutex);
+    free(converted_buffer);
+}
+
+/* -------------------------------------------------- */
+/* SDL audio MAIN callback                            */
+/* -------------------------------------------------- */
+
+void audio_callback(void *userdata, Uint8 *stream, int len)
 {
+    // Reset the flow (silence as a foundation)
     memset(stream, 0, len);
 
+    // Retrieve and copy data from the regular app audio buffer
     SDL_LockMutex(audio.mutex);
 
     int n = audio.count;
-
-    if (n > len)
-        n = len;
+    if (n > len) n = len;
 
     int first = RING_SIZE - audio.read_pos;
-
-    if (first > n)
-        first = n;
+    if (first > n) first = n;
 
     memcpy(stream, audio.data + audio.read_pos, first);
-
     memcpy(stream + first, audio.data, n - first);
 
-    audio.read_pos =
-        (audio.read_pos + n) % RING_SIZE;
-
+    audio.read_pos = (audio.read_pos + n) % RING_SIZE;
     audio.count -= n;
 
     SDL_UnlockMutex(audio.mutex);
+
+    //  MIX IN THE RTSP CAMERA'S AUDIO
+    if (rtsp_audio.enabled && !rtsp_audio.muted)
+    {
+        SDL_LockMutex(rtsp_audio.mutex);
+
+        int rtsp_n = rtsp_audio.count;
+        if (rtsp_n > len) rtsp_n = len;
+
+        if (rtsp_n > 0)
+        {
+            // Allocate a temporary buffer on the stack (C99 Variable Length Array)
+            Uint8 temp_rtsp[rtsp_n];
+
+            int rtsp_first = RTSP_RING_SIZE - rtsp_audio.read_pos;
+            if (rtsp_first > rtsp_n) rtsp_first = rtsp_n;
+
+            // Copy from the RTSP ring buffer to our temp buffer
+            memcpy(temp_rtsp, rtsp_audio.data + rtsp_audio.read_pos, rtsp_first);
+            memcpy(temp_rtsp + rtsp_first, rtsp_audio.data, rtsp_n - rtsp_first);
+
+            // Update the RTSP buffer positions
+            rtsp_audio.read_pos = (rtsp_audio.read_pos + rtsp_n) % RTSP_RING_SIZE;
+            rtsp_audio.count -= rtsp_n;
+
+            // Mix the camera audio into what is already present in the stream.
+            // Replace AUDIO_S16SYS if you are using a different format (e.g., AUDIO_F32SYS)
+            SDL_MixAudioFormat(stream, temp_rtsp, AUDIO_S16SYS, rtsp_n, SDL_MIX_MAXVOLUME);
+        }
+
+        SDL_UnlockMutex(rtsp_audio.mutex);
+    }
 }
 
 /* -------------------------------------------------- */
