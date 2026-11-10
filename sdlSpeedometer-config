@@ -523,12 +523,12 @@ do_config_menu() {
     "18 Tolerated course  deviation" "Enter the deviation for the course warning" \
     "19 Depth warning" "Enter the audible depth level warning" \
     "20 Wessel draft" "Enter the wessel draft level warning" \
-    "22 Voltage warning" "Enter the audible low voltage level warning" \
+    "21 Voltage warning" "Enter the audible low voltage level warning" \
     "22 Current warning" "Enter the audible high current level warning" \
     "23 Audio Device" "Enter the audio device used for warnings and media" \
     "24 Media Path" "Enter the path to audio files (Music)" \
-    "24 RTSP Camera" "Enter the URL for an RTSP Camera" \
-    "25 Configuration" "Run raspi-config" \
+    "25 RTSP Camera" "Enter the URL for an RTSP Camera" \
+    "26 Configuration" "Run raspi-config" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then

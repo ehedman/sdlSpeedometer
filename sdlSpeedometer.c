@@ -3003,7 +3003,7 @@ static int doMedia(sdl2_app *sdlApp)
     static char current_input[RMAX_FILENAME];
     memset(current_input, 0, sizeof(current_input));
 
-//    Playlist playlist;
+    // Playlist playlist;
     memset(&sdlApp->conf->playlist, 0 , sizeof(sdlApp->conf->playlist));
 
     char albumArtPath[RMAX_FILENAME];
@@ -3028,6 +3028,7 @@ static int doMedia(sdl2_app *sdlApp)
     wasMuted = sdlApp->conf->muted;
     sdlApp->conf->muted = 1;    // Prevent warnings
     int muted = 0;
+    int apause = 0;
 
     chdir(folder_path);
 
@@ -3063,16 +3064,19 @@ static int doMedia(sdl2_app *sdlApp)
         sdlApp->conf->playlist.count = 0;
     }
 
-    float volume_percent = 0.0f;
+    float volume_percent;
+
+    if (sdlApp->conf->snd_useMixer) {
+        volume_percent = get_current_volume(sdlApp);
+    }
+
     float volume_rel = 0.0f;
 
     int left_dirs[200];
     int left_dirs_indx = 0;
     int show_dbtw = 1;
+    float art_alpha = 0.0f;
 
-    if (sdlApp->conf->snd_useMixer) {
-        volume_percent = get_current_volume(sdlApp);
-    }
 
     while (running) {
 
@@ -3133,7 +3137,9 @@ static int doMedia(sdl2_app *sdlApp)
                     command_push(CMD_PLAY);
                 }
                 if (SDL_PointInRect(&p, &pauseR)) {
-                    command_push(CMD_PAUSE);
+                    if ((apause = ! apause))
+                        command_push(CMD_PAUSE);
+                    else command_push(CMD_PLAY);
                 }
                 if (SDL_PointInRect(&p, &stopR)) {
                     command_push(CMD_STOP);
@@ -3174,12 +3180,11 @@ static int doMedia(sdl2_app *sdlApp)
                 }
 
                 if (SDL_PointInRect(&p, &mutebarR)) {
-                    muted = ! muted;
-                    SDL_PauseAudioDevice(sdlApp->conf->apropps.audio_device, muted);
+                    sdlApp->conf->udata->mute = (muted = ! muted);
                 }
                 if (SDL_PointInRect(&p, &mquitR)) {
                     running=0;
-                    continue;
+                    break;
                 }
                 // Clicking the scroll buttons
                 if (SDL_PointInRect(&p, &scrl_up_rect)) {
@@ -3240,6 +3245,8 @@ static int doMedia(sdl2_app *sdlApp)
                 dragging = 0;
         }
 
+        if (!running) break;
+
         if (sdlApp->conf->klicked_media_path != NULL) {
             strncpy(folder_path, sdlApp->conf->klicked_media_path, RMAX_FILENAME);
             strncat(folder_path, "/", sizeof(folder_path)-1);
@@ -3247,8 +3254,6 @@ static int doMedia(sdl2_app *sdlApp)
             command_push(CMD_PLAY);
             newDir = 1;
         }
-
-        if (!running) break;
 
         strftime(msg_tod, sizeof(msg_tod),TIMEDATFMT, localtime(&ct));
 
@@ -3309,6 +3314,15 @@ static int doMedia(sdl2_app *sdlApp)
 
         // Begin render stuff on this page
         SDL_RenderCopyEx(sdlApp->renderer, play,  NULL, &playR,  0, NULL, SDL_FLIP_NONE);
+
+        if (apause) {
+            // Set the texture's alpha to, for example, 100 (0 = completely invisible, 255 = completely visible)
+            SDL_SetTextureAlphaMod(pause, 100);
+        } else {
+            // Restore to full visibility when the pause is over
+            SDL_SetTextureAlphaMod(pause, 255);
+        }
+
         SDL_RenderCopyEx(sdlApp->renderer, pause, NULL, &pauseR, 0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, stop,  NULL, &stopR,  0, NULL, SDL_FLIP_NONE);
         SDL_RenderCopyEx(sdlApp->renderer, next,  NULL, &nextR,  0, NULL, SDL_FLIP_NONE);
@@ -3549,11 +3563,22 @@ static int doMedia(sdl2_app *sdlApp)
                     char path[PATH_MAX];
                     snprintf(path, sizeof(path)-1, "%s/%s%s", curDir, IMAGE_PATH, DEF_ACOVER);
                     albumArt = IMG_LoadTexture(sdlApp->renderer, path);
-                } else
+                } else {
                     albumArt = IMG_LoadTexture(sdlApp->renderer, albumArtPath);
+                    SDL_SetTextureBlendMode(albumArt, SDL_BLENDMODE_BLEND);
+                    art_alpha = 0.0f;
+                }
             }
             if (albumArt != NULL) {
                 SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+                if (art_alpha < 255.0f) {
+                    art_alpha += 20.0f;
+                    if (art_alpha > 255.0f) {
+                        art_alpha = 255.0f;
+                    }
+                }
+                SDL_SetTextureAlphaMod(albumArt, (Uint8)art_alpha);
+
                 SDL_RenderCopyEx(sdlApp->renderer, albumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
             }
 
@@ -3585,6 +3610,9 @@ static int doMedia(sdl2_app *sdlApp)
 
     command_push(CMD_STOP);
     doClean();
+
+    sdlApp->conf->udata->mute = 0;
+    SDL_PauseAudioDevice(sdlApp->conf->deviceId,1);
 
     chdir(curDir);
 
@@ -6789,6 +6817,9 @@ static int doCamera(sdl2_app *sdlApp)
     int toggle = 1;
     running = 4;
 
+    if ((deviceId = sdlApp->conf->deviceId) != 0)   // Our global opened deviceId
+        SDL_PauseAudioDevice(deviceId,0);           // Start the audio stream
+
     while (running)
     {
         AVDictionary *opts = NULL;
@@ -6855,7 +6886,7 @@ static int doCamera(sdl2_app *sdlApp)
 
         /* AUDIO */
 
-        if (astream >= 0)
+        if (astream >= 0 && deviceId)
         {
             const AVCodec *acodec =
                 avcodec_find_decoder(fmt->streams[astream]->codecpar->codec_id);
@@ -6864,19 +6895,7 @@ static int doCamera(sdl2_app *sdlApp)
             avcodec_parameters_to_context(actx, fmt->streams[astream]->codecpar);
             avcodec_open2(actx,acodec,NULL);
 
-            SDL_AudioSpec want;
-            SDL_zero(want);
-            want.freq = 48000;
-            want.format = AUDIO_S16SYS;
-            want.channels = 2;
-            want.samples = 4096;
-
             rtsp_audio.muted = 0;
-            //sdlApp->conf->apropps.commands->rtsp_audio.muted = 0;
-
-            deviceId  = sdlApp->conf->deviceId;
-            if (deviceId)
-                SDL_PauseAudioDevice(deviceId,0);
 
             AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
 
@@ -7187,7 +7206,7 @@ static int doCamera(sdl2_app *sdlApp)
 
             /* AUDIO */
 
-            if (pkt.stream_index == astream && actx && swr)
+            if (pkt.stream_index == astream && actx && swr && deviceId)
             {
                 avcodec_send_packet(actx,&pkt);
 
@@ -7219,6 +7238,9 @@ static int doCamera(sdl2_app *sdlApp)
                                 first_chunk = out_size;
                             }
 
+                            /*
+                             * Mix in data directly into the SDL2 registerad audio callback
+                             */
                             // Copy the first part
                             memcpy(rtsp_audio.data + write_pos, audio_buf, first_chunk);
 
@@ -7254,6 +7276,8 @@ static int doCamera(sdl2_app *sdlApp)
     if (frame) av_frame_free(&frame);
     if (swr) swr_free(&swr);
     if (audio_buf) free(audio_buf);
+
+    SDL_PauseAudioDevice(deviceId,1);
 
 
     TTF_CloseFont(fontSmall);
@@ -7349,6 +7373,8 @@ static int threadAudio(void *ptr)
         doRun->hdmi_resampler = NULL;
     }
     SDL_UnlockMutex(doRun->conf->apropps.audio.mutex);
+
+    SDL_PauseAudioDevice(doRun->conf->deviceId, 1);
 
     return 0;
 }
@@ -8460,11 +8486,20 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
 static void closeSDL2(sdl2_app *sdlApp)
 {
+#if 0   // Excessive exit routine – let Linux handle the cleanup.
 
-    SDL_CloseAudioDevice(sdlApp->conf->apropps.audio_device);
+    SDL_PauseAudioDevice(sdlApp->conf->deviceId, 1);
+    SDL_CloseAudioDevice(sdlApp->conf->deviceId);
     SDL_DestroyCond(sdlApp->conf->apropps.commands.cond);
     SDL_DestroyMutex(sdlApp->conf->apropps.commands.mutex);
     SDL_DestroyMutex(sdlApp->conf->apropps.audio.mutex);
+    SDL_DestroyMutex(sdlApp->conf->apropps.commands.rtsp_mutex);
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+
+    snd_mixer_detach(sdlApp->conf->mixer, sdlApp->conf->snd_card);
+    snd_mixer_free(sdlApp->conf->mixer);
+    snd_mixer_close(sdlApp->conf->mixer);
+    snd_config_update_free_global();
 
     TTF_Quit();
     SDL_DestroyRenderer(sdlApp->renderer);
@@ -8472,7 +8507,7 @@ static void closeSDL2(sdl2_app *sdlApp)
     SDL_VideoQuit();
     IMG_Quit();
     SDL_Quit();
-
+#endif
 }
 
 static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
@@ -8555,7 +8590,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         }
     }
 
-    if (configParams->runVnc == 1 && doInit == 1 && !stat("/usr/bin/wayvnc", &stats)) {
+    if (configParams->runVnc == 1 && doInit == 1 && !stat("/usr/bin/wayvnc", &stats)) 
+    {
     
         // Manager for the wayvnc process
 		SDL_Log("Attempt to start wayvnc");
@@ -8563,8 +8599,8 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         pid_t spedoMeterPid = getpid();
         configParams->wayvncPid = fork();
 
-        if (configParams->wayvncPid == 0) {
-
+        if (configParams->wayvncPid == 0)
+        {
             int fdnull;
             // close stdin, stderr, stdout
             if ((fdnull = open("/dev/null", O_RDWR)) > 0)
@@ -8574,9 +8610,14 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
                 close(fdnull);
             }
 
+            setpgid(0, 0);
+
 			pid_t vnc_pid = -1;
 
-            while(configParams->runVnc) {
+            int reTry = 3;
+
+            while(configParams->runVnc && reTry--)
+            {
 
 				if (kill(spedoMeterPid, 0) != 0) {
 					kill(vnc_pid, SIGTERM);
@@ -8609,6 +8650,11 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
                     SDL_Log("Failed to fork wayvnc (non fatal): %s", strerror(errno));
                     _exit(0);
                 }
+            }
+
+            if (reTry <0 ) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to restart wayvnc after repeated attempts. Giving up this");
+                 _exit(0);
             }
         }
     } else if (configParams->runVnc == 1 && doInit == 1) {
@@ -8940,6 +8986,8 @@ static void init_av(configuration *configParams)
                             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "initAv: Mutex/condition error: %s", SDL_GetError());
                         }
 
+                        static audUserd udata;
+                        configParams->udata = &udata;
                         SDL_zero(configParams->wanted);
 
                         configParams->wanted.freq =       AUDIO_RATE;
@@ -8947,6 +8995,7 @@ static void init_av(configuration *configParams)
                         configParams->wanted.channels =   AUDIO_CHANNELS;
                         configParams->wanted.samples =    AUDIO_BUFFER;
                         configParams->wanted.callback =   audio_callback;
+                        configParams->wanted.userdata =   &udata;
 
                         if (configParams->snd_useMixer) {
                             if ((configParams->deviceId = SDL_OpenAudioDevice(configParams->snd_card_name, 0,
@@ -9122,7 +9171,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    init_av(&configParams);
+    if (configParams.runAudio) {
+        init_av(&configParams);
+    }
 
     if (useSyslog) {
         setlogmask (LOG_UPTO (LOG_NOTICE));
@@ -9373,10 +9424,10 @@ int main(int argc, char *argv[])
         fclose(cnmea.pbFile);
     }
 
-	if (configParams.wayvncPid > 0 && kill(configParams.wayvncPid, 0) == 0) {
+	if (configParams.wayvncPid > 0) {
         configParams.runVnc = 0;
 		kill(configParams.wayvncPid, SIGTERM);
-		SDL_Log("Taking down wayvnc");
+		SDL_Log("Taking down wayvnc server pid=%d", configParams.wayvncPid);
 	}
 
     if (configParams.subTaskPID > 0) {
@@ -9386,7 +9437,7 @@ int main(int argc, char *argv[])
 
     // Terminate the threads - 2 times since restart can happen in the time slice
     configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runAudio = configParams.runPlb = configParams.runTcp = 0;
-    SDL_Delay(3000);
+    SDL_Delay(2000);
     configParams.runSer = configParams.runi2c = configParams.runNet = configParams.runAudio = configParams.runPlb = configParams.runTcp = 0;
 
     // .. and let them close cleanly
@@ -9400,8 +9451,6 @@ int main(int argc, char *argv[])
     if (configParams.numThreads) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d linger.", configParams.numThreads);
     }
-    
-    closeSDL2(&sdlApp);
 
     if (configParams.ttydPID) {
         kill(configParams.ttydPID, SIGINT);
@@ -9409,6 +9458,8 @@ int main(int argc, char *argv[])
     }
 
     SDL_Log("User terminated");
+
+    closeSDL2(&sdlApp);
 
     exit(EXIT_SUCCESS);
 }

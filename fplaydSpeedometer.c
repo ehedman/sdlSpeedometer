@@ -570,6 +570,11 @@ static void init_rtsp_audio(AudioProps *apropps)
 {
     memset(&rtsp_audio, 0, sizeof(RTSPAudioBuffer));
 
+    if ((rtsp_audio.data = malloc(RTSP_RING_SIZE)) == NULL) {
+        rtsp_audio.enabled = 0; rtsp_audio.muted = 1;
+        return;
+    }
+
     rtsp_audio.enabled = 1; // Activate the stream
     rtsp_audio.muted = 1;   // Make sure it is muted until user wants it
 
@@ -765,6 +770,8 @@ void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len) {
 
 void audio_callback(void *userdata, Uint8 *stream, int len)
 {
+    audUserd *ud = (audUserd *)userdata;
+
     // Reset the flow (silence as a foundation)
     memset(stream, 0, len);
 
@@ -777,8 +784,12 @@ void audio_callback(void *userdata, Uint8 *stream, int len)
     int first = RING_SIZE - audio.read_pos;
     if (first > n) first = n;
 
-    memcpy(stream, audio.data + audio.read_pos, first);
-    memcpy(stream + first, audio.data, n - first);
+    // Copy the audio stream to the speakers ONLY if mute is OFF (e.g., ud->mute == 0)
+    if (ud && ud->mute == 0)
+    {
+        memcpy(stream, audio.data + audio.read_pos, first);
+        memcpy(stream + first, audio.data, n - first);
+    }
 
     audio.read_pos = (audio.read_pos + n) % RING_SIZE;
     audio.count -= n;
@@ -786,7 +797,7 @@ void audio_callback(void *userdata, Uint8 *stream, int len)
     SDL_UnlockMutex(audio.mutex);
 
     //  MIX IN THE RTSP CAMERA'S AUDIO
-    if (rtsp_audio.enabled && !rtsp_audio.muted)
+    if (rtsp_audio.enabled && !rtsp_audio.muted && !ud->mute)
     {
         SDL_LockMutex(rtsp_audio.mutex);
 
@@ -1092,7 +1103,6 @@ static int decoder_thread(void *arg)
     }
 
 cleanup:
-
     if (swr)
         swr_free(&swr);
 
@@ -1173,7 +1183,7 @@ static int start_track(Playlist *playlist,
     if (!*job)
         return -1;
 
-    (*job)->filename = playlist->files[index+playlist->kalle];
+    (*job)->filename = playlist->files[index];
 
     SDL_AtomicSet(&(*job)->cancel, 0);
 
@@ -1189,7 +1199,6 @@ static int start_track(Playlist *playlist,
 
     SDL_PauseAudioDevice(audio_device, 0);
 
-    playlist->kalle = 0;
     return 0;
 }
 

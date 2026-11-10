@@ -94,6 +94,10 @@ typedef struct {
 } calibration;
 
 typedef struct {
+    int mute;
+} audUserd;
+
+typedef struct {
     int runSer;
     int runi2c;
     int runNet;
@@ -148,6 +152,7 @@ typedef struct {
     int jumpf;
     calibration calib;
     void *sdlApp;
+    audUserd *udata;
 } configuration;
 
 enum sdlPages {
@@ -207,7 +212,6 @@ typedef struct {
     SDL_AudioStream *hdmi_resampler;
     configuration *conf;
 } audRunner;
-
 
 typedef struct {
     float depthw;

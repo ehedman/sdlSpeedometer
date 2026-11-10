@@ -69,7 +69,6 @@ typedef struct
     int index;
     int active;
     int paused;
-    int kalle;
     int seq_track_no[80];
     float s_duration;
     char **files;
@@ -90,7 +89,7 @@ typedef struct
 #define RTSP_RING_SIZE  131072
 
 typedef struct {
-    Uint8 data[RTSP_RING_SIZE];
+    Uint8 *data;
     int read_pos;
     int write_pos;  // Optional, but makes writing within the FFmpeg loop easier
     int count;
