@@ -555,10 +555,11 @@ cleanup:
 /*                             Player Section                               */
 /* ------------------------------------------------------------------------ */
 
-
 static AudioBuffer audio;
 static CommandQueue commands;
 static SDL_AudioDeviceID audio_device;
+static float seek_target_seconds;
+static AVFormatContext  *g_fmt_ctx;
 
 RTSPAudioBuffer rtsp_audio;
 
@@ -582,6 +583,9 @@ static void init_rtsp_audio(AudioProps *apropps)
     rtsp_audio.mutex = apropps->commands.rtsp_mutex;
 }
 
+/* ------------------------------------------------------------------------ */
+/*                             Public Section                               */
+/* ------------------------------------------------------------------------ */
 void player_init(AudioProps *apropps)
 {
     audio = apropps->audio;
@@ -590,6 +594,16 @@ void player_init(AudioProps *apropps)
     av_log_set_level(AV_LOG_ERROR);
 
     init_rtsp_audio(apropps);
+}
+
+float player_get_cur_pos_sec(void)
+{
+    return audio.cur_pos_sec;
+}
+
+void player_set_cur_pos_sec(const float s)
+{
+    seek_target_seconds = s;
 }
 
 /* -------------------------------------------------- */
@@ -620,33 +634,9 @@ int command_push(PlayerCommand cmd)
     return 0;
 }
 
-static int command_pop(PlayerCommand *cmd)
-{
-    SDL_LockMutex(commands.mutex);
-
-    /* Wait at most 50 ms */
-
-    if (commands.count == 0)
-        SDL_CondWaitTimeout(commands.cond,
-                            commands.mutex, 50);
-
-    if (commands.count == 0)
-    {
-        SDL_UnlockMutex(commands.mutex);
-        return 0;
-    }
-
-    *cmd = commands.queue[commands.read_pos];
-
-    commands.read_pos =
-        (commands.read_pos + 1) % COMMAND_QUEUE;
-
-    commands.count--;
-
-    SDL_UnlockMutex(commands.mutex);
-
-    return 1;
-}
+/* ------------------------------------------------------------------------ */
+/*                            Decoder Section                               */
+/* ------------------------------------------------------------------------ */
 
 /* -------------------------------------------------- */
 /* PCM ringbuffer                                     */
@@ -771,6 +761,7 @@ void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len) {
 void audio_callback(void *userdata, Uint8 *stream, int len)
 {
     audUserd *ud = (audUserd *)userdata;
+    float seconds_played;
 
     // Reset the flow (silence as a foundation)
     memset(stream, 0, len);
@@ -794,10 +785,13 @@ void audio_callback(void *userdata, Uint8 *stream, int len)
     audio.read_pos = (audio.read_pos + n) % RING_SIZE;
     audio.count -= n;
 
+    seconds_played = (float)n / (AUDIO_RATE * AUDIO_CHANNELS * AUDIO_CHANNELS);
+    audio.cur_pos_sec += seconds_played;
+
     SDL_UnlockMutex(audio.mutex);
 
     //  MIX IN THE RTSP CAMERA'S AUDIO
-    if (rtsp_audio.enabled && !rtsp_audio.muted && !ud->mute)
+    if (ud && rtsp_audio.enabled && !rtsp_audio.muted && !ud->mute)
     {
         SDL_LockMutex(rtsp_audio.mutex);
 
@@ -894,20 +888,32 @@ static void receive_frames(DecoderJob *job,
     {
         int ret = avcodec_receive_frame(codec, frame);
 
-        if (ret == AVERROR(EAGAIN) ||
-            ret == AVERROR_EOF)
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
             break;
 
         if (ret < 0)
             break;
+
+        // Check whether we are seeking to an exact point following a jump
+        if (job->exact_seek_pts > 0)
+        {
+            // Make sure frame->pts actually contains a valid time before we compare
+            if (frame->pts != AV_NOPTS_VALUE && frame->pts < job->exact_seek_pts)
+            {
+                // We haven't reached the goal yet: clean up this frame and move on to the next one in the loop.
+                av_frame_unref(frame);
+                continue;
+            }
+            // We have reached (or passed) the target!
+            // Reset so that everything plays back normally from this point on.
+            job->exact_seek_pts = 0;
+        }
 
         convert_frame(job, codec, swr, frame);
 
         av_frame_unref(frame);
     }
 }
-
-static AVFormatContext  *g_fmt_ctx;
 
 static void print_tag(AVDictionary *dict, const char *key, char *str)
 {
@@ -1049,9 +1055,50 @@ static int decoder_thread(void *arg)
 
     /* Read and decode */
 
-    while (!SDL_AtomicGet(&job->cancel) &&
-           av_read_frame(fmt, packet) >= 0)
+    while (!SDL_AtomicGet(&job->cancel))
     {
+
+        /* --- LOGIC FOR EXACT SEARCH (SEEK) --- */
+        if (SDL_AtomicGet(&job->seek_requested))
+        {
+            int target_ms = SDL_AtomicGet(&job->seek_target_ms);
+            SDL_AtomicSet(&job->seek_requested, 0);
+
+            double target_seconds = target_ms / 1000.0;
+            AVStream *st = fmt->streams[audio_stream];
+
+            // Calculate the exact target timestamp (exact_seek_pts)
+            job->exact_seek_pts = av_rescale_q(
+                (int64_t)(target_seconds * AV_TIME_BASE),
+                AV_TIME_BASE_Q,
+                st->time_base
+            );
+
+            // Calculate the coarse jump (we use the same timestamp)
+            int64_t timestamp = job->exact_seek_pts;
+
+            // 3. First perform the backward giant leap in the file to align in for the forward jump
+            if (av_seek_frame(fmt, audio_stream, timestamp, AVSEEK_FLAG_BACKWARD) >= 0)
+            {
+                avcodec_flush_buffers(codec);
+                swr_init(swr);
+
+                // Empty the ring buffer completely
+                SDL_LockMutex(audio.mutex);
+                audio.read_pos = 0;
+                audio.count = 0;
+                audio.eof = 0;
+                // Update the times to the goal of the new hope!
+                audio.cur_pos_sec = target_seconds;
+                SDL_UnlockMutex(audio.mutex);
+            }
+        }
+
+        // Read the next frame from FFmpeg
+        if (av_read_frame(fmt, packet) < 0) {
+            break; // End of file or error
+        }
+
         if (packet->stream_index == audio_stream)
         {
             ret = avcodec_send_packet(codec, packet);
@@ -1187,8 +1234,7 @@ static int start_track(Playlist *playlist,
 
     SDL_AtomicSet(&(*job)->cancel, 0);
 
-    *thread = SDL_CreateThread(
-        decoder_thread, "decoder", *job);
+    *thread = SDL_CreateThread(decoder_thread, "decoder", *job);
 
     if (!*thread)
     {
@@ -1197,9 +1243,39 @@ static int start_track(Playlist *playlist,
         return -1;
     }
 
+    audio.cur_pos_sec = 0.0f;
+
     SDL_PauseAudioDevice(audio_device, 0);
 
     return 0;
+}
+
+static int command_pop(PlayerCommand *cmd)
+{
+    SDL_LockMutex(commands.mutex);
+
+    /* Wait at most 50 ms */
+
+    if (commands.count == 0)
+        SDL_CondWaitTimeout(commands.cond,
+                            commands.mutex, 50);
+
+    if (commands.count == 0)
+    {
+        SDL_UnlockMutex(commands.mutex);
+        return 0;
+    }
+
+    *cmd = commands.queue[commands.read_pos];
+
+    commands.read_pos =
+        (commands.read_pos + 1) % COMMAND_QUEUE;
+
+    commands.count--;
+
+    SDL_UnlockMutex(commands.mutex);
+
+    return 1;
 }
 
 int control_thread(void *arg)
@@ -1252,6 +1328,29 @@ int control_thread(void *arg)
                             playlist->active = 1;
                         }
                     }
+                    break;
+
+                    case CMD_JUMP:
+
+                    if (playlist->active && job != NULL)
+                    {
+                        // Ignore new hops if the decoder is still processing the previous one
+                        if (SDL_AtomicGet(&job->seek_requested) == 0)
+                        {
+                            double target_secs = seek_target_seconds;
+
+                            // Ensure that we never attempt to jump to a negative point in time.
+                            if (target_secs < 0.0) {
+                                target_secs = 0.0;
+                            }
+
+                            // Convert to milliseconds and trigger the decoding thread atomically
+                            int target_ms = (int)(target_secs * 1000.0);
+                            SDL_AtomicSet(&job->seek_target_ms, target_ms);
+                            SDL_AtomicSet(&job->seek_requested, 1);
+                        }
+                    }
+
                     break;
 
 

@@ -21,6 +21,7 @@ typedef enum
 {
     CMD_PLAY,
     CMD_PLAYSEL,
+    CMD_JUMP,
     CMD_PAUSE,
     CMD_STOP,
     CMD_NEXT,
@@ -28,7 +29,6 @@ typedef enum
     CMD_SHUTDOWN
 
 } PlayerCommand;
-
 
 /* -------------------------------------------------- */
 /* PCM ringbuffer                                     */
@@ -46,17 +46,21 @@ typedef struct
 
     SDL_mutex *mutex;
 
+    volatile float cur_pos_sec;
+
 } AudioBuffer;
 
 /* -------------------------------------------------- */
 /* Decoder job                                        */
 /* -------------------------------------------------- */
-
 typedef struct
 {
     const char *filename;
-
     SDL_atomic_t cancel;
+
+    int64_t exact_seek_pts;
+    SDL_atomic_t seek_requested;
+    SDL_atomic_t seek_target_ms;
 
 } DecoderJob;
 
@@ -85,19 +89,17 @@ typedef struct
     char comment[80];
 } Playlist;
 
-
 #define RTSP_RING_SIZE  131072
 
 typedef struct {
     Uint8 *data;
     int read_pos;
-    int write_pos;  // Optional, but makes writing within the FFmpeg loop easier
+    int write_pos;
     int count;
     int enabled;
     int muted;
     SDL_mutex *mutex;
 } RTSPAudioBuffer;
-
 
 /* -------------------------------------------------- */
 /* Command FIFO                                       */
@@ -125,7 +127,6 @@ typedef struct
 
 } AudioProps;
 
-//extern AudioProps apropps;
 extern void player_init(AudioProps *propps);
 extern void audio_callback(void *userdata, Uint8 *stream, int len);
 extern int control_thread(void *arg);
@@ -134,5 +135,7 @@ extern int scandirs(Playlist *plist);
 extern void show_audio_metadata(Playlist *pl);
 extern void HDMI_Capture_Callback(void *userdata, Uint8 *stream, int len);
 extern RTSPAudioBuffer rtsp_audio;
+extern void player_set_cur_pos_sec(float s);
+extern float player_get_cur_pos_sec(void);
 
 #endif /* FPLAYSPEEDOMETER_H */

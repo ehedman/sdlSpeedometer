@@ -65,6 +65,9 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 ### Note on Audio
 - This is a alsa level application for warning sounds, camera and hdmi audio interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
 
+### Note on the Media Player
+- The media player plays FLAC, MP3, and WAV files and features a layout designed for touchscreens and is well-suited for small screens and large fingers.
+
 ### Notes on VNC
 - sdlSpeedometer will enable the wayvnc VNC server if invoked with "-V" where default port is 5903 and no password.
 - For the wayvnc VNC server, certificates can optionally be generated (check the wayvnc file ~/.config/wayvnc/config for compliance):
@@ -194,7 +197,8 @@ For bookworm with Xorg add video=HDMI-A-1:800x480M@59 to /boot/cmdline.txt and t
 - CAM (rtsp) Capture and HDMI Capture from any source but typically from a Navigator with HDMI out
 <img src="https://hedmanshome.se/sdlspeedometer33.png" width=100%>
 - A simple media player for files - to be extended to handle NMEA2K enabled  CanBus media systems
-<img src="https://hedmanshome.se/sdlspeedometer48.png" width=100%>
+- A media player with depth waring !!!
+<img src="https://hedmanshome.se/sdlspeedometer49.png" width=100%>
 - Legacy 3D style
 <img src="https://hedmanshome.se/sdlspeedometer20.png" width=100%>
 <img src="https://hedmanshome.se/sdlspeedometer21.png" width=100%>

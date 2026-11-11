@@ -2986,16 +2986,16 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect sliderR    = {10, 40, 30, 200};
     SDL_Rect textBoxR   = {arttBoxR.x-20,arttBoxR.y-14,arttBoxR.w+34,arttBoxR.h+34};
 
-    // Scroll variables for the file selector
     int rMargin = w/2+100;
     int scrl_offset = 0;
+    SDL_Rect pgBarR       = { 300, 355, 364, 22 };
     SDL_Rect scrl_bk_rect = { rMargin-30, 60,  50, 50 };
     SDL_Rect scrl_up_rect = { rMargin-30, 120, 50, 50 };
     SDL_Rect scrl_dn_rect = { rMargin-30, 180, 50, 50 };
-    SDL_Rect dbtR = {w-370, h-160, 300, 32};
+    SDL_Rect dbtR = {w-400, h-170, 300, 32};
     SDL_Rect file_click_areas[MVISIBLE_FILES];
 
-    SDL_Rect mutebarR   = {w-60,h-60,25,25};
+    SDL_Rect mutebarR   = {w-60,h-70,40,40};
 
     char folder_path[RMAX_FILENAME];
     strcpy(folder_path, sdlApp->conf->media_path);
@@ -3070,13 +3070,15 @@ static int doMedia(sdl2_app *sdlApp)
         volume_percent = get_current_volume(sdlApp);
     }
 
-    float volume_rel = 0.0f;
+    float volume_rel = volume_percent;
 
     int left_dirs[200];
     int left_dirs_indx = 0;
     int show_dbtw = 1;
     float art_alpha = 0.0f;
+    float current_position = 0.0f;
 
+    player_set_cur_pos_sec(0.0f);
 
     while (running) {
 
@@ -3139,7 +3141,9 @@ static int doMedia(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &pauseR)) {
                     if ((apause = ! apause))
                         command_push(CMD_PAUSE);
-                    else command_push(CMD_PLAY);
+                    else {
+                        command_push(CMD_PLAY);
+                    }
                 }
                 if (SDL_PointInRect(&p, &stopR)) {
                     command_push(CMD_STOP);
@@ -3156,7 +3160,24 @@ static int doMedia(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &dbtR)) {
                     show_dbtw = !show_dbtw;
                 }
+                if (SDL_PointInRect(&p, &pgBarR))
+                {
+                    // Calculate where in the bar the user clicked (0 to pgBarR.w)
+                    int clicked_x = e.button.x - pgBarR.x;
 
+                    // Clamd the value to be within range
+                    if (clicked_x < 0) {
+                        clicked_x = 0;
+                    } else if (clicked_x > pgBarR.w) {
+                        clicked_x = pgBarR.w;
+                    }
+
+                    // Calculate the proportion (0.0 to 1.0) and multiply by the duration
+                    float setval = (float)clicked_x / (float)pgBarR.w;
+                    player_set_cur_pos_sec(roundf(setval * sdlApp->conf->playlist.s_duration));
+
+                    command_push(CMD_JUMP);
+                }
                 if (sdlApp->conf->snd_useMixer && !muted) {
 
                     if (SDL_PointInRect(&p, &vupR)) {
@@ -3544,17 +3565,26 @@ static int doMedia(sdl2_app *sdlApp)
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
             }
 #endif
+
             if (strlen(sdlApp->conf->playlist.duration)) {
-                get_text_and_rect(sdlApp->renderer, 60, 364, 0, sdlApp->conf->playlist.duration,
+
+                current_position = player_get_cur_pos_sec();
+
+                get_text_and_rect(sdlApp->renderer, 60, pgBarR.y+6, 0, sdlApp->conf->playlist.duration,
                     fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
                 SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
 
-            Uint64 now = player_paused ? pause_start_ms : SDL_GetTicks64();
-            double current_position = (double)(now - track_start_ms - paused_total_ms) / 1000.0;
+                int rems = sdlApp->conf->playlist.s_duration - current_position;
+                char buf[20];
+                snprintf(buf, sizeof(buf),"-%02d:%02d" , rems / 60, rems % 60);
 
-            if (strlen(sdlApp->conf->playlist.duration)) {
-                draw_progress_bar(sdlApp->renderer, 300, 364, 364, 14, current_position, sdlApp->conf->playlist.s_duration);
+                get_text_and_rect(sdlApp->renderer, pgBarR.x+pgBarR.w+10, pgBarR.y+6, 0, buf,
+                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+
+                if (strlen(sdlApp->conf->playlist.duration)) {
+                    draw_progress_bar(sdlApp->renderer, pgBarR.x, pgBarR.y, pgBarR.w, pgBarR.h, current_position, sdlApp->conf->playlist.s_duration);
+                }
             }
 
             // Show album art
@@ -3590,6 +3620,8 @@ static int doMedia(sdl2_app *sdlApp)
             player_paused = 0;
             pgIndx=0;
         }
+
+
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw && ct % 5 && show_dbtw)
         {   // A Media Player with Depth Warnings :-)
@@ -3644,7 +3676,7 @@ static int doMedia(sdl2_app *sdlApp)
 // Publik funktion
 // ------------------------------------------------------------
 
-int scan_cover_art(const char *base_path, CoverList *list)
+static int scan_cover_art(const char *base_path, CoverList *list)
 {
     if (!base_path || !list)
         return -1;
@@ -4433,7 +4465,7 @@ static int doCompass(sdl2_app *sdlApp)
     return e.type;
 }
 
-// Present the Sumlog (NMEA net only)
+// Present the Sumlog
 static int doSumlog(sdl2_app *sdlApp)
 {
     SDL_Event e;
@@ -5209,7 +5241,7 @@ static int doGps(sdl2_app *sdlApp)
     return e.type;
 }
 
-// Present Depth data (NMEA net only)
+// Present Depth data
 static int doDepth(sdl2_app *sdlApp)
 {
     SDL_Event e;
@@ -5801,7 +5833,7 @@ static int doDepth(sdl2_app *sdlApp)
     return e.type;
 }
 
-// Present Wind data (NMEA net only)
+// Present Wind data
 static int doWind(sdl2_app *sdlApp)
 {
     SDL_Event e;
