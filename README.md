@@ -145,7 +145,7 @@ This option makes no sence unless sdlSpeedometer is running as a systemd service
 
 ### Enable audible warnings
 - Set audio preferences with sdlSPeedometer-config
-- Start sdlSpeedometer with ./sdlSpeedometer -p and possible -i -g as well
+- Start sdlSpeedometer with ./sdlSpeedometer -A and possible -i -g as well
 - Eventually set these preferences in /etc/default/sdlSpeedometer after "make install" has been executed on a Pi
 - A volume control bar will be available for DAC audio devices. Volume for HDMI is handled at the signal endpoint i.e. the display monitor
 
