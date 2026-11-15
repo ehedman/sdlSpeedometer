@@ -1,4 +1,4 @@
-SRCS=sdlSpeedometer.c i2cSpeedometer.c cog3dSpeedometer.c tcpsdSpeedometer.c fplaydSpeedometer.c
+SRCS=sdlSpeedometer.c i2cSpeedometer.c cog3dSpeedometer.c tcpsdSpeedometer.c fplaydSpeedometer.c extSpeedometer.c
 HDRS=sdlSpeedometer.h LSM9DS0.h
 BIN=sdlSpeedometer
 CC=gcc
@@ -21,7 +21,7 @@ CFLAGS+=-DREV=\"$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)\"
 endif
 
 LDFLAGS+=-lX11 -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_net -lsqlite3 -lcurl -lSDL2_gfx -lGLESv2 -lm
-LDFLAGS+=-lasound -lavformat -lavcodec -lavutil -lswresample
+LDFLAGS+=-lasound -lavformat -lavcodec -lavutil -lswresample -lswscale
 
 RED=\033[1;31m
 GREEN=\033[1;32m

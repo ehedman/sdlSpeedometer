@@ -402,7 +402,7 @@ int scandirs(Playlist *plist)
                   continue;
             }
 
-            if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0 && strcmp(p, "wav") != 0) {
+            if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0 && strcmp(p, "wav") != 0 && strcmp(p, "avi") != 0 && strcmp(p, "mp4") != 0 && strcmp(p, "m4a") != 0) {
                 continue;   // Ignore other file types completely
             }
 
@@ -491,7 +491,7 @@ int scandirs(Playlist *plist)
 
         if (track_no <= 0 && !S_ISDIR(stats.st_mode)) {
             track_no = plist->seq_track_no[i];
-            SDL_Log("doMedia(sort): Using sequential track no %d since it is not found in meta data for file %s", track_no, plist->files[i]);
+ //           SDL_Log("doMedia(sort): Using sequential track no %d since it is not found in meta data for file %s", track_no, plist->files[i]);
         }
 
         // Simple sort. Pick the first letter a-z-A-Z - usually the artist or album name
@@ -562,6 +562,10 @@ static float seek_target_seconds;
 static AVFormatContext  *g_fmt_ctx;
 
 RTSPAudioBuffer rtsp_audio;
+DecoderJob *g_current_job = NULL;
+SDL_mutex *g_job_mutex = NULL;
+DecoderJob *job = NULL;
+VideoRenderer vr = {0};
 
 /* ---------------------------------------------------------------- */
 /* Initialize things to start with                                  */
@@ -604,6 +608,11 @@ float player_get_cur_pos_sec(void)
 void player_set_cur_pos_sec(const float s)
 {
     seek_target_seconds = s;
+}
+
+int media_is_video(void)
+{
+    return audio.is_video;
 }
 
 /* -------------------------------------------------- */
@@ -649,6 +658,9 @@ static void ring_clear(void)
     audio.read_pos = 0;
     audio.write_pos = 0;
     audio.count = 0;
+    audio.played_bytes = 0;
+    audio.audio_start_set = 0;
+    audio.audio_start_sec = 0.0;
     audio.eof = 0;
 
     SDL_UnlockMutex(audio.mutex);
@@ -785,7 +797,10 @@ void audio_callback(void *userdata, Uint8 *stream, int len)
     audio.read_pos = (audio.read_pos + n) % RING_SIZE;
     audio.count -= n;
 
-    seconds_played = (float)n / (AUDIO_RATE * AUDIO_CHANNELS * AUDIO_CHANNELS);
+    audio.played_bytes += n;
+    audio.last_callback_ticks = SDL_GetTicks64();
+
+    seconds_played = (float)n / (AUDIO_RATE * AUDIO_CHANNELS * 2);
     audio.cur_pos_sec += seconds_played;
 
     SDL_UnlockMutex(audio.mutex);
@@ -909,6 +924,15 @@ static void receive_frames(DecoderJob *job,
             job->exact_seek_pts = 0;
         }
 
+        if (!audio.audio_start_set && frame->pts != AV_NOPTS_VALUE)
+        {
+            SDL_LockMutex(audio.mutex);
+            audio.audio_start_sec = frame->pts * av_q2d(codec->pkt_timebase);
+            audio.audio_start_set = 1;
+            audio.last_callback_ticks = SDL_GetTicks64();
+            SDL_UnlockMutex(audio.mutex);
+        }
+
         convert_frame(job, codec, swr, frame);
 
         av_frame_unref(frame);
@@ -963,6 +987,107 @@ void show_audio_metadata(Playlist *pl)
     }
 }
 
+static void video_queue_destroy(VideoQueue *q)
+{
+    while (q->count > 0) {
+        video_queue_pop(q);
+    }
+    if (q->cond) SDL_DestroyCond(q->cond);
+    if (q->mutex) SDL_DestroyMutex(q->mutex);
+}
+
+static void video_queue_init(VideoQueue *q)
+{
+    memset(q, 0, sizeof(VideoQueue));
+    q->mutex = SDL_CreateMutex();
+    q->cond = SDL_CreateCond();
+}
+
+static void video_queue_push(VideoQueue *q, AVFrame *src_frame, SDL_atomic_t *cancel)
+{
+    AVFrame *clone = av_frame_clone(src_frame);
+    if (!clone) return;
+
+    SDL_LockMutex(q->mutex);
+    while (q->count == VIDEO_QUEUE_SIZE && !SDL_AtomicGet(cancel)) {
+        SDL_CondWaitTimeout(q->cond, q->mutex, 10);
+    }
+
+    if (SDL_AtomicGet(cancel)) {
+        av_frame_free(&clone);
+        SDL_UnlockMutex(q->mutex);
+        return;
+    }
+
+    q->frames[q->tail] = clone;
+    q->tail = (q->tail + 1) % VIDEO_QUEUE_SIZE;
+    q->count++;
+
+    SDL_CondSignal(q->cond);
+    SDL_UnlockMutex(q->mutex);
+}
+
+static void video_queue_clear(VideoQueue *q)
+{
+    SDL_LockMutex(q->mutex);
+
+    while (q->count > 0) {
+        av_frame_free(&q->frames[q->head]);
+        q->head = (q->head + 1) % VIDEO_QUEUE_SIZE;
+        q->count--;
+    }
+
+    q->head = 0;
+    q->tail = 0;
+
+    SDL_CondBroadcast(q->cond);
+    SDL_UnlockMutex(q->mutex);
+}
+
+/* -------------------------------------------------- */
+/* Public functions                                   */
+/* -------------------------------------------------- */
+
+AVFrame *video_queue_peek(VideoQueue *q) {
+    SDL_LockMutex(q->mutex);
+    AVFrame *f = (q->count > 0) ? q->frames[q->head] : NULL;
+    SDL_UnlockMutex(q->mutex);
+    return f;
+}
+
+void video_queue_pop(VideoQueue *q) {
+    SDL_LockMutex(q->mutex);
+    if (q->count > 0) {
+        av_frame_free(&q->frames[q->head]);
+        q->head = (q->head + 1) % VIDEO_QUEUE_SIZE;
+        q->count--;
+        SDL_CondSignal(q->cond);
+    }
+    SDL_UnlockMutex(q->mutex);
+}
+
+
+double get_audio_clock(void)
+{
+    SDL_LockMutex(audio.mutex);
+    uint64_t bytes = audio.played_bytes;
+    double start_sec = audio.audio_start_sec;
+    uint64_t last_ticks = audio.last_callback_ticks;
+    int paused = audio.paused; // if you have a pause flag
+    SDL_UnlockMutex(audio.mutex);
+
+    double bytes_per_sec = (double)AUDIO_RATE * AUDIO_CHANNELS * 2.0;
+    double clock = start_sec + ((double)bytes / bytes_per_sec);
+
+    if (last_ticks > 0 && !paused) {
+        double elapsed = (double)(SDL_GetTicks64() - last_ticks) / 1000.0;
+        if (elapsed > 0.10) elapsed = 0.10; // clamp to max 1 callback period
+        clock += elapsed;
+    }
+
+    return clock;
+}
+
 /* -------------------------------------------------- */
 /* Decoder thread                                     */
 /* -------------------------------------------------- */
@@ -981,9 +1106,14 @@ static int decoder_thread(void *arg)
 
     int audio_stream = -1;
 
-    if (avformat_open_input(
-            &fmt, job->filename, NULL, NULL) < 0)
-        goto cleanup;
+    audio.is_video = 0;
+
+    AVCodecContext *vcodec = NULL;
+    AVFrame *vframe = NULL;
+    int video_stream = -1;
+
+    if (avformat_open_input(&fmt, job->filename, NULL, NULL) < 0)
+         goto cleanup;
 
     if (avformat_find_stream_info(fmt, NULL) < 0)
         goto cleanup;
@@ -991,35 +1121,96 @@ static int decoder_thread(void *arg)
     if (fmt != NULL)
         g_fmt_ctx = fmt;
 
+    /* --- Audio setup --- */
     audio_stream = av_find_best_stream(
-        fmt, AVMEDIA_TYPE_AUDIO,
-        -1, -1, NULL, 0);
+        fmt, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
 
     if (audio_stream < 0)
         goto cleanup;
 
     const AVCodec *decoder =
-        avcodec_find_decoder(
-            fmt->streams[audio_stream]->codecpar->codec_id);
+        avcodec_find_decoder(fmt->streams[audio_stream]->codecpar->codec_id);
 
     if (!decoder)
         goto cleanup;
 
     codec = avcodec_alloc_context3(decoder);
-
     if (!codec)
         goto cleanup;
 
     if (avcodec_parameters_to_context(
-            codec,
-            fmt->streams[audio_stream]->codecpar) < 0)
+            codec, fmt->streams[audio_stream]->codecpar) < 0)
         goto cleanup;
+
+    codec->pkt_timebase = fmt->streams[audio_stream]->time_base;
 
     if (avcodec_open2(codec, decoder, NULL) < 0)
         goto cleanup;
 
-    /* Input channel layout */
+    /* --- Video setup (uses the same fmt) --- */
+    video_stream = av_find_best_stream(
+        fmt, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
 
+
+
+    for (unsigned int i = 0; i < fmt->nb_streams; i++) {
+        AVStream *st = fmt->streams[i];
+
+        if (video_stream < 0 &&
+            st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
+            !(st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
+            video_stream = (int)i;
+        } else if (audio_stream < 0 &&
+                   st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            audio_stream = (int)i;
+        }
+    }
+
+    if (video_stream >= 0 && audio_stream >= 0) {
+       //printf("// Video file with audio (e.g., .mp4, .mkv)\n");
+       audio.is_video = 1;
+    } else if (video_stream < 0 && audio_stream >= 0) {
+        //printf("// Raw audio file (even if it contains embedded album art, e.g., .flac, .mp3)\n");
+    } else if (video_stream >= 0 && audio_stream < 0) {
+        //printf("// Silent video file without sound\n");
+    } else {
+        //printf("// Invalid / empty file – abort and clean up\n");
+        goto cleanup;
+    }
+
+    if (video_stream >= 0)
+    {
+        job->video_time_base = fmt->streams[video_stream]->time_base;
+        job->video_frame_rate = av_guess_frame_rate(fmt, fmt->streams[video_stream], NULL);
+        job->video_frame_count = 0;
+
+        if (video_stream >= 0) {
+            const AVCodec *vdecoder =
+                avcodec_find_decoder(fmt->streams[video_stream]->codecpar->codec_id);
+
+            if (!vdecoder)
+                 goto cleanup;
+
+            vcodec = avcodec_alloc_context3(vdecoder);
+
+            if (!vcodec)
+                 goto cleanup;
+
+            if (avcodec_parameters_to_context(vcodec, fmt->streams[video_stream]->codecpar) < 0)
+                 goto cleanup;
+
+            vcodec->pkt_timebase = fmt->streams[video_stream]->time_base;
+
+            if (avcodec_open2(vcodec, vdecoder, NULL) < 0)
+                 goto cleanup;
+
+            vframe = av_frame_alloc();
+            if (!vframe)
+                goto cleanup;
+        }
+    }
+
+    /* --- Input channel layout & SwrContext --- */
     AVChannelLayout in_layout = {0};
     AVChannelLayout out_layout = {0};
 
@@ -1028,8 +1219,7 @@ static int decoder_thread(void *arg)
     else
         av_channel_layout_default(&in_layout, 2);
 
-    av_channel_layout_default(
-        &out_layout, AUDIO_CHANNELS);
+    av_channel_layout_default(&out_layout, AUDIO_CHANNELS);
 
     int ret = swr_alloc_set_opts2(
         &swr,
@@ -1053,8 +1243,7 @@ static int decoder_thread(void *arg)
     if (!packet || !frame)
         goto cleanup;
 
-    /* Read and decode */
-
+    /* --- Read and decode loop --- */
     while (!SDL_AtomicGet(&job->cancel))
     {
 
@@ -1065,36 +1254,45 @@ static int decoder_thread(void *arg)
             SDL_AtomicSet(&job->seek_requested, 0);
 
             double target_seconds = target_ms / 1000.0;
-            AVStream *st = fmt->streams[audio_stream];
 
-            // Calculate the exact target timestamp (exact_seek_pts)
-            job->exact_seek_pts = av_rescale_q(
-                (int64_t)(target_seconds * AV_TIME_BASE),
-                AV_TIME_BASE_Q,
-                st->time_base
-            );
+            int64_t seek_ts = (int64_t)(target_seconds * AV_TIME_BASE);
 
-            // Calculate the coarse jump (we use the same timestamp)
-            int64_t timestamp = job->exact_seek_pts;
-
-            // 3. First perform the backward giant leap in the file to align in for the forward jump
-            if (av_seek_frame(fmt, audio_stream, timestamp, AVSEEK_FLAG_BACKWARD) >= 0)
+            if (av_seek_frame(fmt, -1, seek_ts, AVSEEK_FLAG_BACKWARD) >= 0)
             {
+                // 1. Set exact PTS targets for both streams
+                job->exact_seek_pts = av_rescale_q(
+                    (int64_t)(target_seconds * AV_TIME_BASE),
+                    AV_TIME_BASE_Q,
+                    fmt->streams[audio_stream]->time_base
+                );
+
                 avcodec_flush_buffers(codec);
                 swr_init(swr);
 
-                // Empty the ring buffer completely
+                if (video_stream >= 0 && vcodec) {
+                    job->exact_video_seek_pts = av_rescale_q(
+                        (int64_t)(target_seconds * AV_TIME_BASE),
+                        AV_TIME_BASE_Q,
+                        fmt->streams[video_stream]->time_base
+                    );
+                    avcodec_flush_buffers(vcodec);
+                    video_queue_clear(&job->video_queue); // <-- Use your queue's clear/flush function
+                }
+
+
+                // 2. Reset audio buffer and clock baseline
                 SDL_LockMutex(audio.mutex);
                 audio.read_pos = 0;
                 audio.count = 0;
                 audio.eof = 0;
-                // Update the times to the goal of the new hope!
+                audio.played_bytes = 0;
+                audio.audio_start_sec = target_seconds;
+                audio.audio_start_set = 0;
                 audio.cur_pos_sec = target_seconds;
                 SDL_UnlockMutex(audio.mutex);
             }
         }
 
-        // Read the next frame from FFmpeg
         if (av_read_frame(fmt, packet) < 0) {
             break; // End of file or error
         }
@@ -1102,45 +1300,90 @@ static int decoder_thread(void *arg)
         if (packet->stream_index == audio_stream)
         {
             ret = avcodec_send_packet(codec, packet);
-
             if (ret >= 0)
                 receive_frames(job, codec, swr, frame);
+        }
+
+        else if (video_stream >= 0 && packet->stream_index == video_stream)
+        {
+            ret = avcodec_send_packet(vcodec, packet);
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(vcodec, vframe);
+                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                    break;
+                } else if (ret < 0) {
+                    goto cleanup;
+                }
+
+                if (vframe->pts == AV_NOPTS_VALUE) {
+                    vframe->pts = vframe->best_effort_timestamp;
+                }
+                if (vframe->pts == AV_NOPTS_VALUE && job->video_frame_rate.num > 0) {
+                    double fps = av_q2d(job->video_frame_rate);
+                    double sec = (double)job->video_frame_count / fps;
+                    vframe->pts = (int64_t)(sec / av_q2d(job->video_time_base));
+                }
+                job->video_frame_count++;
+
+                // Discard decoded frames before the exact seek target
+                if (job->exact_video_seek_pts > 0) {
+                    if (vframe->pts != AV_NOPTS_VALUE && vframe->pts < job->exact_video_seek_pts) {
+                        av_frame_unref(vframe);
+                        continue;
+                    }
+                    job->exact_video_seek_pts = 0;
+                }
+
+                video_queue_push(&job->video_queue, vframe, &job->cancel);
+                av_frame_unref(vframe);
+            }
         }
 
         av_packet_unref(packet);
     }
 
-    /* Flush decoder */
-
+    /* --- Flush decoders --- */
     if (!SDL_AtomicGet(&job->cancel))
     {
+        /* Flush audio */
         avcodec_send_packet(codec, NULL);
-
         receive_frames(job, codec, swr, frame);
 
-        /* Flush resampler */
+        /* Flush video */
+        if (vcodec) {
+            avcodec_send_packet(vcodec, NULL);
+            while (avcodec_receive_frame(vcodec, vframe) >= 0) {
+                if (vframe->pts == AV_NOPTS_VALUE) {
+                    vframe->pts = vframe->best_effort_timestamp;
+                }
+                if (vframe->pts == AV_NOPTS_VALUE && job->video_frame_rate.num > 0) {
+                    double fps = av_q2d(job->video_frame_rate);
+                    double sec = (double)job->video_frame_count / fps;
+                    vframe->pts = (int64_t)(sec / av_q2d(job->video_time_base));
+                }
+                job->video_frame_count++;
 
+                video_queue_push(&job->video_queue, vframe, &job->cancel);
+                av_frame_unref(vframe);
+            }
+        }
+
+        /* Flush resampler */
         while (!SDL_AtomicGet(&job->cancel))
         {
             int delay = (int)swr_get_delay(swr, AUDIO_RATE);
-
             if (delay <= 0)
                 break;
 
-            uint8_t *output =
-                av_malloc(delay * AUDIO_CHANNELS * 2);
-
+            uint8_t *output = av_malloc(delay * AUDIO_CHANNELS * 2);
             if (!output)
                 break;
 
             uint8_t *out[] = { output };
-
-            int samples = swr_convert(
-                swr, out, delay, NULL, 0);
+            int samples = swr_convert(swr, out, delay, NULL, 0);
 
             if (samples > 0)
-                ring_write(job, output,
-                           samples * AUDIO_CHANNELS * 2);
+                ring_write(job, output, samples * AUDIO_CHANNELS * 2);
 
             av_free(output);
 
@@ -1150,11 +1393,20 @@ static int decoder_thread(void *arg)
     }
 
 cleanup:
+
+    /* Signal end of file */
+    SDL_LockMutex(audio.mutex);
+    audio.eof = 1;
+    SDL_UnlockMutex(audio.mutex);
+
     if (swr)
         swr_free(&swr);
 
     if (frame)
         av_frame_free(&frame);
+
+    if (vframe)
+        av_frame_free(&vframe);
 
     if (packet)
         av_packet_free(&packet);
@@ -1162,16 +1414,13 @@ cleanup:
     if (codec)
         avcodec_free_context(&codec);
 
+    if (vcodec)
+        avcodec_free_context(&vcodec);
+
     if (fmt)
         avformat_close_input(&fmt);
 
     g_fmt_ctx = NULL;
-
-    /* Signal end of file */
-
-    SDL_LockMutex(audio.mutex);
-    audio.eof = 1;
-    SDL_UnlockMutex(audio.mutex);
 
     return 0;
 }
@@ -1201,10 +1450,33 @@ static void stop_decoder(DecoderJob **job,
     if (*job)
         SDL_AtomicSet(&(*job)->cancel, 1);
 
+    if (*job)
+    {
+        SDL_AtomicSet(&(*job)->cancel, 1);
+
+        // Wake up decoder_thread if it is waiting during a full video_queue_push
+        SDL_LockMutex((*job)->video_queue.mutex);
+        SDL_CondBroadcast((*job)->video_queue.cond);
+        SDL_UnlockMutex((*job)->video_queue.mutex);
+    }
+
+
+    // Wait until the decoder thread has finished executing its own cleanup: block;
     if (*thread)
     {
         SDL_WaitThread(*thread, NULL);
         *thread = NULL;
+    }
+
+    // Disconnect g_current_job so the main thread stops drawing immediately
+    SDL_LockMutex(g_job_mutex);
+    g_current_job = NULL;
+    SDL_UnlockMutex(g_job_mutex);
+
+    // Drain remaining AVFrame clones and destroy the queue (now that the thread has finished)
+    if (*job)
+    {
+        video_queue_destroy(&(*job)->video_queue);
     }
 
     free(*job);
@@ -1220,7 +1492,7 @@ static int start_track(Playlist *playlist,
 {
     stop_decoder(job, thread);
 
-    // printf("index=%d    playlist->count=%d   file=%s\n", index, playlist->count, playlist->files[index]);
+ //   printf("index=%d    playlist->count=%d   file=%s\n", index, playlist->count, playlist->files[index]);
 
     if (index < 0 || index >= playlist->count)
         return -1;
@@ -1234,6 +1506,8 @@ static int start_track(Playlist *playlist,
 
     SDL_AtomicSet(&(*job)->cancel, 0);
 
+    video_queue_init(&(*job)->video_queue);
+
     *thread = SDL_CreateThread(decoder_thread, "decoder", *job);
 
     if (!*thread)
@@ -1244,6 +1518,10 @@ static int start_track(Playlist *playlist,
     }
 
     audio.cur_pos_sec = 0.0f;
+    audio.played_bytes = 0;
+    SDL_LockMutex(g_job_mutex);
+    g_current_job = (*job);
+    SDL_UnlockMutex(g_job_mutex);
 
     SDL_PauseAudioDevice(audio_device, 0);
 
@@ -1282,8 +1560,8 @@ int control_thread(void *arg)
 {
     Playlist *playlist = arg;
 
-    DecoderJob *job = NULL;
     SDL_Thread *decoder = NULL;
+    DecoderJob *job = NULL;
 
     int running = 1;
 
@@ -1408,8 +1686,7 @@ int control_thread(void *arg)
 
         /* Automatic next track */
 
-        if (running && playlist->active && !playlist->paused &&
-            ring_finished())
+        if (running && playlist->active && !playlist->paused && ring_finished())
         {
             stop_decoder(&job, &decoder);
 
@@ -1417,8 +1694,7 @@ int control_thread(void *arg)
             {
                 playlist->index++;
 
-                if (start_track(playlist, playlist->index,
-                                &job, &decoder) == 0)
+                if (start_track(playlist, playlist->index, &job, &decoder) == 0)
                 {
                     playlist->active = 1;
                 }
@@ -1430,7 +1706,6 @@ int control_thread(void *arg)
             else
             {
                 playlist->active = 0;
-               // printf("Playlist finished\n");
             }
         }
     }
