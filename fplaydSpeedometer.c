@@ -402,7 +402,8 @@ int scandirs(Playlist *plist)
                   continue;
             }
 
-            if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0 && strcmp(p, "wav") != 0 && strcmp(p, "avi") != 0 && strcmp(p, "mp4") != 0 && strcmp(p, "m4a") != 0) {
+            if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0 && strcmp(p, "wav") != 0 
+                && strcmp(p, "avi") != 0 && strcmp(p, "mp4") != 0 && strcmp(p, "m4a") != 0 && strcmp(p, "VOB") != 0) {
                 continue;   // Ignore other file types completely
             }
 
@@ -595,8 +596,6 @@ void player_init(AudioProps *apropps)
     audio = apropps->audio;
     commands = apropps->commands;
     audio_device = apropps->audio_device;
-    av_log_set_level(AV_LOG_ERROR);
-
     init_rtsp_audio(apropps);
 }
 
@@ -1105,12 +1104,10 @@ static int decoder_thread(void *arg)
     SwrContext *swr = NULL;
 
     int audio_stream = -1;
-
-    audio.is_video = 0;
+    int video_stream = -1;
 
     AVCodecContext *vcodec = NULL;
     AVFrame *vframe = NULL;
-    int video_stream = -1;
 
     if (avformat_open_input(&fmt, job->filename, NULL, NULL) < 0)
          goto cleanup;
@@ -1147,34 +1144,41 @@ static int decoder_thread(void *arg)
     if (avcodec_open2(codec, decoder, NULL) < 0)
         goto cleanup;
 
-    /* --- Video setup (uses the same fmt) --- */
-    video_stream = av_find_best_stream(
-        fmt, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
-
-
-
-    for (unsigned int i = 0; i < fmt->nb_streams; i++) {
+    /* --- Video setup --- */
+    for (unsigned int i = 0; i < fmt->nb_streams; i++)
+    {
         AVStream *st = fmt->streams[i];
 
-        if (video_stream < 0 &&
-            st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
-            !(st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
-            video_stream = (int)i;
-        } else if (audio_stream < 0 &&
-                   st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-            audio_stream = (int)i;
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
+        {
+            if (audio_stream < 0)
+                audio_stream = (int)i;
+        }
+        else if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+        {
+            // Ignore embedded album art
+            if (!(st->disposition & AV_DISPOSITION_ATTACHED_PIC))
+            {
+                if (video_stream < 0)
+                    video_stream = (int)i;
+            }
         }
     }
 
-    if (video_stream >= 0 && audio_stream >= 0) {
-       //printf("// Video file with audio (e.g., .mp4, .mkv)\n");
-       audio.is_video = 1;
-    } else if (video_stream < 0 && audio_stream >= 0) {
-        //printf("// Raw audio file (even if it contains embedded album art, e.g., .flac, .mp3)\n");
-    } else if (video_stream >= 0 && audio_stream < 0) {
-        //printf("// Silent video file without sound\n");
-    } else {
-        //printf("// Invalid / empty file – abort and clean up\n");
+    /* Classify media */
+    if (audio_stream >= 0 && video_stream >= 0)
+    {
+        //printf("// Video file with audio (e.g., .mp4, .mkv)\n");
+        audio.is_video = 1;   // Video with audio
+    }
+    else if (audio_stream >= 0)
+    {
+        //printf("// Pure audio, album art ignored\n");
+        audio.is_video = 0;
+    }
+    else
+    {
+        //printf("// No audio stream: not supported by this audio player\n");
         goto cleanup;
     }
 
@@ -1285,6 +1289,7 @@ static int decoder_thread(void *arg)
                 audio.read_pos = 0;
                 audio.count = 0;
                 audio.eof = 0;
+                audio.write_pos = 0;
                 audio.played_bytes = 0;
                 audio.audio_start_sec = target_seconds;
                 audio.audio_start_set = 0;
@@ -1419,6 +1424,8 @@ cleanup:
 
     if (fmt)
         avformat_close_input(&fmt);
+
+    audio.is_video = 0;
 
     g_fmt_ctx = NULL;
 

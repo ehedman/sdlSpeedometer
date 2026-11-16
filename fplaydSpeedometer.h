@@ -1,15 +1,8 @@
-
 #ifndef FPLAYSPEEDOMETER_H
 #define FPLAYSPEEDOMETER_H
 
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libavutil/avutil.h>
-#include <libavutil/channel_layout.h>
-#include <libavutil/samplefmt.h>
-#include <libswresample/swresample.h>
-#include <libswresample/swresample.h>
 #include <SDL2/SDL.h>
+#include <libswresample/swresample.h>
 
 #define AUDIO_RATE      44100
 #define AUDIO_CHANNELS  2
@@ -19,8 +12,6 @@
 #define COMMAND_QUEUE   16
 
 #define RTSP_RING_SIZE  131072
-
-#define DEF_ACOVER      "defsound.png"
 
 /* -------------------------------------------------- */
 /* Commands                                           */
@@ -43,7 +34,7 @@ typedef enum
 /* PCM ringbuffer                                     */
 /* -------------------------------------------------- */
 
-#define VIDEO_QUEUE_SIZE 60 // Istf 8
+#define VIDEO_QUEUE_SIZE 60
 
 typedef struct {
     AVFrame *frames[VIDEO_QUEUE_SIZE];
@@ -72,7 +63,6 @@ typedef struct
     uint64_t last_callback_ticks;
     int is_video;
     int paused;
-
     int eof;
 
     SDL_mutex *mutex;
@@ -88,7 +78,6 @@ typedef struct
 {
     const char *filename;
     SDL_atomic_t cancel;
-
     int64_t exact_seek_pts;
     SDL_atomic_t seek_requested;
     SDL_atomic_t seek_target_ms;

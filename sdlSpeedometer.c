@@ -2675,7 +2675,14 @@ static int doMedia(sdl2_app *sdlApp)
 {
     SDL_Event e;
     int eType = 0;
-    int wasMuted;
+
+    int wasMuted = sdlApp->conf->muted;
+    sdlApp->conf->muted = 1;    // Prevent warnings
+
+    command_push(CMD_STOP);
+
+    int muted = 0;
+    int apause = 0;
 
     struct stat stats;
     char curDir[PATH_MAX];
@@ -2728,6 +2735,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect textBoxR   = {arttBoxR.x-20,arttBoxR.y-14,arttBoxR.w+34,arttBoxR.h+34};
     SDL_Rect nfscrBarR  = {w-80,arttBoxR.y-14,60,60};   
     SDL_Rect videoBarR  = {0, 0, w, h};
+    SDL_Rect navBoxR    = {20, 20, 106, 100};
 
     int rMargin = w/2+100;
     int scrl_offset = 0;
@@ -2768,14 +2776,9 @@ static int doMedia(sdl2_app *sdlApp)
     }
 #endif
 
-    wasMuted = sdlApp->conf->muted;
-    sdlApp->conf->muted = 1;    // Prevent warnings
-    int muted = 0;
-    int apause = 0;
-
     chdir(folder_path);
 
-    SDL_Log("doMedia: Open: %d Hz, %d channels\n", sdlApp->conf->obtained.freq, sdlApp->conf->obtained.channels);
+    SDL_Log("doMedia: Begin: %d Hz, %d channels\n", sdlApp->conf->obtained.freq, sdlApp->conf->obtained.channels);
 
     g_job_mutex = SDL_CreateMutex();
     SDL_LockMutex(g_job_mutex);
@@ -2802,16 +2805,6 @@ static int doMedia(sdl2_app *sdlApp)
 
     float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
-    void doClean()
-    {
-        if (!sdlApp->conf->playlist.count) return;
-        for (size_t i = 0; i < sdlApp->conf->playlist.count; i++) {
-            free(sdlApp->conf->playlist.files[i]);
-        }
-        free(sdlApp->conf->playlist.files);
-        sdlApp->conf->playlist.count = 0;
-    }
-
     float volume_percent = 0.0f;
 
     if (sdlApp->conf->snd_useMixer) {
@@ -2829,6 +2822,7 @@ static int doMedia(sdl2_app *sdlApp)
     int fullScr = 0;   
     const int fullScr_tm = 300;
     int fullScr_t = fullScr_tm;
+    int showNavbox = 1;
 
     int video_width=videoBarR.w;
     int video_height=videoBarR.h;
@@ -2840,10 +2834,10 @@ static int doMedia(sdl2_app *sdlApp)
     yuv_frame->height  = video_height;
     av_frame_get_buffer(yuv_frame, 32);
 
-    SDL_Color color_black   = {0,0,0,255};
-    SDL_Color color_white   = {255,255,255,255};
-    SDL_Color color_green   = {0,255,0,255};
-    SDL_Color color_red     = {255,0,0,255};
+    const SDL_Color color_black   = {0,0,0,255};
+    const SDL_Color color_white   = {255,255,255,255};
+    const SDL_Color color_green   = {0,255,0,255};
+    const SDL_Color color_red     = {255,0,0,255};
 
     char path[PATH_MAX];
     
@@ -2855,6 +2849,10 @@ static int doMedia(sdl2_app *sdlApp)
     {
         char msg_tod[40] = { "" };
         char msg_dbt[40] = { "" };
+        char msg_hdg[40] = { "" };
+        char msg_mtw[40] = { "" };
+        char msg_sog[40] = { "" };
+        char msg_stw[40] = { "" };
 
         time_t ct = time(NULL);    // Get a timestamp for this turn
 
@@ -2862,9 +2860,29 @@ static int doMedia(sdl2_app *sdlApp)
                 fullScr_t--;
         } else if (!fullScr) {fullScr_t = fullScr_tm;}
 
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
+
+        // HDG - The direction the bow points
+        if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
+            sprintf(msg_hdg, "HDG: %.0f", cnmea.hdg);
+
+        // RMC - Recommended minimum specific GPS/Transit data
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
+            sprintf(msg_sog, "SOG: %.1f", cnmea.sog);
+
+        // VHW - Water speed and Heading
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+            sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+
+        // WND - Apparent wind speed
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, "DEPTH WARNING: %.1f", (double)(cnmea.dbt*m2f));
+            sprintf(msg_dbt, cnmea.dbt > 70.0f? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
          while(SDL_PollEvent(&e)) {
 
@@ -2930,15 +2948,19 @@ static int doMedia(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &sliderR) && !fullScr) {
                     dragging = 1;
                 }
+                if (SDL_PointInRect(&p, &dbtR)) {
+                    show_dbtw = !show_dbtw;
+                }
+                if (SDL_PointInRect( &p, &navBoxR) && fullScr) {
+                    showNavbox = !showNavbox;
+                    fullScr_t =  0;
+                    break;
+                }
                 if (SDL_PointInRect(&p, &arttBoxR) && media_is_video()) {
                     fullScr = !fullScr;
                 }
-
                 if (SDL_PointInRect(&p, &videoBarR) && fullScr) {
                    fullScr_t = fullScr_tm;
-                }
-                if (SDL_PointInRect(&p, &dbtR)) {
-                    show_dbtw = !show_dbtw;
                 }
                 if (SDL_PointInRect(&p, &pgBarR))
                 {
@@ -3069,7 +3091,7 @@ static int doMedia(sdl2_app *sdlApp)
             SDL_WaitThread(sdlApp->conf->audioThread, NULL);
             sdlApp->conf->audioThread = NULL;
 
-            doClean();
+            doVaClean(sdlApp);
 
             if (albumArt) {
                 SDL_DestroyTexture(albumArt);
@@ -3333,12 +3355,13 @@ static int doMedia(sdl2_app *sdlApp)
             }
         }
 
-        if (!fullScr)
+        if (!fullScr) {
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+        }
 
         if (!fullScr && !media_is_video())
         {
-            if (albumArt == NULL) { 
+            if (albumArt == NULL) {
                 SDL_RenderCopyEx(sdlApp->renderer, DefAlbumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
             } else {
                 if (albumArt != NULL)
@@ -3363,8 +3386,38 @@ static int doMedia(sdl2_app *sdlApp)
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw && ct % 5 && show_dbtw)
-        {   // A Media Player with Depth Warnings :-)
+        {
             draw_textc(sdlApp->renderer, fontWar, msg_dbt, dbtR.x, dbtR.y, color_red);
+        }
+
+        if ( fullScr_t <= 0 && showNavbox) {
+            int y = navBoxR.y;
+            int x = navBoxR.x +8;
+
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0 , 0, 0, 80);
+            SDL_RenderFillRect(sdlApp->renderer, &navBoxR);
+
+            if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_hdg,x, (y), color_white);
+            }
+
+            if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_stw,x, (y+=20), color_white);
+            }
+
+            if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_sog,x, (y+=20), color_white);
+            }
+
+            if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_mtw,x, (y+=20), color_white);
+            }
+
+            if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
+                SDL_Color c = cnmea.dbt <= warn.depthw? color_red : color_white;
+                draw_textc(sdlApp->renderer,fontMsg,msg_dbt,x, (y+=20), c);
+            }
         }
 
         SDL_RenderPresent(sdlApp->renderer);
@@ -3374,8 +3427,7 @@ static int doMedia(sdl2_app *sdlApp)
     }
 
     command_push(CMD_STOP);
-    command_push(CMD_SHUTDOWN);
-    doClean();
+    doVaClean(sdlApp);
 
     sdlApp->conf->udata->mute = 0;
     SDL_PauseAudioDevice(sdlApp->conf->deviceId,1);
@@ -3441,6 +3493,8 @@ static int doMediaByCover(sdl2_app *sdlApp)
 
     int wasMuted = sdlApp->conf->muted;
     sdlApp->conf->muted = 1;    // Prevent warnings
+
+    command_push(CMD_STOP);
 
     char folder_path[RMAX_FILENAME];
     static char klicked_folder_path[RMAX_FILENAME];
@@ -8474,6 +8528,8 @@ static void init_av(configuration *configParams)
     const char *adev = configParams->snd_card;  // e.g., "hw:2,0" for SDL2
     char card[sizeof(configParams->snd_card)];
     int rval = 0;
+
+    av_log_set_level(AV_LOG_ERROR);
 
     if (adev) {
         // copy up to comma or end of string

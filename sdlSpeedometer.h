@@ -13,8 +13,8 @@
 #ifdef HAS_SMBUS_H
 #include <i2c/smbus.h>
 #endif
-#include <alsa/asoundlib.h>
 
+#include <alsa/asoundlib.h>
 #include "fplaydSpeedometer.h"
 
 #define S_TIMEOUT   4   // Invalidate current sentences after # seconds without a refresh from talker.
@@ -29,6 +29,8 @@
 
 // Dendent on project  https://github.com/ehedman/flowSensor
 //#define DIGIFLOW
+
+#define DEF_ACOVER      "defsound.png"
 
 // Volume slider
 #define SWINDOW_WIDTH 20
@@ -350,6 +352,7 @@ extern float auto_scale(float maxDepth);
 extern float auto_scale_p(float maxVal);
 extern SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg, SDL_Color color, SDL_Rect *rect);
 extern void drawRadio(SDL_Renderer *r, RadioButton *b, int selected);
+extern void doVaClean(sdl2_app *sdlApp);
 
 
 #endif /* SPEEDOMETER_H */
