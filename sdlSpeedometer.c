@@ -31,6 +31,7 @@
 #include <libswscale/swscale.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
+#include <libswscale/swscale.h>
 #include <linux/videodev2.h>
 #include <libavutil/log.h>
 #include <unistd.h>
@@ -1583,7 +1584,7 @@ static int nmeaNetCollector(void* conf)
 - x, y: start position (either left corner or right corner, depending on alignment).
 - l: alignment control. If l > 0, left-aligned with fixed width compensation.
 */
-inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, const char *text,
+static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, const char *text,
         TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) 
 {
     if (text == NULL || text[0] == '\0') {
@@ -1642,7 +1643,7 @@ inline static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l
     }
 }
 
-inline static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
+static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 {
     // A simple event handler for touch screen buttons at fixed menu bar localtions
     
@@ -1792,7 +1793,7 @@ void checkFocus(sdl2_app *sdlApp)
     }
 }
 
-inline static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
+static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
 
@@ -2267,37 +2268,6 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
 
     SDL_Rect file_click_areas[RVISIBLE_FILES];
 
-    void draw_textc(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y, SDL_Color c)
-    {
-        if (!strlen(txt))
-            return;
-
-        SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
-        SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
-
-        SDL_Rect d={x,y,s->w,s->h};
-
-        SDL_RenderCopy(r,t,NULL,&d);
-
-        SDL_FreeSurface(s);
-        SDL_DestroyTexture(t);
-    }
-
-    void draw_text(SDL_Renderer* renderer, const char* text, int x, int y, int scale) {
-        for (int i = 0; text[i] != '\0'; i++) {
-            char c = text[i];
-            if (c >= 'a' && c <= 'z') c -= 32;
-            for (int row = 0; row < 8; row++) {
-                for (int col = 0; col < 8; col++) {
-                    if ((font8x8[(int)c][row] >> (7 - col)) & 1) {
-                        SDL_Rect pixel = { x + (i * 8 * scale) + (col * scale), y + (row * scale), scale, scale };
-                        SDL_RenderFillRect(sdlApp->renderer, &pixel);
-                    }
-                }
-            }
-        }
-    }
-
     void load_files() {
         DIR *d = opendir(uploadPath);
         struct dirent *dir;
@@ -2314,26 +2284,26 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
     }
 
     // Initilize r/w file operations
-    void do_file(char *how, configuration *configParams) {
+    void do_file(char *how, configuration *configParams, collected_nmea *cnm) {
 
-        if (cnmea.rwMode && cnmea.pbFile != NULL) {
+        if (cnm->rwMode && cnm->pbFile != NULL) {
             return;
         }
 
         size_t len = strlen(current_input);
         if (len > 0) {
 
-            cnmea.rwMode = how[0] == 'r'? 1 : 2;
+            cnm->rwMode = how[0] == 'r'? 1 : 2;
             snprintf(filePath, sizeof(filePath), "%s/%s", uploadPath, current_input);
 
-            cnmea.pbFile = fopen(filePath, how);
-            if (cnmea.pbFile != NULL) {
-                if (cnmea.rwMode == 1) {    // Read
+            cnm->pbFile = fopen(filePath, how);
+            if (cnm->pbFile != NULL) {
+                if (cnm->rwMode == 1) {    // Read
                     configParams->runPlb = 1;
                     threadPLB = SDL_CreateThread(threadRunPlb, "threadPLB", configParams);
                     if (NULL == threadPLB) {
                         configParams->runPlb = 0;
-                        cnmea.rwMode = 0;
+                        cnm->rwMode = 0;
                         snprintf(statusMsg, sizeof(statusMsg), "SDL_CreateThread threadPLB failed: %s", SDL_GetError());
                         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", statusMsg);
                     } else {
@@ -2344,7 +2314,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             } else {
                 snprintf(statusMsg, sizeof(statusMsg), "Open %s (%s) failed: %s", filePath, how, SDL_GetError());
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, statusMsg);
-                cnmea.rwMode = 0;
+                cnm->rwMode = 0;
                 configParams->runPlb = 0;
             }
             load_files();
@@ -2546,12 +2516,12 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
 
                 // Read a file
                 if (SDL_PointInRect(&p, &play_rect) && cnmea.rwMode==0) {
-                    do_file("r", configParams);
+                    do_file("r", configParams, &cnmea);
                 }
 
                 // Save a file
                 if (SDL_PointInRect(&p, &save_rect) && cnmea.rwMode==0) {
-                    do_file("w", configParams);
+                    do_file("w", configParams, &cnmea);
                 }
 
                 // Abort a file operation
@@ -2605,7 +2575,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_SetRenderDrawColor(sdlApp->renderer, 45, 45, 45, 255);
             SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[i]);
             SDL_SetRenderDrawColor(sdlApp->renderer, 200, 200, 200, 255);
-            draw_text(sdlApp->renderer, file_list[i + scrl_offset], 55, item_y + 2, 2);
+            draw_text_r(sdlApp->renderer, file_list[i + scrl_offset], 55, item_y + 2, 2, font8x8);
         }
 
         // Draw scroll buttons
@@ -2615,8 +2585,8 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_RenderFillRect(sdlApp->renderer, &scrl_up_rect);
             SDL_RenderFillRect(sdlApp->renderer, &scrl_dn_rect);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
-            draw_text(sdlApp->renderer, "UP", scrl_up_rect.x + 8, scrl_up_rect.y + 12, 1);
-            draw_text(sdlApp->renderer, "DN", scrl_dn_rect.x + 8, scrl_dn_rect.y + 12, 1);
+            draw_text_r(sdlApp->renderer, "UP", scrl_up_rect.x + 8, scrl_up_rect.y + 12, 1, font8x8);
+            draw_text_r(sdlApp->renderer, "DN", scrl_dn_rect.x + 8, scrl_dn_rect.y + 12, 1, font8x8);
         }
 
         // Draw seek  buttons
@@ -2626,8 +2596,8 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_RenderFillRect(sdlApp->renderer, &jmpf_rect);
             SDL_RenderFillRect(sdlApp->renderer, &jmpb_rect);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
-            draw_text(sdlApp->renderer, "FF", jmpf_rect.x + 8, jmpf_rect.y + 12, 1);
-            draw_text(sdlApp->renderer, "FB", jmpb_rect.x + 8, jmpb_rect.y + 12, 1);
+            draw_text_r(sdlApp->renderer, "FF", jmpf_rect.x + 8, jmpf_rect.y + 12, 1, font8x8);
+            draw_text_r(sdlApp->renderer, "FB", jmpb_rect.x + 8, jmpb_rect.y + 12, 1, font8x8);
         }
 
         // Draw stop button
@@ -2636,7 +2606,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
             SDL_RenderFillRect(sdlApp->renderer, &stop_rect);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
-            draw_text(sdlApp->renderer, "STOP", stop_rect.x + 8, stop_rect.y + 12, 1);
+            draw_text_r(sdlApp->renderer, "STOP", stop_rect.x + 8, stop_rect.y + 12, 1,font8x8);
         }
 
         // Draw delete button
@@ -2645,7 +2615,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
             SDL_RenderFillRect(sdlApp->renderer, &dele_rect);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
-            draw_text(sdlApp->renderer, "DELETE", dele_rect.x + 8, dele_rect.y + 12, 1);
+            draw_text_r(sdlApp->renderer, "DELETE", dele_rect.x + 8, dele_rect.y + 12, 1, font8x8);
         }
 
         // Draw input field
@@ -2655,7 +2625,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
         SDL_SetRenderDrawColor(sdlApp->renderer, 0, 255, 0, 255);
         SDL_RenderDrawRect(sdlApp->renderer, &input_box);
         // Draw filename
-        draw_text(sdlApp->renderer, current_input, 58, 190, 2);
+        draw_text_r(sdlApp->renderer, current_input, 58, 190, 2, font8x8);
 
         // Draw virtual keyboard
         for (int i = 0; i < key_count; i++)
@@ -2665,7 +2635,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_SetRenderDrawColor(sdlApp->renderer, 150, 150, 150, 255);
             SDL_RenderDrawRect(sdlApp->renderer, &keys[i].rect);
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
-            draw_text(sdlApp->renderer, keys[i].label, keys[i].rect.x + 10, keys[i].rect.y + 15, 1);
+            draw_text_r(sdlApp->renderer, keys[i].label, keys[i].rect.x + 10, keys[i].rect.y + 15, 1, font8x8);
         }
 
         //  Highlight the current key just clicked
@@ -2700,239 +2670,19 @@ static float get_current_volume(sdl2_app *sdlApp)
     return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
 }
 
-typedef struct {
-    char **paths;
-    size_t count;
-    SDL_Texture **cover;
-    SDL_Renderer *renderer;
-} CoverList;
-
-// Check file extension, case-insensitive
-static int has_extension(const char *name, const char *ext)
-{
-    size_t name_len = strlen(name);
-    size_t ext_len  = strlen(ext);
-
-    if (name_len < ext_len)
-        return 0;
-
-    return strcasecmp(name + name_len - ext_len, ext) == 0;
-}
-
-// Check if the file is a cover image
-static int is_image_file(const char *name)
-{
-    return has_extension(name, ".png") ||
-           has_extension(name, ".jpg");
-}
-
-// Check whether the file is an audio file
-static int is_audio_file(const char *name)
-{
-    return has_extension(name, ".mp3")  ||
-           has_extension(name, ".flac") ||
-           has_extension(name, ".wav");
-}
-
-// Create full path
-static char *make_path(const char *dir, const char *name)
-{
-    size_t dir_len  = strlen(dir);
-    size_t name_len = strlen(name);
-
-    int add_slash = (dir_len > 0 && dir[dir_len - 1] != '/');
-
-    char *path = malloc(dir_len + add_slash + name_len + 1);
-
-    if (!path)
-        return NULL;
-
-    memcpy(path, dir, dir_len);
-
-    if (add_slash)
-        path[dir_len++] = '/';
-
-    memcpy(path + dir_len, name, name_len + 1);
-
-    return path;
-}
-
-// Add path to the results list
-static int coverlist_add(CoverList *list, const char *path)
-{
-    char **temp = realloc(list->paths, (list->count + 1) * sizeof(*list->paths));
-
-    if (!temp)
-        return -1;
-
-    list->paths = temp;
-
-    // Expand the array using a pointer
-    list->paths[list->count] = strdup(path);
-
-    if (!list->paths[list->count])
-        return -1;
-
-    // Reallocate memory for the textures (cover)
-    SDL_Texture **temp_covers = realloc(list->cover, (list->count + 1) * sizeof(*list->cover));
-    if (!temp_covers) {
-        free(list->paths[list->count]);
-        return -1;
-    }
-    list->cover = temp_covers;
-
-
-    list->cover[list->count] = IMG_LoadTexture(list->renderer, list->paths[list->count]);
-    if (!list->cover[list->count]) {
-        list->cover[list->count] = NULL;
-    }
-
-    list->cover[list->count] = IMG_LoadTexture(list->renderer, list->paths[list->count]);
-
-    list->count++;
-
-    return 0;
-}
-
-// Detach the results list
-static void coverlist_free(CoverList *list)
-{
-    if (!list)
-        return;
-
-    for (size_t i = 0; i < list->count; i++)
-    {
-        if (list->cover && list->cover[i]) {
-            SDL_DestroyTexture(list->cover[i]);
-        }
-
-        if (list->paths && list->paths[i]) {
-            free(list->paths[i]);
-        }
-    }
-
-    free(list->paths);
-    free(list->cover);
-
-    list->paths = NULL;
-    list->cover = NULL;
-    list->count = 0;
-}
-
-// Recursive directory scanning
-static int scan_directory(const char *base_path, CoverList *list)
-{
-    DIR *dir = opendir(base_path);
-
-    if (!dir) {
-        perror(base_path);
-        return -1;
-    }
-
-    struct dirent *entry;
-
-    char **images = NULL;
-    size_t image_count = 0;
-
-    int audio_found = 0;
-    int result = 0;
-
-    while ((entry = readdir(dir)) != NULL) {
-
-        // Skip "." and ".."
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-
-        char *full_path = make_path(base_path, entry->d_name);
-
-        if (!full_path) {
-            result = -1;
-            break;
-        }
-
-        struct stat st;
-
-        // lstat ensures that we do not follow symbolic links
-        if (lstat(full_path, &st) != 0) {
-            free(full_path);
-            continue;
-        }
-
-        // Recursion into subdirectories
-        if (S_ISDIR(st.st_mode)) {
-
-            if (scan_directory(full_path, list) != 0)
-                result = -1;
-
-            free(full_path);
-
-            if (result != 0)
-                break;
-
-            continue;
-        }
-
-        // Ignore everything that is not a regular file
-        if (!S_ISREG(st.st_mode)) {
-            free(full_path);
-            continue;
-        }
-
-        // Find audio files in the current directory
-        if (is_audio_file(entry->d_name)) {
-            audio_found = 1;
-        }
-
-        // Collect image files in the current directory
-        if (is_image_file(entry->d_name) && image_count < 1) {
-
-            char **temp = realloc(images,(image_count + 1) * sizeof(*images));
-
-            if (!temp) {
-                free(full_path);
-                result = -1;
-                break;
-            }
-
-            images = temp;
-            images[image_count++] = full_path;
-
-        } else {
-            free(full_path);
-        }
-    }
-
-    closedir(dir);
-
-    // Add the images only if the catalog contains audio
-    if (result == 0 && audio_found) {
-
-        for (size_t i = 0; i < image_count; i++) {
-
-            if (coverlist_add(list, images[i]) != 0) {
-                result = -1;
-                break;
-            }
-        }
-    }
-
-    // Release local image paths
-    for (size_t i = 0; i < image_count; i++)
-        free(images[i]);
-
-    free(images);
-
-    return result;
-}
-
 // Show the media page
 static int doMedia(sdl2_app *sdlApp)
 {
     SDL_Event e;
     int eType = 0;
-    int wasMuted;
+
+    int wasMuted = sdlApp->conf->muted;
+    sdlApp->conf->muted = 1;    // Prevent warnings
+
+    command_push(CMD_STOP);
+
+    int muted = 0;
+    int apause = 0;
 
     struct stat stats;
     char curDir[PATH_MAX];
@@ -2955,6 +2705,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Texture* mquit =     IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mquit.png");
     SDL_Texture* muteBar =   IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "mute.png");
     SDL_Texture* unmuteBar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "unmute.png");
+    SDL_Texture* nfscrBar  = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "nfscr.png");
 
     SDL_Texture* textBox =  NULL;
     SDL_Texture* albumArt = NULL;
@@ -2971,9 +2722,6 @@ static int doMedia(sdl2_app *sdlApp)
     int w, h;
     SDL_GetWindowSize(sdlApp->window, &w, &h);
 
-    sdlApp->textFieldArrIndx = 0;
-    SDL_Rect textField_rect = {0,0,0,0};
-
     SDL_Rect playR      = {90,h-80,60,60}; 
     SDL_Rect pauseR     = {playR.x+70,  playR.y,60,60};
     SDL_Rect stopR      = {pauseR.x+70, playR.y,60,60};
@@ -2985,6 +2733,9 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Rect arttBoxR   = {w-230,60,200,200};
     SDL_Rect sliderR    = {10, 40, 30, 200};
     SDL_Rect textBoxR   = {arttBoxR.x-20,arttBoxR.y-14,arttBoxR.w+34,arttBoxR.h+34};
+    SDL_Rect nfscrBarR  = {w-80,arttBoxR.y-14,60,60};   
+    SDL_Rect videoBarR  = {0, 0, w, h};
+    SDL_Rect navBoxR    = {20, 20, 106, 100};
 
     int rMargin = w/2+100;
     int scrl_offset = 0;
@@ -3025,14 +2776,14 @@ static int doMedia(sdl2_app *sdlApp)
     }
 #endif
 
-    wasMuted = sdlApp->conf->muted;
-    sdlApp->conf->muted = 1;    // Prevent warnings
-    int muted = 0;
-    int apause = 0;
-
     chdir(folder_path);
 
-    SDL_Log("doMedia: Open: %d Hz, %d channels\n", sdlApp->conf->obtained.freq, sdlApp->conf->obtained.channels);
+    SDL_Log("doMedia: Begin: %d Hz, %d channels\n", sdlApp->conf->obtained.freq, sdlApp->conf->obtained.channels);
+
+    g_job_mutex = SDL_CreateMutex();
+    SDL_LockMutex(g_job_mutex);
+    g_current_job = job;
+    SDL_UnlockMutex(g_job_mutex);
 
     /* Start control thread */
     if (sdlApp->conf->audioThread == NULL) {
@@ -3054,17 +2805,7 @@ static int doMedia(sdl2_app *sdlApp)
 
     float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
-    void doClean()
-    {
-        if (!sdlApp->conf->playlist.count) return;
-        for (size_t i = 0; i < sdlApp->conf->playlist.count; i++) {
-            free(sdlApp->conf->playlist.files[i]);
-        }
-        free(sdlApp->conf->playlist.files);
-        sdlApp->conf->playlist.count = 0;
-    }
-
-    float volume_percent;
+    float volume_percent = 0.0f;
 
     if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
@@ -3075,23 +2816,73 @@ static int doMedia(sdl2_app *sdlApp)
     int left_dirs[200];
     int left_dirs_indx = 0;
     int show_dbtw = 1;
-    float art_alpha = 0.0f;
     float current_position = 0.0f;
-
     player_set_cur_pos_sec(0.0f);
 
-    while (running) {
+    int fullScr = 0;   
+    const int fullScr_tm = 300;
+    int fullScr_t = fullScr_tm;
+    int showNavbox = 1;
 
+    int video_width=videoBarR.w;
+    int video_height=videoBarR.h;
+
+    // Allocate a target frame for YUV420P data:
+    AVFrame *yuv_frame = av_frame_alloc();
+    yuv_frame->format  = AV_PIX_FMT_YUV420P;
+    yuv_frame->width   = video_width;
+    yuv_frame->height  = video_height;
+    av_frame_get_buffer(yuv_frame, 32);
+
+    const SDL_Color color_black   = {0,0,0,255};
+    const SDL_Color color_white   = {255,255,255,255};
+    const SDL_Color color_green   = {0,255,0,255};
+    const SDL_Color color_red     = {255,0,0,255};
+
+    char path[PATH_MAX];
+    
+    SDL_Texture* DefAlbumArt = NULL;
+    snprintf(path, sizeof(path)-1, "%s/%s%s", curDir, IMAGE_PATH, DEF_ACOVER);
+    DefAlbumArt = IMG_LoadTexture(sdlApp->renderer, path);
+
+    while (running)
+    {
         char msg_tod[40] = { "" };
         char msg_dbt[40] = { "" };
-
-        sdlApp->textFieldArrIndx = 0;
+        char msg_hdg[40] = { "" };
+        char msg_mtw[40] = { "" };
+        char msg_sog[40] = { "" };
+        char msg_stw[40] = { "" };
 
         time_t ct = time(NULL);    // Get a timestamp for this turn
 
+        if (fullScr && fullScr_t) {
+                fullScr_t--;
+        } else if (!fullScr) {fullScr_t = fullScr_tm;}
+
+        SDL_LockMutex(sdlApp->conf->nm_mutex);
+
+        // HDG - The direction the bow points
+        if (!(ct - cnmea.hdg_ts > S_TIMEOUT))
+            sprintf(msg_hdg, "HDG: %.0f", cnmea.hdg);
+
+        // RMC - Recommended minimum specific GPS/Transit data
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT))
+            sprintf(msg_sog, "SOG: %.1f", cnmea.sog);
+
+        // VHW - Water speed and Heading
+         if (!(ct - cnmea.stw_ts > S_TIMEOUT))
+            sprintf(msg_stw, "STW: %.1f", cnmea.stw);
+
+        // WND - Apparent wind speed
+        if (!(ct - cnmea.vwr_ts > S_TIMEOUT))
+            sprintf(msg_mtw, "WND: %.1f", cnmea.vwrs);
+
         // DBT - Depth Below Transponder
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT))
-            sprintf(msg_dbt, "DEPTH WARNING: %.1f", (double)(cnmea.dbt*m2f));
+            sprintf(msg_dbt, cnmea.dbt > 70.0f? "DBT: %.0f" : "DBT: %.1f", cnmea.dbt*m2f);
+
+        SDL_UnlockMutex(sdlApp->conf->nm_mutex);
 
          while(SDL_PollEvent(&e)) {
 
@@ -3106,7 +2897,7 @@ static int doMedia(sdl2_app *sdlApp)
 
                     SDL_Point p = (SDL_Point){e.motion.x, e.motion.y};
 
-                    if (SDL_PointInRect(&p, &sliderR)) {
+                    if (SDL_PointInRect(&p, &sliderR) && !fullScr) {
                         int mouseY = p.y;
                         static int lastY;
                         int newY;
@@ -3154,11 +2945,22 @@ static int doMedia(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &prevR)) {
                     command_push(CMD_PREVIOUS);
                 }
-                if (SDL_PointInRect(&p, &sliderR)) {
+                if (SDL_PointInRect(&p, &sliderR) && !fullScr) {
                     dragging = 1;
                 }
                 if (SDL_PointInRect(&p, &dbtR)) {
                     show_dbtw = !show_dbtw;
+                }
+                if (SDL_PointInRect( &p, &navBoxR) && fullScr) {
+                    showNavbox = !showNavbox;
+                    fullScr_t =  0;
+                    break;
+                }
+                if (SDL_PointInRect(&p, &arttBoxR) && media_is_video()) {
+                    fullScr = !fullScr;
+                }
+                if (SDL_PointInRect(&p, &videoBarR) && fullScr) {
+                   fullScr_t = fullScr_tm;
                 }
                 if (SDL_PointInRect(&p, &pgBarR))
                 {
@@ -3208,15 +3010,15 @@ static int doMedia(sdl2_app *sdlApp)
                     break;
                 }
                 // Clicking the scroll buttons
-                if (SDL_PointInRect(&p, &scrl_up_rect)) {
+                if (SDL_PointInRect(&p, &scrl_up_rect) && !fullScr) {
                     if (scrl_offset > 0) scrl_offset--;
                 }
-                if (SDL_PointInRect(&p, &scrl_dn_rect)) {
+                if (SDL_PointInRect(&p, &scrl_dn_rect) && !fullScr) {
                     if (scrl_offset < sdlApp->conf->playlist.count - MVISIBLE_FILES) {scrl_offset++;}
                 }
 
                 // Move backwards in file path
-                if (SDL_PointInRect(&p, &scrl_bk_rect)) {
+                if (SDL_PointInRect(&p, &scrl_bk_rect) && !fullScr) {
                     if (strncmp(folder_path, sdlApp->conf->media_path, sizeof(folder_path)-1)) {
                     char *p = strrchr(folder_path, '/');
                         if (p != NULL) {
@@ -3233,31 +3035,34 @@ static int doMedia(sdl2_app *sdlApp)
                     }
                 }
 
-                // Click on a file name in the list.
-                for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < sdlApp->conf->playlist.count; i++) {
-                    if (SDL_PointInRect(&p, &file_click_areas[i])) {
-                        if (stat(sdlApp->conf->playlist.files[i + scrl_offset], &stats)) {
-                            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "doMedia: Couldn't stat %s %s", sdlApp->conf->playlist.files[i + scrl_offset], SDL_GetError());
-                            continue;
-                        }
-                        if (S_ISDIR(stats.st_mode)) {
-                            strncat(folder_path, sdlApp->conf->playlist.files[i + scrl_offset], sizeof(folder_path)-1);
-                            strncat(folder_path, "/", sizeof(folder_path)-1);
-                            command_push(CMD_STOP);
-                            newDir = 1;
-                            left_dirs[left_dirs_indx++] = scrl_offset;
-                        } else {
-                            strncpy(current_input, sdlApp->conf->playlist.files[i + scrl_offset], RMAX_FILENAME);
-                            sdlApp->conf->playlist.index = i + scrl_offset;
-                            command_push(CMD_STOP);
-                            command_push(CMD_PLAYSEL);
+                if (!fullScr) {
+                    // Click on a file name in the list.
+                    for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < sdlApp->conf->playlist.count; i++) {
+                        if (SDL_PointInRect(&p, &file_click_areas[i])) {
+                            if (stat(sdlApp->conf->playlist.files[i + scrl_offset], &stats)) {
+                                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,  "doMedia: Couldn't stat %s %s",
+                                    sdlApp->conf->playlist.files[i + scrl_offset], SDL_GetError());
+                                continue;
+                            }
+                            if (S_ISDIR(stats.st_mode)) {
+                                strncat(folder_path, sdlApp->conf->playlist.files[i + scrl_offset], sizeof(folder_path)-1);
+                                strncat(folder_path, "/", sizeof(folder_path)-1);
+                                command_push(CMD_STOP);
+                                newDir = 1;
+                                left_dirs[left_dirs_indx++] = scrl_offset;
+                            } else {
+                                strncpy(current_input, sdlApp->conf->playlist.files[i + scrl_offset], RMAX_FILENAME);
+                                sdlApp->conf->playlist.index = i + scrl_offset;
+                                command_push(CMD_STOP);
+                                command_push(CMD_PLAYSEL);
+                            }
                         }
                     }
                 }
 
                 if (newDir) {break;}
 
-            } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll input
+            } else if (e.type == SDL_MOUSEWHEEL && !fullScr) {    // Handle mouse scroll input
                 if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
                 else if (e.wheel.y < 0 && scrl_offset < sdlApp->conf->playlist.count - MVISIBLE_FILES) scrl_offset++;
             }
@@ -3280,14 +3085,13 @@ static int doMedia(sdl2_app *sdlApp)
 
         if (newDir == 1) {
 
-
             while (command_push(CMD_SHUTDOWN) < 0)
                 SDL_Delay(10);
 
             SDL_WaitThread(sdlApp->conf->audioThread, NULL);
             sdlApp->conf->audioThread = NULL;
 
-            doClean();
+            doVaClean(sdlApp);
 
             if (albumArt) {
                 SDL_DestroyTexture(albumArt);
@@ -3322,6 +3126,19 @@ static int doMedia(sdl2_app *sdlApp)
             continue;
         }
 
+
+        SDL_LockMutex(g_job_mutex);
+        if (g_current_job != NULL)
+        {
+            update_video_texture(sdlApp->renderer, &vr,
+                 &g_current_job->video_queue,
+                 g_current_job->video_time_base,
+                 get_video_clock());
+        } else if (vr.texture != NULL) {
+            video_renderer_cleanup(&vr);
+        }
+        SDL_UnlockMutex(g_job_mutex);
+
         if (sdlApp->conf->style == 0)
             SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
         else
@@ -3333,161 +3150,127 @@ static int doMedia(sdl2_app *sdlApp)
             SDL_RenderCopy(sdlApp->renderer, Background_Tx, NULL, NULL);
         }
 
-        // Begin render stuff on this page
-        SDL_RenderCopyEx(sdlApp->renderer, play,  NULL, &playR,  0, NULL, SDL_FLIP_NONE);
+        SDL_Rect vb = fullScr == 1? videoBarR : arttBoxR;
+        if (vr.texture != NULL && vr.yuv_frame != NULL) {
+            // Black background in the video frame (for potential letterbox bars)
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0, 0, 0, 255);
+            SDL_RenderFillRect(sdlApp->renderer, &vb);
 
-        if (apause) {
-            // Set the texture's alpha to, for example, 100 (0 = completely invisible, 255 = completely visible)
-            SDL_SetTextureAlphaMod(pause, 100);
-        } else {
-            // Restore to full visibility when the pause is over
-            SDL_SetTextureAlphaMod(pause, 255);
+            // Draw the video itself with the correct proportions
+            SDL_Rect dst = calculate_aspect_rect(vb, vr.yuv_frame->width, vr.yuv_frame->height);
+            SDL_RenderCopy(sdlApp->renderer, vr.texture, NULL, &dst);
+
+            if (fullScr && fullScr_t) {
+                SDL_RenderCopyEx(sdlApp->renderer, nfscrBar, NULL, &nfscrBarR, 0, NULL, SDL_FLIP_NONE);
+            }
         }
 
-        SDL_RenderCopyEx(sdlApp->renderer, pause, NULL, &pauseR, 0, NULL, SDL_FLIP_NONE);
-        SDL_RenderCopyEx(sdlApp->renderer, stop,  NULL, &stopR,  0, NULL, SDL_FLIP_NONE);
-        SDL_RenderCopyEx(sdlApp->renderer, next,  NULL, &nextR,  0, NULL, SDL_FLIP_NONE);
-        SDL_RenderCopyEx(sdlApp->renderer, prev,  NULL, &prevR,  0, NULL, SDL_FLIP_NONE);
-        if (sdlApp->conf->snd_showMixer) {
-            SDL_RenderCopyEx(sdlApp->renderer, vup,   NULL, &vupR,   0, NULL, SDL_FLIP_NONE);
-            SDL_RenderCopyEx(sdlApp->renderer, vdown, NULL, &vdownR, 0, NULL, SDL_FLIP_NONE);
-        }
-        SDL_RenderCopyEx(sdlApp->renderer, mquit, NULL, &mquitR, 0, NULL, SDL_FLIP_NONE);
+        if (fullScr_t) {
+            // Begin render stuff on this page
+            SDL_RenderCopyEx(sdlApp->renderer, play,  NULL, &playR,  0, NULL, SDL_FLIP_NONE);
 
-        if (muted == 0) {
-            SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
-        } else {
-            SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
-        }
+            if (apause) {
+                // Set the texture's alpha to, for example, 100 (0 = completely invisible, 255 = completely visible)
+                SDL_SetTextureAlphaMod(pause, 100);
+            } else {
+                // Restore to full visibility when the pause is over
+                SDL_SetTextureAlphaMod(pause, 255);
+            }
 
-        if (scrl_offset >= sdlApp->conf->playlist.count) {scrl_offset = 0;}
+            SDL_RenderCopyEx(sdlApp->renderer, pause, NULL, &pauseR, 0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, stop,  NULL, &stopR,  0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, next,  NULL, &nextR,  0, NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(sdlApp->renderer, prev,  NULL, &prevR,  0, NULL, SDL_FLIP_NONE);
+            if (sdlApp->conf->snd_showMixer) {
+                SDL_RenderCopyEx(sdlApp->renderer, vup,   NULL, &vupR,   0, NULL, SDL_FLIP_NONE);
+                SDL_RenderCopyEx(sdlApp->renderer, vdown, NULL, &vdownR, 0, NULL, SDL_FLIP_NONE);
+            }
+            SDL_RenderCopyEx(sdlApp->renderer, mquit, NULL, &mquitR, 0, NULL, SDL_FLIP_NONE);
+
+            if (muted == 0) {
+                SDL_RenderCopyEx(sdlApp->renderer, muteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                SDL_RenderCopyEx(sdlApp->renderer, unmuteBar, NULL, &mutebarR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
 
         static int last_item_y;
-        const int irow_height = 24;
+        const int irow_height = 24; 
+        if (scrl_offset >= sdlApp->conf->playlist.count) {scrl_offset = 0;}
 
-        // Draw file selector
-        for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < sdlApp->conf->playlist.count; i++)
-        {
+        if (!fullScr) {
 
-            int item_y = 40 + (i * irow_height);
-            sliderR.h = item_y - 18;
-            // Save clickable area for the file
-            file_click_areas[i].x = 50;
-            file_click_areas[i].y = last_item_y = item_y;
-            file_click_areas[i].w = 400;
-            file_click_areas[i].h = 22;
- 
-            // Highlight the row faintly to indicate that it is interactive.
-            SDL_SetRenderDrawColor(sdlApp->renderer, 45, 45, 45, 255);
-            SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[i]);
-            SDL_SetRenderDrawColor(sdlApp->renderer, 200, 200, 200, 255);
-
-            //  Highlight the current row just clicked and/or advance scrl_offset if auto-play ++
-            if (sdlApp->conf->playlist.active && sdlApp->conf->playlist.index - scrl_offset >=0 && sdlApp->conf->playlist.index - scrl_offset < MVISIBLE_FILES)
+            // Draw file selector
+            for (int i = 0; i < MVISIBLE_FILES && (i + scrl_offset) < sdlApp->conf->playlist.count; i++)
             {
-                SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(sdlApp->renderer, 255 , 255, 255, 22);
-                SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[sdlApp->conf->playlist.index - scrl_offset]);
+                int item_y = 40 + (i * irow_height);
+                sliderR.h = item_y - 18;
+                // Save clickable area for the file
+                file_click_areas[i].x = 50;
+                file_click_areas[i].y = last_item_y = item_y;
+                file_click_areas[i].w = 400;
+                file_click_areas[i].h = 22;
+
+                // Highlight the row faintly to indicate that it is interactive.
+                SDL_SetRenderDrawColor(sdlApp->renderer, 45, 45, 45, 255);
+                SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[i]);
+                SDL_SetRenderDrawColor(sdlApp->renderer, 200, 200, 200, 255);
+     
+                //  Highlight the current row just clicked and/or advance scrl_offset if auto-play ++
+                if (sdlApp->conf->playlist.active && sdlApp->conf->playlist.index - scrl_offset >=0 && sdlApp->conf->playlist.index - scrl_offset < MVISIBLE_FILES)
+                {
+                    SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+                    SDL_SetRenderDrawColor(sdlApp->renderer, 255 , 255, 255, 22);
+                    SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[sdlApp->conf->playlist.index - scrl_offset]);
+                }
+
+                SDL_Color color;
+                stat(sdlApp->conf->playlist.files[i + scrl_offset], &stats);
+                if (S_ISDIR(stats.st_mode)) {
+                    color = color_green;
+                } else color = color_white;
+
+                // Present a file item without the suffix
+                char filenm[PATH_MAX];
+                strncpy(filenm, sdlApp->conf->playlist.files[i + scrl_offset], sizeof(filenm)-1);
+
+
+                filenm[38] = '\0';  // Don't spill through the rect.
+                char *p = strrchr(filenm, '.');
+                if (p != NULL) {*p = '\0';}
+
+                // Remove any leading track numbers
+                char *display_name = filenm;
+                if (isdigit((unsigned char)filenm[0])) {
+                    int dummy_index;
+                    int bytes_read = 0;
+                    // %d reads the numbers, %n counts the total number of bytes read,
+                    // and " " (the space) matches whitespace following the number
+                    if (sscanf(filenm, "%d %n", &dummy_index, &bytes_read) >= 1) {
+                        display_name = filenm + bytes_read;
+                    }
+                }
+                draw_textc(sdlApp->renderer, fontMsg, display_name, 55, item_y + 2, color);
             }
 
-            int dcol = WHITE;
-            stat(sdlApp->conf->playlist.files[i + scrl_offset], &stats);
-            if (S_ISDIR(stats.st_mode)) {
-                dcol = GREEN;
-            }
+            // Slider background
+            if (sdlApp->conf->playlist.count >  MVISIBLE_FILES) {
+                SDL_SetRenderDrawColor(sdlApp->renderer, dragging == 0?80:130, dragging == 0?80:130, dragging == 0?80:130, 255);
+                SDL_RenderFillRect(sdlApp->renderer, &sliderR);
 
-            // Present a file item without the suffix
-            char filenm[PATH_MAX];
-            strncpy(filenm, sdlApp->conf->playlist.files[i + scrl_offset], sizeof(filenm)-1);
-
-            filenm[38] = '\0';  // Don't spill through the rect.
-            char *p = strrchr(filenm, '.');
-            if (p != NULL) {*p = '\0';}
-
-            // Remove any leading track numbers
-            char *display_name = filenm;
-            if (isdigit((unsigned char)filenm[0])) {
-                int dummy_index;
-                int bytes_read = 0;
-                // %d reads the numbers, %n counts the total number of bytes read,
-                // and " " (the space) matches whitespace following the number
-                if (sscanf(filenm, "%d %n", &dummy_index, &bytes_read) >= 1) {
-                    display_name = filenm + bytes_read;
+                // Draw scroll buttons
+                if (sdlApp->conf->playlist.count >= MVISIBLE_FILES)
+                {
+                    SDL_RenderCopyEx(sdlApp->renderer, up, NULL, &scrl_up_rect, 0, NULL, SDL_FLIP_NONE);
+                    SDL_RenderCopyEx(sdlApp->renderer, down, NULL, &scrl_dn_rect, 0, NULL, SDL_FLIP_NONE);
                 }
             }
 
-            get_text_and_rect(sdlApp->renderer, 55, item_y + 2, 0, display_name, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, dcol);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-        }
-
-        // Slider background
-        if (sdlApp->conf->playlist.count >  MVISIBLE_FILES) {
-            SDL_SetRenderDrawColor(sdlApp->renderer, dragging == 0?80:130, dragging == 0?80:130, dragging == 0?80:130, 255);
-            SDL_RenderFillRect(sdlApp->renderer, &sliderR);
-
-            // Draw scroll buttons
-            if (sdlApp->conf->playlist.count >= MVISIBLE_FILES)
-            {
-                SDL_RenderCopyEx(sdlApp->renderer, up, NULL, &scrl_up_rect, 0, NULL, SDL_FLIP_NONE);
-                SDL_RenderCopyEx(sdlApp->renderer, down, NULL, &scrl_dn_rect, 0, NULL, SDL_FLIP_NONE);
+            if (strncmp(folder_path, sdlApp->conf->media_path, sizeof(folder_path)-1)) {
+                SDL_RenderCopyEx(sdlApp->renderer, back, NULL, &scrl_bk_rect, 0, NULL, SDL_FLIP_NONE);
             }
-        }
 
-        if (strncmp(folder_path, sdlApp->conf->media_path, sizeof(folder_path)-1)) {
-            SDL_RenderCopyEx(sdlApp->renderer, back, NULL, &scrl_bk_rect, 0, NULL, SDL_FLIP_NONE);
-        }
-
-
-        get_text_and_rect(sdlApp->renderer, 570, 10, 0, msg_tod, fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-        // Draw the progress bar
-        void draw_progress_bar(SDL_Renderer *renderer,
-                               int x, int y, int width, int height,
-                               double position, double duration)
-        {
-            if (duration <= 0.0)
-                return;
-
-            // Restrict the position to a valid range
-            if (position < 0.0)
-                position = 0.0;
-
-            if (position > duration)
-                position = duration;
-
-            double ratio = position / duration;
-            int progress_width = (int)(width * ratio);
-
-            SDL_Rect background = { x, y, width, height };
-            SDL_Rect progress   = { x, y, progress_width, height };
-
-            // Background
-            SDL_SetRenderDrawColor(renderer, 35, 35, 35, 255);
-            SDL_RenderFillRect(renderer, &background);
-
-            // Time played
-            SDL_SetRenderDrawColor(renderer, 235, 235, 235, 255);
-
-            if (progress_width > 0)
-                SDL_RenderFillRect(renderer, &progress);
-
-            // Marker at current position
-            SDL_Rect marker = {
-                x + progress_width - 2,
-                y - 3,
-                4,
-                height + 6
-            };
-
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-
-            if (progress_width > 0)
-                SDL_RenderFillRect(renderer, &marker);
-
-            // Thin frame
-            SDL_SetRenderDrawColor(renderer, 20, 50, 75, 255);
-            SDL_RenderDrawRect(renderer, &background);
+            draw_textc(sdlApp->renderer, fontMsg, msg_tod, 570, 10, color_white);
         }
 
         // Data to manage the progress bar
@@ -3497,154 +3280,158 @@ static int doMedia(sdl2_app *sdlApp)
         static int player_paused;
         static int pgIndx;
 
-        // Draw now playing fields whit meta data
-        if (sdlApp->conf->playlist.active) {
-
-            if (!track_start_ms) {
-                track_start_ms = SDL_GetTicks64();
-                paused_total_ms = 0;
-                pause_start_ms = 0;
-                player_paused = 0; 
-                pgIndx = sdlApp->conf->playlist.index;
-                goto endf;
-            }
-
-            if (sdlApp->conf->playlist.index != pgIndx)
-                track_start_ms = 0;
-
-            if (sdlApp->conf->playlist.paused) {
-                if (!pause_start_ms)
-                    pause_start_ms = SDL_GetTicks64();
-                player_paused = 1;
-            }
-
-            if (player_paused && !sdlApp->conf->playlist.paused) {
-                paused_total_ms += SDL_GetTicks64() - pause_start_ms;
-                player_paused = 0;
-                pause_start_ms = 0;
-            }
-
+        if (!fullScr)
+        {
             // Fetch meta data and show them
             show_audio_metadata(&sdlApp->conf->playlist);
-          
-            int  indx = last_item_y+irow_height+10; const int incr=20;
-            if (strlen(sdlApp->conf->playlist.title)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx, 0, sdlApp->conf->playlist.title,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
-            if (strlen(sdlApp->conf->playlist.artist)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, sdlApp->conf->playlist.artist,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
-            if (strlen(sdlApp->conf->playlist.album)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, sdlApp->conf->playlist.album,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
-            if (strlen(sdlApp->conf->playlist.album_artist)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, sdlApp->conf->playlist.album_artist,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
-            if (strlen(sdlApp->conf->playlist.genre)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, sdlApp->conf->playlist.genre,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
-            if (strlen(sdlApp->conf->playlist.date)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, sdlApp->conf->playlist.date,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
+
+            // Draw now playing fields whit meta data
+            if (sdlApp->conf->playlist.active)
+            {
+
+                if (!track_start_ms) {
+                    track_start_ms = SDL_GetTicks64();
+                    paused_total_ms = 0;
+                    pause_start_ms = 0;
+                    player_paused = 0; 
+                    pgIndx = sdlApp->conf->playlist.index;
+                    goto endf;
+                }
+
+                if (sdlApp->conf->playlist.index != pgIndx)
+                    track_start_ms = 0;
+
+                if (sdlApp->conf->playlist.paused) {
+                    if (!pause_start_ms)
+                        pause_start_ms = SDL_GetTicks64();
+                    player_paused = 1;
+                }
+
+                if (player_paused && !sdlApp->conf->playlist.paused) {
+                    paused_total_ms += SDL_GetTicks64() - pause_start_ms;
+                    player_paused = 0;
+                    pause_start_ms = 0;
+                }
+
+                int  indx = last_item_y+irow_height+10; const int incr=20;
+
+                if (strlen(sdlApp->conf->playlist.title)) {
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.title, 60, indx, color_black);
+                }
+                if (strlen(sdlApp->conf->playlist.artist)) {
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.artist, 60, indx+=incr, color_black);
+                }
+                if (strlen(sdlApp->conf->playlist.album)) {
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album, 60, indx+=incr, color_black);
+                }
+                if (strlen(sdlApp->conf->playlist.album_artist)) {
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album_artist, 60, indx+=incr, color_black);
+                }
+                if (strlen(sdlApp->conf->playlist.genre)) {
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.genre, 60, indx+=incr, color_black);
+                }
+                if (strlen(sdlApp->conf->playlist.date)) {
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.date, 60, indx+=incr, color_black);
+                }
 #if 0
-            if (strlen(sdlApp->conf->playlist.track)) {
-                get_text_and_rect(sdlApp->renderer, 60, indx+=incr, 0, sdlApp->conf->playlist.track,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            }
+                if (strlen(sdlApp->conf->playlist.track)) {
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.track, 60, indx+=incr, color_black);
+                }
 #endif
-
-            if (strlen(sdlApp->conf->playlist.duration)) {
-
-                current_position = player_get_cur_pos_sec();
-
-                get_text_and_rect(sdlApp->renderer, 60, pgBarR.y+6, 0, sdlApp->conf->playlist.duration,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-                int rems = sdlApp->conf->playlist.s_duration - current_position;
-                char buf[20];
-                snprintf(buf, sizeof(buf),"-%02d:%02d" , rems / 60, rems % 60);
-
-                get_text_and_rect(sdlApp->renderer, pgBarR.x+pgBarR.w+10, pgBarR.y+6, 0, buf,
-                    fontMsg, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-                if (strlen(sdlApp->conf->playlist.duration)) {
-                    draw_progress_bar(sdlApp->renderer, pgBarR.x, pgBarR.y, pgBarR.w, pgBarR.h, current_position, sdlApp->conf->playlist.s_duration);
+                // Load album art
+                if (!media_is_video())
+                {
+                    if (albumArt == NULL)
+                        albumArt = IMG_LoadTexture(sdlApp->renderer, albumArtPath);
                 }
-            }
 
-            // Show album art
-            if (albumArt == NULL) {
-                if (!strncmp(sdlApp->conf->media_path, albumArtPath, sizeof(albumArtPath)-1)) {
-                    char path[PATH_MAX];
-                    snprintf(path, sizeof(path)-1, "%s/%s%s", curDir, IMAGE_PATH, DEF_ACOVER);
-                    albumArt = IMG_LoadTexture(sdlApp->renderer, path);
-                } else {
-                    albumArt = IMG_LoadTexture(sdlApp->renderer, albumArtPath);
-                    SDL_SetTextureBlendMode(albumArt, SDL_BLENDMODE_BLEND);
-                    art_alpha = 0.0f;
-                }
+                endf:
+            } else {
+                track_start_ms = 0;
+                pause_start_ms = 0;
+                paused_total_ms = 0;
+                player_paused = 0;
+                pgIndx=0;
             }
-            if (albumArt != NULL) {
-                SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
-                if (art_alpha < 255.0f) {
-                    art_alpha += 20.0f;
-                    if (art_alpha > 255.0f) {
-                        art_alpha = 255.0f;
-                    }
-                }
-                SDL_SetTextureAlphaMod(albumArt, (Uint8)art_alpha);
-
-                SDL_RenderCopyEx(sdlApp->renderer, albumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
-            }
-
-            endf:
-        } else {
-            track_start_ms = 0;
-            pause_start_ms = 0;
-            paused_total_ms = 0;
-            player_paused = 0;
-            pgIndx=0;
         }
 
+        if (!fullScr) {
+            SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
+        }
 
+        if (!fullScr && !media_is_video())
+        {
+            if (albumArt == NULL) {
+                SDL_RenderCopyEx(sdlApp->renderer, DefAlbumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
+            } else {
+                if (albumArt != NULL)
+                    SDL_RenderCopyEx(sdlApp->renderer, albumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
+            }
+        }
+        
+        if (strnlen(sdlApp->conf->playlist.duration, 40) && fullScr_t) {
+        
+            current_position = player_get_cur_pos_sec();
+
+            draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.duration, 60, pgBarR.y+6, color_black);
+
+            int rems = sdlApp->conf->playlist.s_duration - current_position;
+            char buf[20];
+            snprintf(buf, sizeof(buf),"-%02d:%02d" , rems / 60, rems % 60);
+            draw_textc(sdlApp->renderer, fontMsg, buf, pgBarR.x+pgBarR.w+10, pgBarR.y+6, color_black);
+
+            if (strlen(sdlApp->conf->playlist.duration)) {
+                draw_progress_bar(sdlApp->renderer, pgBarR.x, pgBarR.y, pgBarR.w, pgBarR.h, current_position, sdlApp->conf->playlist.s_duration);
+            }
+        }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw && ct % 5 && show_dbtw)
-        {   // A Media Player with Depth Warnings :-)
-            get_text_and_rect(sdlApp->renderer, dbtR.x, dbtR.y, 0, msg_dbt,
-                fontWar, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, RED);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        {
+            draw_textc(sdlApp->renderer, fontWar, msg_dbt, dbtR.x, dbtR.y, color_red);
+        }
+
+        if ( fullScr_t <= 0 && showNavbox) {
+            int y = navBoxR.y;
+            int x = navBoxR.x +8;
+
+            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(sdlApp->renderer, 0 , 0, 0, 80);
+            SDL_RenderFillRect(sdlApp->renderer, &navBoxR);
+
+            if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_hdg,x, (y), color_white);
+            }
+
+            if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_stw,x, (y+=20), color_white);
+            }
+
+            if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_sog,x, (y+=20), color_white);
+            }
+
+            if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
+                draw_textc(sdlApp->renderer,fontMsg,msg_mtw,x, (y+=20), color_white);
+            }
+
+            if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
+                SDL_Color c = cnmea.dbt <= warn.depthw? color_red : color_white;
+                draw_textc(sdlApp->renderer,fontMsg,msg_dbt,x, (y+=20), c);
+            }
         }
 
         SDL_RenderPresent(sdlApp->renderer);
 
-        SDL_Delay(60);
-
-       sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
+        if (vr.texture == NULL) 
+            SDL_Delay(60);
     }
 
     command_push(CMD_STOP);
-    doClean();
+    doVaClean(sdlApp);
 
     sdlApp->conf->udata->mute = 0;
     SDL_PauseAudioDevice(sdlApp->conf->deviceId,1);
+    SDL_DestroyMutex(g_job_mutex);
 
     chdir(curDir);
 
@@ -3664,6 +3451,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_DestroyTexture(mquit);
     SDL_DestroyTexture(muteBar);
     SDL_DestroyTexture(unmuteBar);
+    SDL_DestroyTexture(nfscrBar);
     SDL_DestroyTexture(albumArt);
     SDL_DestroyTexture(textBox);
 
@@ -3706,6 +3494,8 @@ static int doMediaByCover(sdl2_app *sdlApp)
     int wasMuted = sdlApp->conf->muted;
     sdlApp->conf->muted = 1;    // Prevent warnings
 
+    command_push(CMD_STOP);
+
     char folder_path[RMAX_FILENAME];
     static char klicked_folder_path[RMAX_FILENAME];
 
@@ -3737,19 +3527,6 @@ static int doMediaByCover(sdl2_app *sdlApp)
     const int w_start = 130;
     const int h_start = 130;
     const int wh_padding = 10;
-
-    inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
-    {
-        SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
-        SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
-
-        SDL_Rect d={x,y,s->w,s->h};
-
-        SDL_RenderCopy(r,t,NULL,&d);
-
-        SDL_FreeSurface(s);
-        SDL_DestroyTexture(t);
-    }
 
     SDL_Event dummy_event;
     while (SDL_PollEvent(&dummy_event)) {
@@ -4141,7 +3918,8 @@ static int doCompass(sdl2_app *sdlApp)
                     break;
                 }
                 if (SDL_PointInRect(&p, &mediaBarR) && sdlApp->conf->snd_showMixer) {
-                    if ((e.type=doMediaByCover(sdlApp))== SDL_QUIT) {
+                        if ((e.type=doMediaByCover(sdlApp))== SDL_QUIT) {
+                       // if ((e.type=doMedia(sdlApp))== SDL_QUIT) {
                         doBreak = 1;
                         break;
                     }
@@ -5583,31 +5361,6 @@ static int doDepth(sdl2_app *sdlApp)
         static int histHead;
         static int histCount;
 
-        inline float auto_scale(float maxDepth)
-        {
-            int scale = 10;
-
-            while (scale < maxDepth)
-                scale += 10;
-
-            return scale;
-        }
-
-        inline void draw_text(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y)
-        {
-            SDL_Color c = {220,220,220,255};
-
-            SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
-            SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
-
-            SDL_Rect d = {x,y,s->w,s->h};
-
-            SDL_RenderCopy(r,t,NULL,&d);
-
-            SDL_FreeSurface(s);
-            SDL_DestroyTexture(t);
-        }
-
         if (sdlApp->plotMode)
         {
             int w=DWINDOW_W;
@@ -6492,41 +6245,6 @@ static int doEnvironment(sdl2_app *sdlApp)
         static int histHead;
         static int histCount;
 
-        inline float auto_scale(float maxVal)
-        {
-            if(maxVal <= 50) return 50;
-            if(maxVal <= 500) return 500;
-            return 1000;
-        }
-
-        inline void draw_text(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y)
-        {
-            SDL_Color c={230,230,230,255};
-
-            SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
-            SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
-
-            SDL_Rect d={x,y,s->w,s->h};
-
-            SDL_RenderCopy(r,t,NULL,&d);
-
-            SDL_FreeSurface(s);
-            SDL_DestroyTexture(t);
-        }
-
-        inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
-        {
-            SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
-            SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
-
-            SDL_Rect d={x,y,s->w,s->h};
-
-            SDL_RenderCopy(r,t,NULL,&d);
-
-            SDL_FreeSurface(s);
-            SDL_DestroyTexture(t);
-        }
-
         // Do plotting
         if (cnmea.startTime)
         {
@@ -6555,7 +6273,7 @@ static int doEnvironment(sdl2_app *sdlApp)
                     maxPower=powerHist[idx];
             }
 
-            float yMax=auto_scale(maxPower);
+            float yMax=auto_scale_p(maxPower);
 
             SDL_SetRenderDrawColor(sdlApp->renderer,30,40,60,255);
             SDL_RenderFillRect(sdlApp->renderer,&plot);
@@ -6953,26 +6671,6 @@ static int doCamera(sdl2_app *sdlApp)
                 running = 0;
                 break;
             }
-        }
-
-        inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
-        {
-            if (txt == NULL || !strlen(txt))
-                return;
-
-            SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
-            SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
-
-            SDL_Rect d={x,y,s->w,s->h};
-
-            SDL_RenderCopy(r,t,NULL,&d);
-
-            SDL_FreeSurface(s);
-            SDL_DestroyTexture(t);
-
-            SDL_SetRenderDrawColor(sdlApp->renderer,50,50,50,50);
-            d.w = win_w-x;
-            SDL_RenderFillRect(sdlApp->renderer,&d);
         }
 
         int hideQuit = 0;
@@ -7562,27 +7260,6 @@ static int doVideoCapture(sdl2_app *sdlApp)
     int hideQuit = 0;
     int showNavbox = 1;
 
-    inline void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
-    {
-
-        if (txt == NULL || !strlen(txt))
-            return;
-
-        SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
-        SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
-
-        SDL_Rect d={x,y,s->w,s->h};
-
-        SDL_RenderCopy(r,t,NULL,&d);
-
-        SDL_FreeSurface(s);
-        SDL_DestroyTexture(t);
-
-        SDL_SetRenderDrawColor(sdlApp->renderer,50,50,50,50);
-        d.w = w-x;
-        SDL_RenderFillRect(sdlApp->renderer,&d);
-    }
- 
     while (running)
     {
         char msg_hdg[40] = { "" };
@@ -7849,43 +7526,6 @@ static int doVideoCapture(sdl2_app *sdlApp)
 static int doVideo(sdl2_app *sdlApp)
 {
     TTF_Font *font = TTF_OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28);
-
-    typedef struct {
-        SDL_Rect circle;
-        SDL_Rect text_rect;
-        SDL_Texture *text;
-    } RadioButton;
-
-    SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg,
-                            SDL_Color color, SDL_Rect *rect)
-    {
-        SDL_Surface *surf = TTF_RenderUTF8_Blended(font, msg, color);
-        SDL_Texture *tex = SDL_CreateTextureFromSurface(r, surf);
-
-        rect->w = surf->w;
-        rect->h = surf->h;
-
-        SDL_FreeSurface(surf);
-        return tex;
-    }
-
-    void drawRadio(SDL_Renderer *r, RadioButton *b, int selected)
-    {
-        SDL_RenderDrawRect(r, &b->circle);
-
-        if(selected)
-        {
-            SDL_Rect dot = {
-                b->circle.x + 5,
-                b->circle.y + 5,
-                b->circle.w - 10,
-                b->circle.h - 10
-            };
-            SDL_RenderFillRect(r, &dot);
-        }
-
-        SDL_RenderCopy(r, b->text, NULL, &b->text_rect);
-    }
 
     SDL_Color black = {0,0,0,255};
 
@@ -8888,6 +8528,8 @@ static void init_av(configuration *configParams)
     const char *adev = configParams->snd_card;  // e.g., "hw:2,0" for SDL2
     char card[sizeof(configParams->snd_card)];
     int rval = 0;
+
+    av_log_set_level(AV_LOG_ERROR);
 
     if (adev) {
         // copy up to comma or end of string

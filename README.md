@@ -1,5 +1,5 @@
 # sdlSpeedometer
-README Oct-2026
+README Nov-2026
 
 The sdlSpeedometer application is a marine instrument solution that features electronic instrument displays, typically used on private sailing yachts.
 The look and feel of the visualized instruments tries to mimic the look of real physical instruments in a 3D gui style or by configuration, a modern flat gui style.
@@ -66,7 +66,8 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - This is a alsa level application for warning sounds, camera and hdmi audio interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
 
 ### Note on the Media Player
-- The media player plays FLAC, MP3, and WAV files and features a layout designed for touchscreens and is well-suited for small screens and large fingers.
+- The media player features a layout designed for touchscreens and is well-suited for small screens and large fingers.
+- The Player plays both video and audio from these file extensions: flac, mp3, wav, avi, mp4, m4a and VOB.
 
 ### Notes on VNC
 - sdlSpeedometer will enable the wayvnc VNC server if invoked with "-V" where default port is 5903 and no password.
