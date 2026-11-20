@@ -28,7 +28,7 @@
 #endif
 
 // Dendent on project  https://github.com/ehedman/flowSensor
-//#define DIGIFLOW
+#define DIGIFLOW
 
 #define DEF_ACOVER      "defsound.png"
 
@@ -189,7 +189,6 @@ typedef struct {
     SDL_Texture* textFieldArr[60];
     SDL_Surface* formattedSurf;
     SDL_mutex* vnc_mutex;
-    int textFieldArrIndx;
     Uint32 last_reset_time;
     configuration *conf;
 } sdl2_app;
@@ -339,20 +338,58 @@ typedef struct {
     SDL_Texture *text;
 } RadioButton;
 
-extern void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c);
-extern void draw_text(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y);
-extern void draw_text_r(SDL_Renderer* renderer, const char* text, int x, int y, int scale, const unsigned char font8x8[][8]);
-extern void do_file(char *how, configuration *configParams);
-extern void draw_progress_bar(SDL_Renderer *renderer,
-                       int x, int y, int width, int height,
-                       double position, double duration);
+typedef struct {
+    float x;
+    float y;
+} Vector2D;
+
+typedef struct {
+    configuration *configParams;
+    collected_nmea *cnm;
+    char current_input[RMAX_FILENAME];
+    char *uploadPath;
+    int file_count;
+    char file_list[RMAX_FILES][RMAX_FILENAME];
+    SDL_ThreadFunction threadPLB;
+} rFileOpts;
+
 extern int scan_directory(const char *base_path, CoverList *list);
 extern void coverlist_free(CoverList *list);
 extern float auto_scale(float maxDepth);
 extern float auto_scale_p(float maxVal);
-extern SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg, SDL_Color color, SDL_Rect *rect);
 extern void drawRadio(SDL_Renderer *r, RadioButton *b, int selected);
 extern void doVaClean(sdl2_app *sdlApp);
+extern void set_alsa_volume(sdl2_app *sdlApp, float percent);
+extern float get_current_volume(sdl2_app *sdlApp);
+extern void do_file(char *how, rFileOpts *df_opts);
+extern void load_files(rFileOpts *df_opts);
+extern float to_radians(float degrees);
+extern float to_degrees(float radians);
+extern float normalize_degrees(float deg);
+Vector2D nav_to_vector(float course_deg, float speed);
+
+extern void draw_textc(SDL_Renderer *r, TTF_Font *font, const char *txt,
+    int x, int y, int l, SDL_Color c);
+extern void draw_text(SDL_Renderer *r, TTF_Font *font, const char *txt,
+    int x, int y);
+
+extern void draw_text_r(SDL_Renderer* renderer, const char* text, int x, int y,
+    int scale, const unsigned char font8x8[][8]);
+
+extern void draw_progress_bar(SDL_Renderer *renderer, int x, int y, int width, int height,
+    double position, double duration);
+
+extern void draw_vector_triangle(SDL_Renderer* renderer, int center_x, int center_y, int radius,
+    float hdg, float stw, float cog, float sog, float set, float dft);
+
+extern void SDL_RenderDrawLineThick(SDL_Renderer* renderer, float x1, float y1,
+    float x2, float y2, float thickness);
+extern void draw_vector_arrow(SDL_Renderer* renderer, int start_x, int start_y,
+    int end_x, int end_y, int arrow_size);
+
+extern SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg,
+    SDL_Color color, SDL_Rect *rect);
+
 
 
 #endif /* SPEEDOMETER_H */
