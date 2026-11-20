@@ -63,11 +63,12 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 - When insalling ttyd with apt it will also start ttyd as a systemd service listening on port 7681. You probably don't want that. Disable it with sudo systemctl disable ttyd. In this applicaktion it is only used to run the remote configurator.
 
 ### Note on Audio
-- This is a alsa level application for warning sounds, camera and hdmi audio interfaces. Higher level services such as PipeWire-Pulse may interfere with this app.
+- This is a alsa level application for warning sounds, mediaplayer, camera and hdmi audio interfaces. Higher level services such as PipeWire-Pulse may interfere with this application.
 
 ### Note on the Media Player
 - The media player features a layout designed for touchscreens and is well-suited for small screens and large fingers.
 - The Player plays both video and audio from these file extensions: flac, mp3, wav, avi, mp4, m4a and VOB.
+- The player requires the -A option at application start.
 
 ### Notes on VNC
 - sdlSpeedometer will enable the wayvnc VNC server if invoked with "-V" where default port is 5903 and no password.
@@ -148,7 +149,7 @@ This option makes no sence unless sdlSpeedometer is running as a systemd service
 - Set audio preferences with sdlSPeedometer-config
 - Start sdlSpeedometer with ./sdlSpeedometer -A and possible -i -g as well
 - Eventually set these preferences in /etc/default/sdlSpeedometer after "make install" has been executed on a Pi
-- A volume control bar will be available for DAC audio devices. Volume for HDMI is handled at the signal endpoint i.e. the display monitor
+- A volume control bar is available in the PWR page.
 
 ### Notes on display variables
 Since this application is capable to run either as an X application (DISPLAY=:0:0) thanks to xwayland or as a Wayland application (WAYLAND_DISPLAY=wayland-1) you can use either of these variables. However, when subtasks are launched they get the "DISPLAY=:0:0" set to ensure compatibility for all GUI based applications.
