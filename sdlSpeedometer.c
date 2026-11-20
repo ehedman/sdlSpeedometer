@@ -713,6 +713,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
     if(cnmea.conf->runTcp != 0) {
         SDL_LockMutex(cnmea.conf->tcp_mutex);
         memcpy(cnmea.tcp_buff, nmeastr_p1, cnt);
+        cnmea.tcp_buff[cnt] = '\0';
         SDL_UnlockMutex(cnmea.conf->tcp_mutex);
     }
 
@@ -757,16 +758,16 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
             clock_gettime(CLOCK_MONOTONIC, &ct);
 
             // Calculate the time difference (delta t) in seconds since the last loop.
-            Uint32 current_time = ct.tv_sec + (ct.tv_nsec / 1000000000.0);
-            Uint32 delta_time_seconds = current_time - cnmea.logStart;
+            float current_time = ct.tv_sec + (ct.tv_nsec / 1000000000.0);
+            float delta_time_seconds = current_time - cnmea.logStart;
             cnmea.logStart = current_time;
 
             // Convert seconds to hours (since knots are nautical miles per hour)
-            Uint32 delta_time_hours = delta_time_seconds / 3600.0;
+            float delta_time_hours = delta_time_seconds / 3600.0;
 
             // Calculate distance for this range and add to total 
             // Distance = Speed * Time
-            Uint32 interval_distance = cnmea.sog * delta_time_hours;
+            float interval_distance = cnmea.sog * delta_time_hours;
             cnmea.logDist += interval_distance;
             cnmea.logDistT += interval_distance;
 
@@ -791,7 +792,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 						cnmea.logtReset = 0;
 					}
 
-					sprintf(sql, "UPDATE config SET nmtot = %.1f WHERE Id = 1", (double)cnmea.logDistT);
+					sprintf(sql, "UPDATE config SET nmtot = %.1f WHERE Id = 1", cnmea.logDistT);
 
 					if (sqlite3_prepare_v2(configParams.conn, sql, -1, &res, &tail) == SQLITE_OK) {
 
@@ -1190,6 +1191,7 @@ static void doNmea(char *nmeastr_p1, char *nmeastr_p2, int cnt, int src)
 
         // Loop through the sentence as long as there are quadruplets (4 fields per sensor)
         while (1) {
+
             measure_type = getf(i,     nmeastr_p1); // E.g. "A" for angle
             value = strtof(getf(i + 1, nmeastr_p1), NULL);  // E.g. "10.5");
 
@@ -1580,69 +1582,6 @@ static int nmeaNetCollector(void* conf)
     return 0;
 }
 
-/*
-- x, y: start position (either left corner or right corner, depending on alignment).
-- l: alignment control. If l > 0, left-aligned with fixed width compensation.
-*/
-static void get_text_and_rect(SDL_Renderer *renderer, int x, int y, int l, const char *text,
-        TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, int color) 
-{
-    if (text == NULL || text[0] == '\0') {
-        *texture = NULL;
-        return;
-    }
-
-    SDL_Color textColor = {0, 0, 0, 255}; // Standard black
-
-    switch (color)
-    {
-        case BLACK: textColor.r = textColor.g = textColor.b = 0; break;
-        case WHITE: textColor.r = textColor.g = textColor.b = 255; break;
-        case RED:   textColor.r = 255; textColor.g = textColor.b = 0; break;
-        case GREEN: textColor.r = 0; textColor.g = 255; textColor.b = 0; break;
-        case BLUE:  textColor.r = 0; textColor.g = 0; textColor.b = 255; break;
-    }
-
-    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text, textColor);
-    if (surface == NULL) {
-        *texture = NULL;
-        return;
-    }
-
-    *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if (*texture == NULL) {
-        SDL_FreeSurface(surface);
-        return;
-    }
-
-    // Enable alpha blending on the texture so that the soft edges blend into the background.
-    SDL_SetTextureBlendMode(*texture, SDL_BLENDMODE_BLEND);
-
-    rect->w = surface->w;
-    rect->h = surface->h;
-    rect->y = y;
-
-    SDL_FreeSurface(surface);
-
-    if (l == -1) {
-        // RIGHT ALIGNMENT: 'x' is the point where the text should end.
-        rect->x = x - rect->w;
-    }
-    else if (l > 1) {
-        // Dynamic centering/alignment based on the actual width of the typeface.
-        int total_font_width = 0;
-        int total_font_height = 0;
-
-        // Calculate exactly how wide the string "0" (or the entire text) actually is in pixels.
-        TTF_SizeText(font, "0", &total_font_width, &total_font_height);
-        rect->x = x + abs((int)strlen(text) - l) * total_font_width / 2;
-    }
-    else {
-        // Standard LEFT ALIGNMENT: 'x' is the starting point.
-        rect->x = x;
-    }
-}
-
 static int pageSelect(sdl2_app *sdlApp, SDL_Event *event)
 {
     // A simple event handler for touch screen buttons at fixed menu bar localtions
@@ -1796,51 +1735,34 @@ void checkFocus(sdl2_app *sdlApp)
 static void addMenuItems(sdl2_app *sdlApp, TTF_Font *font)
 {  
     // Add text on top of a simple menu bar
-
-    SDL_Rect M1_rect;
     char *dpt = "DPT";
     
     int x = 414;    // Start x here and go left to right
 
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, "COG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+    draw_text(sdlApp->renderer, font, "COG", x, 416);   x+=57;
 
-    x+=57;
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, "SOG", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+    draw_text(sdlApp->renderer, font, "SOG", x, 416);   x+=57;
 
-    x+=57;
     if (sdlApp->curPage == DPTPAGE) {
         if (sdlApp->plotMode) dpt="DPT"; else dpt="PLT";
     }
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, dpt, font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+    draw_text(sdlApp->renderer, font, dpt, x, 416);     x+=57;
 
-    x+=57;
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, "WND", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+    draw_text(sdlApp->renderer, font, "WND", x, 416);   x+=57;
 
-    x+=57;
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, "GPS", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+    draw_text(sdlApp->renderer, font, "GPS", x, 416);   x+=57;
 
-    x+=57;
 #ifdef DIGIFLOW
     if (sdlApp->curPage == PWRPAGE) {
-        get_text_and_rect(sdlApp->renderer, x, 416, 0, "WTR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect); 
+        draw_text(sdlApp->renderer, font, "WTR", x, 416);   x+=57;
     } else {
-        get_text_and_rect(sdlApp->renderer, x, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+        draw_text(sdlApp->renderer, font, "PWR", x, 416);   x+=57;
     }
 #else
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, "PWR", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+    draw_text(sdlApp->renderer, font, "PWR", x, 416);   x+=57;
 #endif
 
-    x+=57;
-    get_text_and_rect(sdlApp->renderer, x, 416, 0, "CAM", font, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &M1_rect, BLACK);
-    SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &M1_rect);
+    draw_text(sdlApp->renderer, font, "CAM", x, 416);   x+=57;
 
     checkFocus(sdlApp);
 }
@@ -2170,15 +2092,21 @@ static int threadRunPlb(void *conf)
 static int doRecord(sdl2_app *sdlApp, configuration *configParams)
 {
 
-    SDL_Thread *threadPLB = NULL;
-    static char current_input[RMAX_FILENAME];
-    char file_list[RMAX_FILES][RMAX_FILENAME];
+    char uploadPath[RMAX_FILENAME];
+    char filePath[RMAX_FILENAME];
     static char statusMsg[200];
-    int file_count = 0;
     int eType = 0;
 
+    rFileOpts df_opts;
+
+    df_opts.uploadPath = uploadPath;
+    df_opts.threadPLB = threadRunPlb;
+    df_opts.configParams = configParams;
+    df_opts.cnm = &cnmea;
+
+
     if (!cnmea.rwMode) {
-        memset(current_input, 0, sizeof(current_input));
+        memset(df_opts.current_input, 0, sizeof(df_opts.current_input));
         strcpy(statusMsg, "EXISTING FILES (CLICK TO SELECT):");
     }
 
@@ -2225,8 +2153,6 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
     int win_w, win_h;
     SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
 
-    char uploadPath[RMAX_FILENAME];
-    char filePath[RMAX_FILENAME];
     char *home = getenv("HOME");
 
     if (home == NULL) {
@@ -2268,59 +2194,6 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
 
     SDL_Rect file_click_areas[RVISIBLE_FILES];
 
-    void load_files() {
-        DIR *d = opendir(uploadPath);
-        struct dirent *dir;
-        file_count = 0;
-        if (d) {
-            while ((dir = readdir(d)) != NULL && file_count < RMAX_FILES) {
-                if (dir->d_name[0] != '.') {
-                    strncpy(file_list[file_count], dir->d_name, RMAX_FILENAME);
-                    file_count++;
-                }
-            }
-            closedir(d);
-        }
-    }
-
-    // Initilize r/w file operations
-    void do_file(char *how, configuration *configParams, collected_nmea *cnm) {
-
-        if (cnm->rwMode && cnm->pbFile != NULL) {
-            return;
-        }
-
-        size_t len = strlen(current_input);
-        if (len > 0) {
-
-            cnm->rwMode = how[0] == 'r'? 1 : 2;
-            snprintf(filePath, sizeof(filePath), "%s/%s", uploadPath, current_input);
-
-            cnm->pbFile = fopen(filePath, how);
-            if (cnm->pbFile != NULL) {
-                if (cnm->rwMode == 1) {    // Read
-                    configParams->runPlb = 1;
-                    threadPLB = SDL_CreateThread(threadRunPlb, "threadPLB", configParams);
-                    if (NULL == threadPLB) {
-                        configParams->runPlb = 0;
-                        cnm->rwMode = 0;
-                        snprintf(statusMsg, sizeof(statusMsg), "SDL_CreateThread threadPLB failed: %s", SDL_GetError());
-                        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", statusMsg);
-                    } else {
-                        SDL_DetachThread(threadPLB);
-                    }
-                }
-                snprintf(statusMsg, sizeof(statusMsg), "Running NMEA file: %s(%c)", filePath, how[0]);
-            } else {
-                snprintf(statusMsg, sizeof(statusMsg), "Open %s (%s) failed: %s", filePath, how, SDL_GetError());
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, statusMsg);
-                cnm->rwMode = 0;
-                configParams->runPlb = 0;
-            }
-            load_files();
-        }
-    }
-
     void init_keyboard() {
         int start_y = back_rect.y;
         int key_w = back_rect.w-20;
@@ -2360,7 +2233,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
         return isalnum(c) || c == '-' || c == '_' || c == '.';
     }
 
-    load_files();
+    load_files(&df_opts);
     init_keyboard();
     SDL_StartTextInput(); // Start SDL text input for physical keyboards
 
@@ -2379,13 +2252,13 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             cnmea.rwMode = 0;
             fclose(cnmea.pbFile);
             cnmea.pbFile = NULL;
-            memset(current_input, 0, sizeof(current_input));
+            memset(df_opts.current_input, 0, sizeof(df_opts.current_input));
         }
 
         // Finish the write data session. rwMode 3 is set from doNmea() due to a expired file size limit
         // The write data session is running in separate thread
         if (cnmea.rwMode==3) {
-            memset(current_input, 0, sizeof(current_input));
+            memset(df_opts.current_input, 0, sizeof(df_opts.current_input));
             cnmea.rwMode = 0;
             snprintf(statusMsg, sizeof(statusMsg), "Recording stopped at limit %d bytes", cnmea.conf->rwfilez);
         }
@@ -2400,16 +2273,16 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                 break;
             } else if (e.type == SDL_KEYDOWN) {   // Use physical keyboard
                 if (e.key.keysym.sym == SDLK_BACKSPACE) {
-                    size_t len = strlen(current_input);
-                    if (len > 0) current_input[len - 1] = '\0';
+                    size_t len = strlen(df_opts.current_input);
+                    if (len > 0) df_opts.current_input[len - 1] = '\0';
                 }
             } else if (e.type == SDL_TEXTINPUT) {
-                size_t len = strlen(current_input);
+                size_t len = strlen(df_opts.current_input);
                 // Allow only safe characters for filenames
                 char c = e.text.text[0];
                 if (len < RMAX_FILENAME - 1 && ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || 
                     (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) {
-                    strcat(current_input, e.text.text);
+                    strcat(df_opts.current_input, e.text.text);
                 }
             } else if (e.type == SDL_MOUSEBUTTONDOWN)
             {   // Handle mouse clicks
@@ -2422,7 +2295,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                         my >= keys[i].rect.y && my <= keys[i].rect.y + keys[i].rect.h)
                     {
                         char c = keys[i].action_char;
-                        size_t len = strlen(current_input);
+                        size_t len = strlen(df_opts.current_input);
 
                         clicked_rect.x = keys[i].rect.x;
                         clicked_rect.y = keys[i].rect.y;
@@ -2435,14 +2308,14 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                         }
 
                         if (c == '\b') {
-                            if (len > 0) current_input[len - 1] = '\0';
+                            if (len > 0) df_opts.current_input[len - 1] = '\0';
                         } else {
                             if (len < RMAX_FILENAME - 1)
                             {
                                 if (is_valid_char(c))
                                 {
-                                    current_input[len] = tolower(c);
-                                    current_input[len + 1] = '\0';
+                                    df_opts.current_input[len] = tolower(c);
+                                    df_opts.current_input[len + 1] = '\0';
                                 }
 
                             }
@@ -2459,16 +2332,16 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                 }
                 if (mx >= scrl_dn_rect.x && mx <= scrl_dn_rect.x + scrl_dn_rect.w &&
                     my >= scrl_dn_rect.y && my <= scrl_dn_rect.y + scrl_dn_rect.h) {
-                    if (scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
+                    if (scrl_offset < df_opts.file_count - RVISIBLE_FILES) scrl_offset++;
                     clicked_rect = scrl_dn_rect;
                     tMark = 10;
                 }
 
                 // Click on a file name in the list.
-                for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < file_count; i++) {
+                for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < df_opts.file_count; i++) {
                     if (mx >= file_click_areas[i].x && mx <= file_click_areas[i].x + file_click_areas[i].w &&
                         my >= file_click_areas[i].y && my <= file_click_areas[i].y + file_click_areas[i].h) {
-                        strncpy(current_input, file_list[i + scrl_offset], RMAX_FILENAME);
+                        strncpy(df_opts.current_input, df_opts.file_list[i + scrl_offset], RMAX_FILENAME);
                     }
                 }
 
@@ -2493,10 +2366,10 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                 }
 
                 // Delete a file
-                if (SDL_PointInRect(&p, &dele_rect) && strlen(current_input) && !cnmea.rwMode)
+                if (SDL_PointInRect(&p, &dele_rect) && strlen(df_opts.current_input) && !cnmea.rwMode)
                 {
-                    snprintf(filePath, sizeof(filePath), "%s/%s", uploadPath, current_input);
-                    memset(current_input, 0, sizeof(current_input));
+                    snprintf(filePath, sizeof(filePath), "%s/%s", uploadPath, df_opts.current_input);
+                    memset(df_opts.current_input, 0, sizeof(df_opts.current_input));
                     struct stat stats;
                     if (!stat(filePath, &stats))
                     {
@@ -2506,7 +2379,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                         } else {
                             snprintf(statusMsg, sizeof(statusMsg), "File %s successfully removed", filePath);
                             SDL_Log("%s", statusMsg);
-                            load_files();
+                            load_files(&df_opts);
                         }
                     } else {
                         snprintf(statusMsg, sizeof(statusMsg), "Failed to access %s: %s", filePath, SDL_GetError());
@@ -2516,12 +2389,12 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
 
                 // Read a file
                 if (SDL_PointInRect(&p, &play_rect) && cnmea.rwMode==0) {
-                    do_file("r", configParams, &cnmea);
+                    do_file("r", &df_opts);
                 }
 
                 // Save a file
                 if (SDL_PointInRect(&p, &save_rect) && cnmea.rwMode==0) {
-                    do_file("w", configParams, &cnmea);
+                    do_file("w", &df_opts);
                 }
 
                 // Abort a file operation
@@ -2531,12 +2404,12 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
                     cnmea.rwMode = 0;
                     fclose(cnmea.pbFile);
                     cnmea.pbFile = NULL;
-                    memset(current_input, 0, sizeof(current_input));
+                    memset(df_opts.current_input, 0, sizeof(df_opts.current_input));
                     snprintf(statusMsg, sizeof(statusMsg), "File operation stopped");
                 }
             } else if (e.type == SDL_MOUSEWHEEL) {    // Handle mouse scroll input
                 if (e.wheel.y > 0 && scrl_offset > 0) scrl_offset--;
-                else if (e.wheel.y < 0 && scrl_offset < file_count - RVISIBLE_FILES) scrl_offset++;
+                else if (e.wheel.y < 0 && scrl_offset < df_opts.file_count - RVISIBLE_FILES) scrl_offset++;
             }
         }
 
@@ -2559,9 +2432,9 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
         }
 
         // Draw file selector
-        draw_textc(sdlApp->renderer, fontMsg, statusMsg, 40, 20,col);
+        draw_textc(sdlApp->renderer, fontMsg, statusMsg, 40, 20, 0, col);
 
-        for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < file_count; i++)
+        for (int i = 0; i < RVISIBLE_FILES && (i + scrl_offset) < df_opts.file_count; i++)
         {
             int item_y = 60 + (i * 22);
 
@@ -2575,11 +2448,11 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
             SDL_SetRenderDrawColor(sdlApp->renderer, 45, 45, 45, 255);
             SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[i]);
             SDL_SetRenderDrawColor(sdlApp->renderer, 200, 200, 200, 255);
-            draw_text_r(sdlApp->renderer, file_list[i + scrl_offset], 55, item_y + 2, 2, font8x8);
+            draw_text_r(sdlApp->renderer, df_opts.file_list[i + scrl_offset], 55, item_y + 2, 2, font8x8);
         }
 
         // Draw scroll buttons
-        if (file_count >= RVISIBLE_FILES)
+        if (df_opts.file_count >= RVISIBLE_FILES)
         {
             SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
             SDL_RenderFillRect(sdlApp->renderer, &scrl_up_rect);
@@ -2610,7 +2483,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
         }
 
         // Draw delete button
-        if (strlen(current_input) && !cnmea.rwMode)
+        if (strlen(df_opts.current_input) && !cnmea.rwMode)
         {
             SDL_SetRenderDrawColor(sdlApp->renderer, 60, 60, 60, 255);
             SDL_RenderFillRect(sdlApp->renderer, &dele_rect);
@@ -2625,7 +2498,7 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
         SDL_SetRenderDrawColor(sdlApp->renderer, 0, 255, 0, 255);
         SDL_RenderDrawRect(sdlApp->renderer, &input_box);
         // Draw filename
-        draw_text_r(sdlApp->renderer, current_input, 58, 190, 2, font8x8);
+        draw_text_r(sdlApp->renderer, df_opts.current_input, 58, 190, 2, font8x8);
 
         // Draw virtual keyboard
         for (int i = 0; i < key_count; i++)
@@ -2652,22 +2525,6 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
     SDL_StopTextInput();
 
     return eType;
-}
-
-//  Volume control
-static void set_alsa_volume(sdl2_app *sdlApp, float percent)
-{
-    long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
-
-    snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
-}
-
-static float get_current_volume(sdl2_app *sdlApp)
-{
-    long volume;
-    snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
-
-    return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
 }
 
 // Show the media page
@@ -2937,6 +2794,7 @@ static int doMedia(sdl2_app *sdlApp)
                     }
                 }
                 if (SDL_PointInRect(&p, &stopR)) {
+                    fullScr_t = fullScr = 0;
                     command_push(CMD_STOP);
                 }
                 if (SDL_PointInRect(&p, &nextR)) {
@@ -3047,12 +2905,14 @@ static int doMedia(sdl2_app *sdlApp)
                             if (S_ISDIR(stats.st_mode)) {
                                 strncat(folder_path, sdlApp->conf->playlist.files[i + scrl_offset], sizeof(folder_path)-1);
                                 strncat(folder_path, "/", sizeof(folder_path)-1);
+                                fullScr_t = fullScr = 0;
                                 command_push(CMD_STOP);
                                 newDir = 1;
                                 left_dirs[left_dirs_indx++] = scrl_offset;
                             } else {
                                 strncpy(current_input, sdlApp->conf->playlist.files[i + scrl_offset], RMAX_FILENAME);
                                 sdlApp->conf->playlist.index = i + scrl_offset;
+                                fullScr_t = fullScr = 0;
                                 command_push(CMD_STOP);
                                 command_push(CMD_PLAYSEL);
                             }
@@ -3125,7 +2985,6 @@ static int doMedia(sdl2_app *sdlApp)
 
             continue;
         }
-
 
         SDL_LockMutex(g_job_mutex);
         if (g_current_job != NULL)
@@ -3250,7 +3109,7 @@ static int doMedia(sdl2_app *sdlApp)
                         display_name = filenm + bytes_read;
                     }
                 }
-                draw_textc(sdlApp->renderer, fontMsg, display_name, 55, item_y + 2, color);
+                draw_textc(sdlApp->renderer, fontMsg, display_name, 55, item_y + 2, 0, color);
             }
 
             // Slider background
@@ -3270,7 +3129,7 @@ static int doMedia(sdl2_app *sdlApp)
                 SDL_RenderCopyEx(sdlApp->renderer, back, NULL, &scrl_bk_rect, 0, NULL, SDL_FLIP_NONE);
             }
 
-            draw_textc(sdlApp->renderer, fontMsg, msg_tod, 570, 10, color_white);
+            draw_textc(sdlApp->renderer, fontMsg, msg_tod, 570, 10, 0, color_white);
         }
 
         // Data to manage the progress bar
@@ -3316,26 +3175,26 @@ static int doMedia(sdl2_app *sdlApp)
                 int  indx = last_item_y+irow_height+10; const int incr=20;
 
                 if (strlen(sdlApp->conf->playlist.title)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.title, 60, indx, color_black);
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.title, 60, indx, 0, color_black);
                 }
                 if (strlen(sdlApp->conf->playlist.artist)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.artist, 60, indx+=incr, color_black);
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.artist, 60, indx+=incr, 0, color_black);
                 }
                 if (strlen(sdlApp->conf->playlist.album)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album, 60, indx+=incr, color_black);
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album, 60, indx+=incr, 0, color_black);
                 }
                 if (strlen(sdlApp->conf->playlist.album_artist)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album_artist, 60, indx+=incr, color_black);
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album_artist, 60, indx+=incr, 0, color_black);
                 }
                 if (strlen(sdlApp->conf->playlist.genre)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.genre, 60, indx+=incr, color_black);
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.genre, 60, indx+=incr, 0, color_black);
                 }
                 if (strlen(sdlApp->conf->playlist.date)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.date, 60, indx+=incr, color_black);
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.date, 60, indx+=incr, 0, color_black);
                 }
 #if 0
                 if (strlen(sdlApp->conf->playlist.track)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.track, 60, indx+=incr, color_black);
+                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.track, 60, indx+=incr, 0, color_black);
                 }
 #endif
                 // Load album art
@@ -3373,12 +3232,12 @@ static int doMedia(sdl2_app *sdlApp)
         
             current_position = player_get_cur_pos_sec();
 
-            draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.duration, 60, pgBarR.y+6, color_black);
+            draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.duration, 60, pgBarR.y+6, 0, color_black);
 
             int rems = sdlApp->conf->playlist.s_duration - current_position;
             char buf[20];
             snprintf(buf, sizeof(buf),"-%02d:%02d" , rems / 60, rems % 60);
-            draw_textc(sdlApp->renderer, fontMsg, buf, pgBarR.x+pgBarR.w+10, pgBarR.y+6, color_black);
+            draw_textc(sdlApp->renderer, fontMsg, buf, pgBarR.x+pgBarR.w+10, pgBarR.y+6, 0, color_black);
 
             if (strlen(sdlApp->conf->playlist.duration)) {
                 draw_progress_bar(sdlApp->renderer, pgBarR.x, pgBarR.y, pgBarR.w, pgBarR.h, current_position, sdlApp->conf->playlist.s_duration);
@@ -3387,36 +3246,42 @@ static int doMedia(sdl2_app *sdlApp)
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT) && cnmea.dbt <= warn.depthw && ct % 5 && show_dbtw)
         {
-            draw_textc(sdlApp->renderer, fontWar, msg_dbt, dbtR.x, dbtR.y, color_red);
+            draw_textc(sdlApp->renderer, fontWar, msg_dbt, dbtR.x, dbtR.y, 0, color_red);
         }
 
-        if ( fullScr_t <= 0 && showNavbox) {
+        if ( fullScr_t <= 0 && showNavbox && media_is_video()) {
             int y = navBoxR.y;
+            int oy = y;
+            int oh = navBoxR.h;
             int x = navBoxR.x +8;
 
-            SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
-            SDL_SetRenderDrawColor(sdlApp->renderer, 0 , 0, 0, 80);
-            SDL_RenderFillRect(sdlApp->renderer, &navBoxR);
-
             if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontMsg,msg_hdg,x, (y), color_white);
+                draw_textc(sdlApp->renderer,fontMsg,msg_hdg,x, (y+=2), 0, color_green);
             }
 
             if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontMsg,msg_stw,x, (y+=20), color_white);
+                draw_textc(sdlApp->renderer,fontMsg,msg_stw,x, (y+=20), 0, color_green);
             }
 
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontMsg,msg_sog,x, (y+=20), color_white);
+                draw_textc(sdlApp->renderer,fontMsg,msg_sog,x, (y+=20), 0, color_green);
             }
 
             if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontMsg,msg_mtw,x, (y+=20), color_white);
+                draw_textc(sdlApp->renderer,fontMsg,msg_mtw,x, (y+=20), 0, color_green);
             }
 
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-                SDL_Color c = cnmea.dbt <= warn.depthw? color_red : color_white;
-                draw_textc(sdlApp->renderer,fontMsg,msg_dbt,x, (y+=20), c);
+                SDL_Color c = cnmea.dbt <= warn.depthw? color_red : color_green;
+                draw_textc(sdlApp->renderer,fontMsg,msg_dbt,x, (y+=20), 0, c);
+            }
+
+            if (y > oy) {
+                SDL_SetRenderDrawBlendMode(sdlApp->renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(sdlApp->renderer, 0 , 0, 0, 40);
+                navBoxR.h = (y+2);
+                SDL_RenderFillRect(sdlApp->renderer, &navBoxR);
+                navBoxR.h = oh;
             }
         }
 
@@ -3688,7 +3553,7 @@ static int doMediaByCover(sdl2_app *sdlApp)
 
             SDL_Color c = (SDL_Color){255,255,255,255};
 
-            draw_textc(sdlApp->renderer,fontMsg,msg_src, x_start ,h-40, c);
+            draw_textc(sdlApp->renderer,fontMsg,msg_src, x_start ,h-40, 0, c);
 
             SDL_RenderPresent(sdlApp->renderer);
 
@@ -3774,7 +3639,6 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
-    SDL_Rect textField_rect = {0,0,0,0};
     SDL_Rect outerRingR     = {17,18,442,442};
     SDL_Rect calbarR        = {20,60,25,25};
     SDL_Rect compassR       = {39,38,400,400};
@@ -3783,7 +3647,7 @@ static int doCompass(sdl2_app *sdlApp)
     SDL_Rect windScaleR     = {29,28,420,420};
     SDL_Rect rsaLbarR       = {454,370,146,15};
     SDL_Rect rsaRbarR       = {600,370,146,15};
-    SDL_Rect rsaMbarR       = {590,370,18,18};
+    SDL_Rect rsaMbarR       = {590,370,26,18};
     SDL_Rect rsaIbarR       = {458,370,292,15};
     SDL_Rect recordbarR     = {(win_w/2)-10,16,42,42};
     SDL_Rect i3dbarR        = {recordbarR.x+60,recordbarR.y,recordbarR.w,recordbarR.h};
@@ -3821,8 +3685,8 @@ static int doCompass(sdl2_app *sdlApp)
     float m2f=cnmea.units==METRIC? 1.0f : 3.28084f;
 
     while (1) {
+
         int boxItem = 0;
-        sdlApp->textFieldArrIndx = 0;
         char msg_hdg[40] = { "-" };
         char msg_rll[40] = { "" };
         char msg_sog[40] = { "" };
@@ -3909,6 +3773,7 @@ static int doCompass(sdl2_app *sdlApp)
                     hideBrBar=0;
                     break;
                 }
+
                 if (SDL_PointInRect(&p, &i3dbarR)) {
                     if ((e.type=doCog3d(sdlApp))== SDL_QUIT) {
                         doBreak = 1;
@@ -3919,7 +3784,7 @@ static int doCompass(sdl2_app *sdlApp)
                 }
                 if (SDL_PointInRect(&p, &mediaBarR) && sdlApp->conf->snd_showMixer) {
                         if ((e.type=doMediaByCover(sdlApp))== SDL_QUIT) {
-                       // if ((e.type=doMedia(sdlApp))== SDL_QUIT) {
+                        // if ((e.type=doMedia(sdlApp))== SDL_QUIT) {
                         doBreak = 1;
                         break;
                     }
@@ -4041,44 +3906,37 @@ static int doCompass(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, outerRing, NULL, &outerRingR, 0, NULL, SDL_FLIP_NONE);
         }
 
-        get_text_and_rect(sdlApp->renderer, 225, 180, 0, msg_src, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-    
-        get_text_and_rect(sdlApp->renderer, 200, 200, 5, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontSrc, msg_src, 222, 180, 0, (SDL_Color){0,0,0,255});
+
+        draw_textc(sdlApp->renderer, fontCog, msg_hdg, 248, 200, 2, (SDL_Color){0,0,0,255});
 
         if (!(ct - cnmea.roll_i2cts > S_TIMEOUT) || (!(ct - cnmea.xdr_ts > S_TIMEOUT))) {
-            get_text_and_rect(sdlApp->renderer, 224, 248, 2, msg_rll, fontRoll, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+             draw_textc(sdlApp->renderer, fontRoll, msg_rll, 236, 248, 2, (SDL_Color){0,0,0,255});
         }
 
         if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_cog, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_stw, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_sog, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            SDL_Color c = cnmea.dbt <= warn.depthw? (SDL_Color){255,0,0,255} : (SDL_Color){255,255,255,255};
+            draw_textc(sdlApp->renderer, fontCog, msg_dbt, 500, boxItems[boxItem++], 0, c);
         }
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_mtw, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
+
         }
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontTod, msg_tod, win_w-220, 10, 0, (SDL_Color){255,255,255,255});
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -4136,18 +3994,16 @@ static int doCompass(sdl2_app *sdlApp)
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT)) {
             int x = rsaRbarR.x-15+(int)(cnmea.rsa*4);
 
-            SDL_Rect rsa = {rsaLbarR.x-30,rsaLbarR.y,0,0};
-            get_text_and_rect(sdlApp->renderer, rsaLbarR.x-30, rsaLbarR.y, 0, "RUD", fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsa, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsa);
+            draw_textc(sdlApp->renderer, fontSrc, "RUD", rsaLbarR.x-30, rsaLbarR.y, 0, (SDL_Color){0,0,0,255});
 
             SDL_RenderCopyEx(sdlApp->renderer, rsaBar, NULL, &rsaIbarR, 0, NULL, SDL_FLIP_NONE);
-            get_text_and_rect(sdlApp->renderer, x+2, rsaMbarR.y, 0, msg_rsa, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &rsaMbarR, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &rsaMbarR);
+
+            draw_textc(sdlApp->renderer, fontSrc, msg_rsa, x+19, rsaMbarR.y, 2, (SDL_Color){255,255,255,255});
 
             SDL_SetRenderDrawColor(sdlApp->renderer, 255, 255, 255, 255);
+            rsaMbarR.x = x+6;
             SDL_RenderDrawRect(sdlApp->renderer, &rsaMbarR);
         }
-
 
         if (--hideBrBar > 0) {
 
@@ -4206,11 +4062,6 @@ static int doCompass(sdl2_app *sdlApp)
         dynUpd = dynUpd > 100? 100:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
 
     }
 
@@ -4274,6 +4125,9 @@ static int doSumlog(sdl2_app *sdlApp)
 
     SDL_Texture* subTaskbar = NULL;
 
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
     if (sdlApp->subAppsCmd[sdlApp->curPage][0] != NULL) {
         char icon[PATH_MAX];
         sprintf(icon , "%s/%s.png", IMAGE_PATH, sdlApp->subAppsIco[sdlApp->curPage][0]);
@@ -4286,10 +4140,10 @@ static int doSumlog(sdl2_app *sdlApp)
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
-    SDL_Rect textField_rect = {0,0,0,0};
-	SDL_Rect logResetR      = {186,380,90,20};
-	SDL_Rect logResetRT     = {166,165,130,20};
     SDL_Rect gaugeR         = {19,18,440,440};
+	SDL_Rect logResetR      = {(gaugeR.x+gaugeR.w/2)-60,380,90,20};
+	SDL_Rect logResetRT     = {gaugeR.x+gaugeR.w/2,165,130,20};
+
     SDL_Rect needleR        = {120,122,240,240};
 
     int boxItems[] = {86,136,186,236};
@@ -4301,8 +4155,8 @@ static int doSumlog(sdl2_app *sdlApp)
     float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     while (1) {
+
         int boxItem = 0;
-        sdlApp->textFieldArrIndx = 0;
         char msg_stw[40] = { "" };
         char msg_sog[40] = { "" };
         char msg_cog[40] = { "" };
@@ -4450,53 +4304,44 @@ static int doSumlog(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeSumlog, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        if (wspeed)
+        if (wspeed) {
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle, NULL, SDL_FLIP_NONE);
+        }
 
-        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_stw, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontLarge, msg_stw, gaugeR.x+gaugeR.w/2, 300, 2, (SDL_Color){0,0,0,255});
 
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_hdg, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_cog, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            SDL_Color c = cnmea.dbt <= warn.depthw? (SDL_Color){255,0,0,255} : (SDL_Color){255,255,255,255};
+            draw_textc(sdlApp->renderer, fontCog, msg_dbt, 500, boxItems[boxItem++], 0, c);
         }
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_mtw, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (cnmea.sogAccRdy) {
-            get_text_and_rect(sdlApp->renderer, 276, 356, 4, msg_spd, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+             draw_textc(sdlApp->renderer, fontSmall, msg_spd, 606, 356, 2, (SDL_Color){0,0,0,255});
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
          if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 186, 360, 1, msg_sog, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_sog, gaugeR.x+gaugeR.w/2, 360, 2, (SDL_Color){0,0,0,255});
         }
 
-        get_text_and_rect(sdlApp->renderer, logResetRT.x, logResetRT.y, 1, msg_tlg, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontSmall, msg_log, gaugeR.x+gaugeR.w/2, logResetR.y, 2, (SDL_Color){0,0,0,255});
+        draw_textc(sdlApp->renderer, fontSmall, msg_tlg, logResetRT.x, logResetRT.y, 2, (SDL_Color){0,0,0,255});
 
-        get_text_and_rect(sdlApp->renderer, logResetR.x, logResetR.y, 1, msg_log, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontTod, msg_tod, win_w-220, 10, 0, (SDL_Color){255,255,255,255});
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -4537,11 +4382,6 @@ static int doSumlog(sdl2_app *sdlApp)
         dynUpd = dynUpd > 200? 200:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -4600,6 +4440,9 @@ static int doGps(sdl2_app *sdlApp)
             subTaskbar = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "tool.png");           
     }
 
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
     SDL_Rect compassR       = {14,10,460,460};
     SDL_Rect outerRingR     = {24,16,442,442};
     SDL_Rect menuBarR       = {400,400,393,50};
@@ -4607,7 +4450,6 @@ static int doGps(sdl2_app *sdlApp)
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
-    SDL_Rect textField_rect = {0,0,0,0};
 	SDL_Rect vctGraphR		= {compassR.x+compassR.w/2,compassR.h/2+compassR.y,150,0};
 
     int boxItems[] = {86,136,186,236};
@@ -4615,8 +4457,8 @@ static int doGps(sdl2_app *sdlApp)
     float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     while (1) {
+
         int boxItem = 0;
-        sdlApp->textFieldArrIndx = 0;
         char msg_hdg[40] = { "" };
         char msg_lat[40] = { "" };
         char msg_lon[40] = { "" };
@@ -4728,148 +4570,6 @@ static int doGps(sdl2_app *sdlApp)
 
         SDL_RenderCopyEx(sdlApp->renderer, compassRose, NULL, &compassR, 0, NULL, SDL_FLIP_NONE);
 
-        // Replacement for SDL_RenderDrawLine that supports arbitrary thickness
-        void SDL_RenderDrawLineThick(SDL_Renderer* renderer, float x1, float y1, float x2, float y2, float thickness)
-        {
-            // Calculate the angle and direction of the line
-            float dx = x2 - x1;
-            float dy = y2 - y1;
-            float length = sqrtf(dx * dx + dy * dy);
-
-            if (length == 0.0f) return; // Avoid division by zero
-
-            // Calculate a normal vector (90 degrees to the line) with length thickness / 2
-            float nx = -dy / length * (thickness / 2.0f);
-            float ny = dx / length * (thickness / 2.0f);
-
-            // Create the 4 corners for the rectangle that forms the thick line
-            SDL_Vertex vertices[4];
-
-            // Get the current color the renderer is set to
-            Uint8 r, g, b, a;
-            SDL_GetRenderDrawColor(renderer, &r, &g, &b, &a);
-            SDL_Color color = { r, g, b, a };
-
-            // Corners 1 & 2 (The starting point)
-            vertices[0].position.x = x1 + nx; vertices[0].position.y = y1 + ny; vertices[0].color = color;
-            vertices[1].position.x = x1 - nx; vertices[1].position.y = y1 - ny; vertices[1].color = color;
-
-            // Corners 3 & 4 (The End Point)
-            vertices[2].position.x = x2 + nx; vertices[2].position.y = y2 + ny; vertices[2].color = color;
-            vertices[3].position.x = x2 - nx; vertices[3].position.y = y2 - ny; vertices[3].color = color;
-
-            // Indices to connect the vertices into 2 triangles (0-1-2 and 1-2-3)
-            int indices[6] = { 0, 1, 2, 1, 2, 3 };
-
-            // Draw the thick line on the screen (hardware-accelerated)
-            SDL_RenderGeometry(renderer, NULL, vertices, 4, indices, 6);
-        }
-
-        // Helper function for drawing a simple arrow (vector) in SDL2
-        void draw_vector_arrow(SDL_Renderer* renderer, int start_x, int start_y, int end_x, int end_y, int arrow_size) {
-            // Draw the main line of the vector yourself.
-            SDL_RenderDrawLineThick(renderer, start_x, start_y, end_x, end_y, 3);
-
-            // Calculate the angle of the line to be able to draw the arrowhead pointing backwards.
-            float angle = atan2f(end_y - start_y, end_x - start_x);
-
-            // The two rear corners of the arrowhead
-            int arrow_x1 = end_x - arrow_size * cosf(angle - (float)M_PI / 6);
-            int arrow_y1 = end_y - arrow_size * sinf(angle - (float)M_PI / 6);
-            int arrow_x2 = end_x - arrow_size * cosf(angle + (float)M_PI / 6);
-            int arrow_y2 = end_y - arrow_size * sinf(angle + (float)M_PI / 6);
-
-            SDL_RenderDrawLineThick(renderer, end_x, end_y, arrow_x1, arrow_y1, 3);
-            SDL_RenderDrawLineThick(renderer, end_x, end_y, arrow_x2, arrow_y2, 3);
-        }
-
-        /**
-         * Renders the Vector Triangle (Current Navigation) inside the compass rose.
-         *
-         * This function dynamically draws a Vector Triangle (Current Triangle) to visually
-         * represent the environmental forces acting on the vessel:
-         *
-         * - Heading Vector (Blue): Represents Heading (HDG) and Speed Through Water (STW).
-         *   Shows where the bow is pointing and the boat's speed relative to the water.
-         *
-         * - Current Vector (Red): Represents the Set (SET) and Drift (DFT).
-         *   Displays the direction the current is flowing toward and its speed.
-         *
-         * - Course Vector (Green): The resultant vector representing Course Over Ground (COG)
-         *   and Speed Over Ground (SOG). This is the actual track and speed relative to the earth.
-         *
-         * - Drift Angle (CRX): Displays the angular difference between where the boat is
-         *   heading and where it is actually moving (Heading vs COG) to Port (PRT) or Starboard (STB).
-         */
-
-        // Drawing the power triangle in a nautical style.
-        void draw_vector_triangle(SDL_Renderer* renderer, int center_x, int center_y, int radius,
-                                float hdg, float stw, float cog, float sog, float set, float dft)
-		{
-	        // Scaling factor: Determines how many pixels correspond to 1 knot.
-	        // We base this on the assumption that the maximum speed (e.g., SOG or STW) should fill approximately 80% of the radius.
-	        float max_speed = (stw > sog) ? stw : sog;
-	        if (max_speed < 1.0f) max_speed = 1.0f; // Avoid division by zero
-	        float scale = (radius * 0.85f) / max_speed;
-
-	        //--- PROJECT THE VECTORS ONTO SCREEN COORDINATES ---
-	        // Remember: 0° North is straight up (-Y in SDL), East is right (+X).
-
-	        // Water vector (HDG & STW) – Starts at the center
-	        float hdg_rad = hdg * ((float)M_PI / 180.0f);
-	        int water_end_x = center_x + (int)(stw * scale * sinf(hdg_rad));
-	        int water_end_y = center_y - (int)(stw * scale * cosf(hdg_rad)); // Minus pga SDL Y-axel
-
-	        // Ground Vector (COG & SOG) – Also starts at the center.
-	        float cog_rad = cog * ((float)M_PI / 180.0f);
-	        int ground_end_x = center_x + (int)(sog * scale * sinf(cog_rad));
-	        int ground_end_y = center_y - (int)(sog * scale * cosf(cog_rad));
-
-	        // --- 2. DRAW THE VECTORS (CURRENT TRIANGLE) ---
-			SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-
-	        // Blue Vector: WATER (Heading & Speed ​​through the water)
-	        SDL_SetRenderDrawColor(renderer, 52, 152, 219, 180); // Blue
-	        draw_vector_arrow(renderer, center_x, center_y, water_end_x, water_end_y, 20);
-
-	        // Green Vector: GROUND (COG & SOG over ground)
-	        SDL_SetRenderDrawColor(renderer, 46, 204, 113, 180); // Green
-	        draw_vector_arrow(renderer, center_x, center_y, ground_end_x, ground_end_y, 20);
-
-	        // Red vector: SET & DRIFT (Leeway/Current)
-	        // This vector connects the end of the water vector to the end of the ground vector.
-	        SDL_SetRenderDrawColor(renderer, 231, 76, 60, 180); // Red
-	        draw_vector_arrow(renderer, water_end_x, water_end_y, ground_end_x, ground_end_y, 12);
-
-	        // Draw a small dot in the center of the instrument
-	        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-	        SDL_Rect center_dot = { center_x - 2, center_y - 2, 4, 4 };
-	        SDL_RenderFillRect(renderer, &center_dot);
-        }
-
-        typedef struct {
-            float x;
-            float y;
-        } Vector2D;
-
-        float to_radians(float degrees) { return degrees * ((float)M_PI / 180.0f); }
-        float to_degrees(float radians) { return radians * (180.0f / (float)M_PI); }
-
-        // Function to normalize angles to 0–360 degrees
-        float normalize_degrees(float deg) {
-            deg = fmodf(deg, 360.0f);
-            if (deg < 0.0f) deg += 360.0f;
-            return deg;
-        }
-
-        Vector2D nav_to_vector(float course_deg, float speed) {
-            Vector2D vec;
-            float rad = to_radians(course_deg);
-            vec.x = speed * sinf(rad);
-            vec.y = speed * cosf(rad);
-            return vec;
-        }
-
         // Vector calculation
         Vector2D v_water  = nav_to_vector(cnmea.hdg, cnmea.stw);
         Vector2D v_ground = nav_to_vector(cnmea.cog, cnmea.sog);
@@ -4899,64 +4599,48 @@ static int doGps(sdl2_app *sdlApp)
             sprintf(msg_crx, "CRX: %.0f%s %s", fabsf(leeway), "\u00B0",(leeway > 0) ? "STB" : "PRT");
         }
 
-        get_text_and_rect(sdlApp->renderer, 294, 134, -1, msg_cog, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, GREEN);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-        get_text_and_rect(sdlApp->renderer, 294, 158, -1, msg_hdg, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLUE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-
-        get_text_and_rect(sdlApp->renderer, 160, 182, 0, msg_lat, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-        get_text_and_rect(sdlApp->renderer, 160, 208, 0, msg_lon, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontPos, msg_cog, compassR.x+compassR.w/2, 134, 2, (SDL_Color){0,255,0,255});
+        draw_textc(sdlApp->renderer, fontPos, msg_hdg, compassR.x+compassR.w/2, 158, 2, (SDL_Color){0,0,255,255});
+        draw_textc(sdlApp->renderer, fontPos, msg_lat, compassR.x+compassR.w/2, 182, 2, (SDL_Color){0,0,0,255});
+        draw_textc(sdlApp->renderer, fontPos, msg_lon, compassR.x+compassR.w/2, 208, 2, (SDL_Color){0,0,0,255});
 
         if (ct - cnmea.hdg_ts < S_TIMEOUT && ct - cnmea.stw_ts < S_TIMEOUT && ct - cnmea.cog_ts < S_TIMEOUT && ct - cnmea.rmc_ts < S_TIMEOUT)
         {
             sprintf(msg_dft, "DFT: %.1f", dft);
-            get_text_and_rect(sdlApp->renderer, 290, 250, -1, msg_dft, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontPos, msg_dft, compassR.x+compassR.w/2, 250, 2, (SDL_Color){0,0,0,255});
 
             sprintf(msg_set, "SET: %.0f%s",  set, "\u00B0");
-            get_text_and_rect(sdlApp->renderer, 193, 274, 1, msg_set, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, RED);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontPos, msg_set, compassR.x+compassR.w/2, 274, 2, (SDL_Color){255,0,0,255});
 
-            get_text_and_rect(sdlApp->renderer, 170, 298, 1, msg_crx, fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontPos, msg_crx, compassR.x+compassR.w/2, 298, 2, (SDL_Color){0,0,0,255});
 
             draw_vector_triangle(sdlApp->renderer, vctGraphR.x, vctGraphR.y, vctGraphR.w, cnmea.hdg, cnmea.stw, cnmea.cog, cnmea.sog, set, dft);
 
         } else if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-			get_text_and_rect(sdlApp->renderer, 330, 250, -1, "Uncomplete data", fontPos, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, RED);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+             draw_textc(sdlApp->renderer, fontPos, "Uncomplete data", compassR.x+compassR.w/2, 250, 2, (SDL_Color){255,0,0,255});
 		}
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_stw, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_sog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_sog, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
-        if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
+            SDL_Color c = cnmea.dbt <= warn.depthw? (SDL_Color){255,0,0,255} : (SDL_Color){255,255,255,255};
+            draw_textc(sdlApp->renderer, fontCog, msg_dbt, 500, boxItems[boxItem++], 0, c);
         }
 
         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_mtw, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, GREEN);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontTod, msg_tod, win_w-220, 10, 0, (SDL_Color){255,255,255,255});
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -4991,11 +4675,6 @@ static int doGps(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
 
         SDL_Delay(400);
     }
@@ -5084,8 +4763,6 @@ static int doDepth(sdl2_app *sdlApp)
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
-    SDL_Rect textField_rect = {0,0,0,0};
-
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
 
@@ -5093,13 +4770,16 @@ static int doDepth(sdl2_app *sdlApp)
 
     float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
     float t_angle = 0;
     float angle = 0;
     float dynUpd;
 
     while (1) {
+
         int boxItem = 0;
-        sdlApp->textFieldArrIndx = 0;
         float depth;
         float scale;
         char msg_dbt[40] = { "" };
@@ -5253,43 +4933,37 @@ static int doDepth(sdl2_app *sdlApp)
         }
 
         char *unit=cnmea.units==METRIC? "MTR" : "FT";
-        get_text_and_rect(sdlApp->renderer, 90, 322, 4, unit, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontSmall, unit, 106, 322, 0, (SDL_Color){0,0,0,255});
 
         if (!sdlApp->plotMode) {
-            get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
+            draw_textc(sdlApp->renderer, fontLarge, msg_dbt, 238, 300, 2, (SDL_Color){0,0,0,255});
         } else {
-            get_text_and_rect(sdlApp->renderer, 182, 390, 4, msg_dbt, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED: GREEN);
+            SDL_Color c = cnmea.dbt <= warn.depthw? (SDL_Color){255,0,0,255} : (SDL_Color){0,255,0,255};
+            draw_textc(sdlApp->renderer, fontLarge, msg_dbt, 180, 400, 0, c);
         }
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
 
-        if (!sdlApp->plotMode) {
-            get_text_and_rect(sdlApp->renderer, 170, 370, 1, msg_vwt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        if (!sdlApp->plotMode)
+        {
+            draw_textc(sdlApp->renderer, fontSmall, msg_vwt, (gaugeR.x+gaugeR.w/2), 370, 2, (SDL_Color){0,0,0,255});
 
             if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+                draw_textc(sdlApp->renderer, fontCog, msg_hdg, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
             }
 
             if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+                draw_textc(sdlApp->renderer, fontCog, msg_cog, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
             }
 
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+                draw_textc(sdlApp->renderer, fontCog, msg_rmc, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
             }
 
             if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+                draw_textc(sdlApp->renderer, fontCog, msg_stw, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
             }
 
             if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-                get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_mtw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-                SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+                draw_textc(sdlApp->renderer, fontCog, msg_mtw, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
             }
         }
 
@@ -5326,8 +5000,7 @@ static int doDepth(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontTod, msg_tod, win_w-220, 10, 0, (SDL_Color){255,255,255,255});
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -5340,8 +5013,7 @@ static int doDepth(sdl2_app *sdlApp)
         }
 
         if (!sdlApp->plotMode) {
-            get_text_and_rect(sdlApp->renderer, 264, 152, 1, msg_dtw, fontMedium, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontMedium, msg_dtw, 316, 160, 1, (SDL_Color){0,0,0,255});
         }
 
         if (sdlApp->conf->runAudio) {
@@ -5550,12 +5222,6 @@ static int doDepth(sdl2_app *sdlApp)
             SDL_Delay(70);
 
         }
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
-
     }
 
     if (subTaskbar != NULL) {
@@ -5637,7 +5303,6 @@ static int doWind(sdl2_app *sdlApp)
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
-    SDL_Rect textField_rect = {0,0,0,0};
 
     SDL_Rect gaugeR         = {19,18,440,440};
     SDL_Rect needleR        = {120,122,240,240};
@@ -5645,6 +5310,9 @@ static int doWind(sdl2_app *sdlApp)
     if (sdlApp->conf->style == 0) {
         needleR.y -= 3;
     }
+
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
 
     int boxItems[] = {86,136,186,236,286};
 
@@ -5661,8 +5329,8 @@ static int doWind(sdl2_app *sdlApp)
     float m2f=cnmea.units==METRIC? 1 : 3.28084f;
 
     while (1) {
+
         int boxItem = 0;
-        sdlApp->textFieldArrIndx = 0;
         char msg_vwrs[40] = { "" };
         char msg_vwts[40] = { "" };
         char msg_vwra[40] = { "" };
@@ -5817,63 +5485,50 @@ static int doWind(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleApp, NULL, &needleR, t_angle_a, NULL, SDL_FLIP_NONE);
 
         char *unit=cnmea.units==METRIC? "m/s" : "kts";
-        get_text_and_rect(sdlApp->renderer, 130, 260, 4, unit, fontSrc, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-        get_text_and_rect(sdlApp->renderer, 268, 130, -1, msg_vwra, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-        get_text_and_rect(sdlApp->renderer, 182, 300, 4, msg_vwrs, fontLarge, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontSrc, unit, 130, 260, 0, (SDL_Color){0,0,0,255});
+        draw_textc(sdlApp->renderer, fontSmall, msg_vwra, (gaugeR.x+gaugeR.w/2)-2, 130, 2, (SDL_Color){0,0,0,255});
+        draw_textc(sdlApp->renderer, fontLarge, msg_vwrs, (gaugeR.x+gaugeR.w/2), 300, 2, (SDL_Color){0,0,0,255});
 
         if (!(ct - cnmea.stw_ts > S_TIMEOUT) && cnmea.stw > 0.9f) {
-            get_text_and_rect(sdlApp->renderer, 144, 356, 4, msg_vwts, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_vwts, (gaugeR.x+gaugeR.w/2), 356, 2, (SDL_Color){0,0,0,255});
         }
 
         if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_hdg, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_hdg, 500,  boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.cog_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cog, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_cog, 500,  boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
-        
+
         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_stw, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_stw, 500,  boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_rmc, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_rmc, 500,  boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         if (!(ct - cnmea.dbt_ts > S_TIMEOUT || cnmea.dbt == 0)) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_dbt, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.dbt <= warn.depthw? RED : WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            SDL_Color c = cnmea.dbt <= warn.depthw? (SDL_Color){255,0,0,255} : (SDL_Color){255,255,255,255};
+            draw_textc(sdlApp->renderer, fontCog, msg_dbt, 500,  boxItems[boxItem++], 0, c);
         }
 
         if (!(ct - cnmea.rsa_ts > S_TIMEOUT)) {
             float invRsa = cnmea.rsa * -1.0f;
             int y=sdlApp->conf->style == 0? 227 : 230;
             SDL_RenderCopyEx(sdlApp->renderer, gaugeNeedleRudder, NULL, &needleR, invRsa, NULL, SDL_FLIP_NONE);
-            get_text_and_rect(sdlApp->renderer, 215, y, 4, msg_rsa, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_rsa,(gaugeR.x+gaugeR.w/2), y, 2, (SDL_Color){255,255,255,255});
         }
 
         if (cnmea.wsAccRdy) {
-            get_text_and_rect(sdlApp->renderer, 310, 356, 4, msg_wav, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_wav, 600, 356, 2, (SDL_Color){0,0,0,255});
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontTod, msg_tod, win_w-220, 10, 0, (SDL_Color){255,255,255,255});
 
         if (subTaskbar != NULL) {
             SDL_RenderCopyEx(sdlApp->renderer, subTaskbar, NULL, &subTaskbarR, 0, NULL, SDL_FLIP_NONE);
@@ -5914,11 +5569,6 @@ static int doWind(sdl2_app *sdlApp)
         dynUpd = dynUpd > 200? 200:dynUpd;
 
         SDL_Delay(30+(int)dynUpd);
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -5997,8 +5647,6 @@ static int doEnvironment(sdl2_app *sdlApp)
     SDL_Rect subTaskbarR    = {30,400,50,50};
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
-    SDL_Rect textField_rect = {0,0,0,0};
-
     SDL_Rect gaugeVoltR     = {80,33,200,200};
     SDL_Rect gaugeCurrR     = {300,33,200,200};
     SDL_Rect gaugeTempR     = {520,33,200,200};
@@ -6043,13 +5691,16 @@ static int doEnvironment(sdl2_app *sdlApp)
     int dragging = 0;
     int w = 0, h = 0;
 
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
     if (sdlApp->conf->snd_useMixer) {
         volume_percent = get_current_volume(sdlApp);
         SDL_GetWindowSize(sdlApp->window, &w, &h);
     }
 
     while (1) {
-        sdlApp->textFieldArrIndx = 0;
+
         char msg_tod[40];
         char msg_stm[40];
         char msg_kWhp[80];
@@ -6176,11 +5827,8 @@ static int doEnvironment(sdl2_app *sdlApp)
             v_angle = ((volt_value-v_scaleoffset) * (v_maxangle/v_max) *2)+v_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleVolt, NULL, &voltNeedleR, v_angle, NULL, SDL_FLIP_NONE);
 
-            get_text_and_rect(sdlApp->renderer, 164, 170, 0, msg_volt, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 156, 187, 0, msg_volt_bank, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_volt, 164, 170, 0, (SDL_Color){0,0,0,255});
+            draw_textc(sdlApp->renderer, fontSmall, msg_volt_bank, 180, 187, 2, (SDL_Color){0,0,0,255});
         }
 
         if (!(ct -  cnmea.curr_ts > S_TIMEOUT)) {
@@ -6189,22 +5837,16 @@ static int doEnvironment(sdl2_app *sdlApp)
                 SDL_RenderCopyEx(sdlApp->renderer, needleCurr, NULL, &currNeedleR, c_angle, NULL, SDL_FLIP_NONE);
             }
 
-            get_text_and_rect(sdlApp->renderer, 386, 170, 0, msg_curr, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 380, 187, 0, msg_curr_bank, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_curr, 386, 170, 0, (SDL_Color){0,0,0,255});
+            draw_textc(sdlApp->renderer, fontSmall, msg_curr_bank, 398, 187, 2, (SDL_Color){0,0,0,255});
         }
 
         if (!(ct -  cnmea.temp_ts > S_TIMEOUT)) {
             t_angle = ((temp_value-t_scaleoffset) * (t_maxangle/t_max)*1.2f)+t_offset;
             SDL_RenderCopyEx(sdlApp->renderer, needleTemp, NULL, &tempNeedleR, t_angle, NULL, SDL_FLIP_NONE);
 
-            get_text_and_rect(sdlApp->renderer, 605, 170, 0, msg_temp, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 598, 187, 0, msg_temp_loca, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_temp, 605, 170, 0, (SDL_Color){0,0,0,255});
+            draw_textc(sdlApp->renderer, fontSmall, msg_temp_loca, 620, 187, 2, (SDL_Color){0,0,0,255});
         }
 
         if (sdlApp->conf->netStat == 1) {
@@ -6224,15 +5866,12 @@ static int doEnvironment(sdl2_app *sdlApp)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontTod);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontTod, msg_tod, win_w-220, 10, 0, (SDL_Color){255,255,255,255});
 
         if (cnmea.startTime > 1)
         {
-            get_text_and_rect(sdlApp->renderer, 104, 416, 0, msg_kWhn, fontSmall,&sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-            get_text_and_rect(sdlApp->renderer, 104, 432, 0, msg_kWhp, fontSmall, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontSmall, msg_kWhn, 104, 416, 0, (SDL_Color){0,0,0,255});
+            draw_textc(sdlApp->renderer, fontSmall, msg_kWhp, 104, 432, 0, (SDL_Color){0,0,0,255});
         }
 
         if (subTaskbar != NULL) {
@@ -6341,15 +5980,15 @@ static int doEnvironment(sdl2_app *sdlApp)
                 c = (SDL_Color){255,100,100,255};
 
             sprintf(buf,"%.1f W",power);
-            draw_textc(sdlApp->renderer,fontLarge,buf, plot.x-75 ,plot.y-30, c);
+            draw_textc(sdlApp->renderer,fontLarge,buf, plot.x-75 ,plot.y-30, 0, c);
 
             sprintf(buf,"%.0f W",yMax);
-            draw_text(sdlApp->renderer,fontSmall,buf,25,plot.y-6);
+            draw_textc(sdlApp->renderer,fontSmall,buf,88,plot.y-6, 1, (SDL_Color){0,0,0,255});
 
             sprintf(buf,"%.0f W",yMax/2);
-            draw_text(sdlApp->renderer,fontSmall,buf,30,plot.y+plot.h/2-6);
+            draw_textc(sdlApp->renderer,fontSmall,buf,88,plot.y+plot.h/2-6, 1, (SDL_Color){0,0,0,255});
 
-            draw_text(sdlApp->renderer,fontSmall,"0 W",45,plot.y+plot.h-10);
+            draw_textc(sdlApp->renderer,fontSmall,"0 W",88,plot.y+plot.h-10, 1, (SDL_Color){0,0,0,255});
 
             for(int v=8;v<=16;v++)
             {
@@ -6451,11 +6090,6 @@ static int doEnvironment(sdl2_app *sdlApp)
         if (!dragging) {
             SDL_Delay(90);
         }
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (subTaskbar != NULL) {
@@ -6898,26 +6532,26 @@ static int doCamera(sdl2_app *sdlApp)
                         int y = 40;
                         SDL_Color c = {100,255,100,255};
                         if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_hdg,win_w-120, (y+=20), c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_hdg,win_w-120, (y+=20), 0, c);
                         }
 
                         if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_stw,win_w-120, (y+=20), c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_stw,win_w-120, (y+=20), 0, c);
                         }
 
                         if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_sog,win_w-120, (y+=20), c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_sog,win_w-120, (y+=20), 0, c);
                         }
 
                         if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-                            draw_textc(sdlApp->renderer,fontCog,msg_mtw,win_w-120, (y+=20), c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_mtw,win_w-120, (y+=20), 0, c);
                         }
 
                         if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
                             if (cnmea.dbt <= warn.depthw) {
                                 c.r = 255; c.g = 100;
                             }
-                            draw_textc(sdlApp->renderer,fontCog,msg_dbt,win_w-120, (y+=20), c);
+                            draw_textc(sdlApp->renderer,fontCog,msg_dbt,win_w-120, (y+=20), 0, c);
                         }
                     }
 
@@ -7463,26 +7097,26 @@ static int doVideoCapture(sdl2_app *sdlApp)
             SDL_Color c = {100,255,100,255};
             int y = 40;
             if (!(ct - cnmea.hdg_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_hdg,w-120, (y+=20), c);
+                draw_textc(sdlApp->renderer,fontCog,msg_hdg,w-120, (y+=20), 0, c);
             }
 
             if (!(ct - cnmea.stw_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_stw,w-120, (y+=20), c);
+                draw_textc(sdlApp->renderer,fontCog,msg_stw,w-120, (y+=20), 0, c);
             }
 
             if (!(ct - cnmea.rmc_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_sog,w-120, (y+=20), c);
+                draw_textc(sdlApp->renderer,fontCog,msg_sog,w-120, (y+=20), 0, c);
             }
 
             if (!(ct - cnmea.vwr_ts > S_TIMEOUT)) {
-                draw_textc(sdlApp->renderer,fontCog,msg_mtw,w-120, (y+=20), c);
+                draw_textc(sdlApp->renderer,fontCog,msg_mtw,w-120, (y+=20), 0, c);
             }
 
             if (!(ct - cnmea.dbt_ts > S_TIMEOUT)) {
                 if (cnmea.dbt <= warn.depthw) {
                     c.r = 255; c.g = 100;
                 }
-                draw_textc(sdlApp->renderer,fontCog,msg_dbt,w-120, (y+=20), c);
+                draw_textc(sdlApp->renderer,fontCog,msg_dbt,w-120, (y+=20), 0, c);
             }
         }
 
@@ -7701,8 +7335,6 @@ static int doWater(sdl2_app *sdlApp)
     SDL_Rect netStatbarR    = {20,20,25,25};
     SDL_Rect mutebarR       = {70,20,25,25};
     SDL_Rect textBoxR       = {470,70,290,42};
-    SDL_Rect textField_rect = {0,0,0,0};
-
     SDL_Rect gaugeR         = {19,18,440,440};
 
 
@@ -7735,8 +7367,11 @@ static int doWater(sdl2_app *sdlApp)
 
     } else rval = 1;
 
+    int win_w, win_h;
+    SDL_GetWindowSize(sdlApp->window, &win_w, &win_h);
+
     while (1) {
-        sdlApp->textFieldArrIndx = 0;
+
         int boxItem = 0;
         char msg_tnk[40];
         char msg_lft[40];
@@ -7807,39 +7442,25 @@ static int doWater(sdl2_app *sdlApp)
        
         SDL_RenderCopyEx(sdlApp->renderer, gaugeWtr, NULL, &gaugeR, 0, NULL, SDL_FLIP_NONE);
 
-        get_text_and_rect(sdlApp->renderer, 196, 142, 3, msg_tnk, fontHD, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
- 
-        get_text_and_rect(sdlApp->renderer, 136, 216, 9, msg_lft, fontLA, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
- 
-        get_text_and_rect(sdlApp->renderer, 148, 292, 9, msg_flr, fontLO, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, cnmea.fdate < ct+604800 ? RED : BLACK); // A week+
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+
+        draw_textc(sdlApp->renderer, fontHD, msg_tnk, 230, 142, 2, (SDL_Color){0,0,0,255});
+        draw_textc(sdlApp->renderer, fontLA, msg_lft, 230, 216, 2, (SDL_Color){0,0,0,255});
+        SDL_Color c = cnmea.fdate < ct+604800 ? (SDL_Color){255,0,0,255} : (SDL_Color){0,0,0,255};
+        draw_textc(sdlApp->renderer, fontLO, msg_flr, 230, 292, 2, c);
 
         if (rval == 0) {
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_cns, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_use, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_gtv, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tmp, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 500, boxItems[boxItem++], 0, msg_tds, fontCog, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCog, msg_cns, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
+            draw_textc(sdlApp->renderer, fontCog, msg_use, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
+            draw_textc(sdlApp->renderer, fontCog, msg_gtv, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
+            draw_textc(sdlApp->renderer, fontCog, msg_tmp, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
+            draw_textc(sdlApp->renderer, fontCog, msg_tds, 500, boxItems[boxItem++], 0, (SDL_Color){255,255,255,255});
         }
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
 
         addMenuItems(sdlApp, fontSrc);
 
-        get_text_and_rect(sdlApp->renderer, 580, 10, 0, msg_tod, fontTod, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, WHITE);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
+        draw_textc(sdlApp->renderer, fontTod, msg_tod, win_w-220, 10, 0, (SDL_Color){255,255,255,255});
 
         if (sdlApp->conf->netStat == 1) {
            SDL_RenderCopyEx(sdlApp->renderer, netStatBar, NULL, &netStatbarR, 0, NULL, SDL_FLIP_NONE);
@@ -7871,11 +7492,6 @@ static int doWater(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer); 
         SDL_Delay(1000);
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     SDL_DestroyTexture(gaugeWtr);
@@ -7970,7 +7586,6 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
     doRun.run = 1;
     doRun.i2cFile = configParams->i2cFile;
 
-    SDL_Rect textField_rect = {0,0,0,0};
     SDL_Rect menuBarR       = {400,400,393,50};
 
     int progress = 10;
@@ -8043,7 +7658,6 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
     while (1) {
 
-        sdlApp->textFieldArrIndx = 0;
         int doBreak = 0;
         
         while (SDL_PollEvent(&e)) {
@@ -8077,8 +7691,7 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
             if (progress < 0) break;
         }  
 
-        get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-        SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+        draw_textc(sdlApp->renderer, fontCAL, msg_cal, 10, 250, 1, (SDL_Color){0,0,0,255});
 
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
@@ -8086,11 +7699,6 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         SDL_RenderPresent(sdlApp->renderer); 
         
         SDL_Delay(100);
-
-        sdlApp->textFieldArrIndx--;
-        do {
-            SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-        } while (sdlApp->textFieldArrIndx-- >0);
     }
 
     if (progress < 0) {
@@ -8099,7 +7707,6 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
         while (1) {
 
-            sdlApp->textFieldArrIndx = 0;
             e.type = COGPAGE;
 
             if (threadCalib == NULL) {
@@ -8125,21 +7732,12 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
 
             SDL_RenderClear(sdlApp->renderer);
 
-            get_text_and_rect(sdlApp->renderer, 10, 250, 1, msg_cal, fontCAL, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
-
-            get_text_and_rect(sdlApp->renderer, 10, 320, 1, doRun.progress, fontPRG, &sdlApp->textFieldArr[sdlApp->textFieldArrIndx], &textField_rect, BLACK);
-            SDL_RenderCopy(sdlApp->renderer, sdlApp->textFieldArr[sdlApp->textFieldArrIndx++], NULL, &textField_rect);
+            draw_textc(sdlApp->renderer, fontCAL, msg_cal, 10, 250, 1, (SDL_Color){0,0,0,255});
+            draw_textc(sdlApp->renderer, fontPRG, doRun.progress, 10, 320, 1, (SDL_Color){0,0,0,255});
 
             SDL_RenderPresent(sdlApp->renderer); 
             
             SDL_Delay(100); 
-
-            sdlApp->textFieldArrIndx--;
-            do {
-                SDL_DestroyTexture(sdlApp->textFieldArr[sdlApp->textFieldArrIndx]);
-            } while (sdlApp->textFieldArrIndx-- >0);
-
         } 
     }
 

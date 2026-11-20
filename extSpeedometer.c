@@ -2,50 +2,67 @@
  * extSpeedometer.c
  *
  *  Copyright (C) 2018-2026 by Erland Hedman <erland@hedmanshome.se>
+ *
+ * Common helper functions for sdlSpeedometer.c
  */
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
+#include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <libswscale/swscale.h>
 #include "fplaydSpeedometer.h"
 #include "sdlSpeedometer.h"
 
-void draw_textc(SDL_Renderer *r,TTF_Font *font,const char *txt,int x,int y, SDL_Color c)
+void draw_textc(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y, int l, SDL_Color c)
 {
     if (txt == NULL || !strlen(txt))
         return;
 
-    SDL_Surface *s=TTF_RenderUTF8_Blended(font,txt,c);
-    SDL_Texture *t=SDL_CreateTextureFromSurface(r,s);
+    SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
+    if (!s)
+        return;
 
-    SDL_Rect d={x,y,s->w,s->h};
+    SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
+    if (!t) {
+        SDL_FreeSurface(s);
+        return;
+    }
 
-    SDL_RenderCopy(r,t,NULL,&d);
+    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+
+    int dx = x;
+
+    switch (l) {
+        case 1: // Right aligned
+            dx -= s->w;
+            break;
+
+        case 2: // Center aligned
+            dx -= s->w / 2;
+            break;
+
+        case 0: // Left aligned
+        default:
+            break;
+    }
+
+    SDL_Rect d = { dx, y, s->w, s->h };
+
+    SDL_RenderCopy(r, t, NULL, &d);
 
     SDL_FreeSurface(s);
     SDL_DestroyTexture(t);
 }
+
 
 void draw_text(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y)
 {
-
-    if (txt == NULL || !strlen(txt))
-        return;
-
-    SDL_Color c = {220,220,220,255};
-
-    SDL_Surface *s = TTF_RenderUTF8_Blended(font, txt, c);
-    SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
-
-    SDL_Rect d = {x,y,s->w,s->h};
-
-    SDL_RenderCopy(r,t,NULL,&d);
-
-    SDL_FreeSurface(s);
-    SDL_DestroyTexture(t);
+    draw_textc(r, font, txt, x, y, 0, (SDL_Color){0,0,0,255});
 }
 
 
+// Prepare for a new playlist - doMedia()
 void doVaClean(sdl2_app *sdlApp)
 {
     if (!sdlApp->conf->playlist.count) return;
@@ -56,21 +73,7 @@ void doVaClean(sdl2_app *sdlApp)
     sdlApp->conf->playlist.count = 0;
 }
 
-void draw_text_r(SDL_Renderer* renderer, const char* text, int x, int y, int scale, const unsigned char font8x8[][8]) {
-    SDL_Renderer *r = renderer;
-    for (int i = 0; text[i] != '\0'; i++) {
-        char c = text[i];
-        if (c >= 'a' && c <= 'z') c -= 32;
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                if ((font8x8[(int)c][row] >> (7 - col)) & 1) {
-                    SDL_Rect pixel = { x + (i * 8 * scale) + (col * scale), y + (row * scale), scale, scale };
-                    SDL_RenderFillRect(r, &pixel);
-                }
-            }
-        }
-    }
-}
+// Plotting aid in doEnvironment()
 float auto_scale(float maxDepth)
 {
     int scale = 10;
@@ -81,6 +84,7 @@ float auto_scale(float maxDepth)
     return scale;
 }
 
+
 float auto_scale_p(float maxVal)
 {
     if(maxVal <= 50) return 50;
@@ -88,6 +92,7 @@ float auto_scale_p(float maxVal)
     return 1000;
 }
 
+// Text rendering for doVideo()
 SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg,
                         SDL_Color color, SDL_Rect *rect)
 {
@@ -101,6 +106,7 @@ SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg,
     return tex;
 }
 
+// Radio buttons for doVideo()
 void drawRadio(SDL_Renderer *r, RadioButton *b, int selected)
 {
     SDL_RenderDrawRect(r, &b->circle);
@@ -117,6 +123,239 @@ void drawRadio(SDL_Renderer *r, RadioButton *b, int selected)
     }
 
     SDL_RenderCopy(r, b->text, NULL, &b->text_rect);
+}
+
+//  Globael Volume controls
+void set_alsa_volume(sdl2_app *sdlApp, float percent)
+{
+    long volume = sdlApp->conf->snd_minv + (long)((sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv) * percent);
+
+    snd_mixer_selem_set_playback_volume_all(sdlApp->conf->elem, volume);
+}
+
+float get_current_volume(sdl2_app *sdlApp)
+{
+    long volume;
+    snd_mixer_selem_get_playback_volume(sdlApp->conf->elem, SND_MIXER_SCHN_FRONT_LEFT, &volume);
+
+    return (double)(volume - sdlApp->conf->snd_minv) / (sdlApp->conf->snd_maxv - sdlApp->conf->snd_minv);
+}
+
+
+// draw text from font matrix - doRecord()
+void draw_text_r(SDL_Renderer* renderer, const char* text, int x, int y, int scale, const unsigned char font8x8[][8]) {
+    SDL_Renderer *r = renderer;
+    for (int i = 0; text[i] != '\0'; i++) {
+        char c = text[i];
+        if (c >= 'a' && c <= 'z') c -= 32;
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                if ((font8x8[(int)c][row] >> (7 - col)) & 1) {
+                    SDL_Rect pixel = { x + (i * 8 * scale) + (col * scale), y + (row * scale), scale, scale };
+                    SDL_RenderFillRect(r, &pixel);
+                }
+            }
+        }
+    }
+}
+
+// File handling for doRecord()
+void load_files(rFileOpts *df_opts) {
+    DIR *d = opendir(df_opts->uploadPath);
+    struct dirent *dir;
+    df_opts->file_count = 0;
+
+    if (d) {
+        while ((dir = readdir(d)) != NULL && df_opts->file_count < RMAX_FILES) {
+            if (dir->d_name[0] != '.') {
+                strncpy(df_opts->file_list[df_opts->file_count], dir->d_name, RMAX_FILENAME);
+                df_opts->file_count++;
+            }
+        }
+        closedir(d);
+    }
+}
+
+// Initilize r/w file operations - doRecord()
+void do_file(char *how, rFileOpts *df_opts)
+{
+
+    if (df_opts->cnm->rwMode && df_opts->cnm->pbFile != NULL) {
+        return;
+    }
+
+    char filePath[RMAX_FILENAME];
+    static char statusMsg[200];
+    SDL_Thread *threadPLB = NULL;
+
+    size_t len = strlen(df_opts->current_input);
+    if (len > 0) {
+
+        df_opts->cnm->rwMode = how[0] == 'r'? 1 : 2;
+        snprintf(filePath, sizeof(filePath), "%s/%s", df_opts->uploadPath, df_opts->current_input);
+
+        df_opts->cnm->pbFile = fopen(filePath, how);
+        if (df_opts->cnm->pbFile != NULL) {
+            if (df_opts->cnm->rwMode == 1) {    // Read
+                df_opts->configParams->runPlb = 1;
+                threadPLB = SDL_CreateThread(df_opts->threadPLB, "threadPLB", df_opts->configParams);
+                if (NULL == threadPLB) {
+                    df_opts->configParams->runPlb = 0;
+                    df_opts->cnm->rwMode = 0;
+                    snprintf(statusMsg, sizeof(statusMsg), "SDL_CreateThread threadPLB failed: %s", SDL_GetError());
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", statusMsg);
+                } else {
+                    SDL_DetachThread(threadPLB);
+                }
+            }
+            snprintf(statusMsg, sizeof(statusMsg), "Running NMEA file: %s(%c)", filePath, how[0]);
+        } else {
+            snprintf(statusMsg, sizeof(statusMsg), "Open %s (%s) failed: %s", filePath, how, SDL_GetError());
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, statusMsg);
+            df_opts->cnm->rwMode = 0;
+            df_opts->configParams->runPlb = 0;
+        }
+        load_files(df_opts);
+    }
+}
+
+// Replacement for SDL_RenderDrawLine that supports arbitrary thickness - doGps()
+void SDL_RenderDrawLineThick(SDL_Renderer* renderer, float x1, float y1, float x2, float y2, float thickness)
+{
+    // Calculate the angle and direction of the line
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float length = sqrtf(dx * dx + dy * dy);
+
+    if (length == 0.0f) return; // Avoid division by zero
+
+    // Calculate a normal vector (90 degrees to the line) with length thickness / 2
+    float nx = -dy / length * (thickness / 2.0f);
+    float ny = dx / length * (thickness / 2.0f);
+
+    // Create the 4 corners for the rectangle that forms the thick line
+    SDL_Vertex vertices[4];
+
+    // Get the current color the renderer is set to
+    Uint8 r, g, b, a;
+    SDL_GetRenderDrawColor(renderer, &r, &g, &b, &a);
+    SDL_Color color = { r, g, b, a };
+
+    // Corners 1 & 2 (The starting point)
+    vertices[0].position.x = x1 + nx; vertices[0].position.y = y1 + ny; vertices[0].color = color;
+    vertices[1].position.x = x1 - nx; vertices[1].position.y = y1 - ny; vertices[1].color = color;
+
+    // Corners 3 & 4 (The End Point)
+    vertices[2].position.x = x2 + nx; vertices[2].position.y = y2 + ny; vertices[2].color = color;
+    vertices[3].position.x = x2 - nx; vertices[3].position.y = y2 - ny; vertices[3].color = color;
+
+    // Indices to connect the vertices into 2 triangles (0-1-2 and 1-2-3)
+    int indices[6] = { 0, 1, 2, 1, 2, 3 };
+
+    // Draw the thick line on the screen (hardware-accelerated)
+    SDL_RenderGeometry(renderer, NULL, vertices, 4, indices, 6);
+}
+
+// Helper function for drawing a simple arrow (vector) in SDL2 - doGps()
+void draw_vector_arrow(SDL_Renderer* renderer, int start_x, int start_y, int end_x, int end_y, int arrow_size)
+{
+    // Draw the main line of the vector yourself.
+    SDL_RenderDrawLineThick(renderer, start_x, start_y, end_x, end_y, 3);
+
+    // Calculate the angle of the line to be able to draw the arrowhead pointing backwards.
+    float angle = atan2f(end_y - start_y, end_x - start_x);
+
+    // The two rear corners of the arrowhead
+    int arrow_x1 = end_x - arrow_size * cosf(angle - (float)M_PI / 6);
+    int arrow_y1 = end_y - arrow_size * sinf(angle - (float)M_PI / 6);
+    int arrow_x2 = end_x - arrow_size * cosf(angle + (float)M_PI / 6);
+    int arrow_y2 = end_y - arrow_size * sinf(angle + (float)M_PI / 6);
+
+    SDL_RenderDrawLineThick(renderer, end_x, end_y, arrow_x1, arrow_y1, 3);
+    SDL_RenderDrawLineThick(renderer, end_x, end_y, arrow_x2, arrow_y2, 3);
+}
+
+/**
+ * Renders the Vector Triangle (Current Navigation) inside the compass rose.
+ *
+ * This function dynamically draws a Vector Triangle (Current Triangle) to visually
+ * represent the environmental forces acting on the vessel:
+ *
+ * - Heading Vector (Blue): Represents Heading (HDG) and Speed Through Water (STW).
+ *   Shows where the bow is pointing and the boat's speed relative to the water.
+ *
+ * - Current Vector (Red): Represents the Set (SET) and Drift (DFT).
+ *   Displays the direction the current is flowing toward and its speed.
+ *
+ * - Course Vector (Green): The resultant vector representing Course Over Ground (COG)
+ *   and Speed Over Ground (SOG). This is the actual track and speed relative to the earth.
+ *
+ * - Drift Angle (CRX): Displays the angular difference between where the boat is
+ *   heading and where it is actually moving (Heading vs COG) to Port (PRT) or Starboard (STB).
+ */
+
+// Drawing the power triangle in a nautical style - doGps()
+void draw_vector_triangle(SDL_Renderer* renderer, int center_x, int center_y, int radius,
+                        float hdg, float stw, float cog, float sog, float set, float dft)
+{
+    // Scaling factor: Determines how many pixels correspond to 1 knot.
+    // We base this on the assumption that the maximum speed (e.g., SOG or STW) should fill approximately 80% of the radius.
+    float max_speed = (stw > sog) ? stw : sog;
+    if (max_speed < 1.0f) max_speed = 1.0f; // Avoid division by zero
+    float scale = (radius * 0.85f) / max_speed;
+
+    //--- PROJECT THE VECTORS ONTO SCREEN COORDINATES ---
+    // Remember: 0° North is straight up (-Y in SDL), East is right (+X).
+
+    // Water vector (HDG & STW) – Starts at the center
+    float hdg_rad = hdg * ((float)M_PI / 180.0f);
+    int water_end_x = center_x + (int)(stw * scale * sinf(hdg_rad));
+    int water_end_y = center_y - (int)(stw * scale * cosf(hdg_rad)); // Minus pga SDL Y-axel
+
+    // Ground Vector (COG & SOG) – Also starts at the center.
+    float cog_rad = cog * ((float)M_PI / 180.0f);
+    int ground_end_x = center_x + (int)(sog * scale * sinf(cog_rad));
+    int ground_end_y = center_y - (int)(sog * scale * cosf(cog_rad));
+
+    // --- 2. DRAW THE VECTORS (CURRENT TRIANGLE) ---
+	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    // Blue Vector: WATER (Heading & Speed ​​through the water)
+    SDL_SetRenderDrawColor(renderer, 52, 152, 219, 180); // Blue
+    draw_vector_arrow(renderer, center_x, center_y, water_end_x, water_end_y, 20);
+
+    // Green Vector: GROUND (COG & SOG over ground)
+    SDL_SetRenderDrawColor(renderer, 46, 204, 113, 180); // Green
+    draw_vector_arrow(renderer, center_x, center_y, ground_end_x, ground_end_y, 20);
+
+    // Red vector: SET & DRIFT (Leeway/Current)
+    // This vector connects the end of the water vector to the end of the ground vector.
+    SDL_SetRenderDrawColor(renderer, 231, 76, 60, 180); // Red
+    draw_vector_arrow(renderer, water_end_x, water_end_y, ground_end_x, ground_end_y, 12);
+
+    // Draw a small dot in the center of the instrument
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_Rect center_dot = { center_x - 2, center_y - 2, 4, 4 };
+    SDL_RenderFillRect(renderer, &center_dot);
+}
+
+float to_radians(float degrees) { return degrees * ((float)M_PI / 180.0f); }
+float to_degrees(float radians) { return radians * (180.0f / (float)M_PI); }
+
+// Function to normalize angles to 0–360 degrees - doGps()
+float normalize_degrees(float deg) {
+    deg = fmodf(deg, 360.0f);
+    if (deg < 0.0f) deg += 360.0f;
+    return deg;
+}
+
+// Vector calculation - - doGps()
+Vector2D nav_to_vector(float course_deg, float speed) {
+    Vector2D vec;
+    float rad = to_radians(course_deg);
+    vec.x = speed * sinf(rad);
+    vec.y = speed * cosf(rad);
+    return vec;
 }
 
 
@@ -236,7 +475,7 @@ void coverlist_free(CoverList *list)
     list->count = 0;
 }
 
-// Recursive directory scanning
+// Recursive directory scanning - scan_cover_art()
 int scan_directory(const char *base_path, CoverList *list)
 {
     DIR *dir = opendir(base_path);
@@ -344,6 +583,7 @@ int scan_directory(const char *base_path, CoverList *list)
     return result;
 }
 
+// Media progress bar - doMedia()
 void draw_progress_bar(SDL_Renderer *renderer,
                        int x, int y, int width, int height,
                        double position, double duration)
@@ -394,6 +634,7 @@ void draw_progress_bar(SDL_Renderer *renderer,
 
 static Uint64 video_start_ticks = 0;
 
+// get_video_clock time stamps - doMedia();
 double get_video_clock(void)
 {
     double aclock = get_audio_clock();
@@ -410,6 +651,7 @@ double get_video_clock(void)
     return (double)(SDL_GetTicks64() - video_start_ticks) / 1000.0;
 }
 
+// clean up for doMedia()
 void video_renderer_cleanup(VideoRenderer *vr)
 {
     if (vr->yuv_frame) {
@@ -425,6 +667,7 @@ void video_renderer_cleanup(VideoRenderer *vr)
     }
 }
 
+// Aspect calculation for doMedia()
 SDL_Rect calculate_aspect_rect(SDL_Rect box, int video_w, int video_h)
 {
     SDL_Rect dst = box;
@@ -452,6 +695,7 @@ SDL_Rect calculate_aspect_rect(SDL_Rect box, int video_w, int video_h)
     return dst;
 }
 
+// Update a video frame - doMedia()
 void update_video_texture(SDL_Renderer *renderer, VideoRenderer *vr,
                           VideoQueue *q, AVRational time_base, double audio_clock)
 {

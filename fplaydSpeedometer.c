@@ -352,6 +352,17 @@ static int get_flac_track(const char *filepath)
 /* Find media files function                          */
 /* -------------------------------------------------- */
 
+/* Sorting Section */
+typedef struct {
+    char *filename;
+    int track;
+} TrackItem;
+
+// Comparison function for qsort
+static int compare_tracks(const void *a, const void *b) {
+    return ((TrackItem*)a)->track - ((TrackItem*)b)->track;
+}
+
 int scandirs(Playlist *plist)
 {
     int rval = 0;
@@ -372,10 +383,7 @@ int scandirs(Playlist *plist)
 
     struct dirent *entry;
 
-    int artFound;
-
-    if (plist->files == NULL)
-        artFound = 0;
+    int artFound = 0;
 
     while ((entry = readdir(dir)) != NULL) {
 
@@ -451,7 +459,7 @@ int scandirs(Playlist *plist)
 
     closedir(dir);
     dir = NULL;
-
+#if 0
     /* Sorting Section */
     typedef struct {
         char *filename;
@@ -462,6 +470,7 @@ int scandirs(Playlist *plist)
     int compare_tracks(const void *a, const void *b) {
         return ((TrackItem*)a)->track - ((TrackItem*)b)->track;
     }
+#endif
 
     // Allocate a temporary array for the sorting, based on the number of files.
     TrackItem *sort_list = malloc(sizeof(TrackItem) * plist->count+folder_count);
