@@ -99,9 +99,10 @@ typedef struct
     int index;
     int active;
     int paused;
-    int seq_track_no[80];
+    int track_no[80];
     float s_duration;
     char **files;
+    char **titles;
     char *path;
     char *apath;
     char title[80];
@@ -114,6 +115,13 @@ typedef struct
     char duration[80];
     char comment[80];
 } Playlist;
+
+typedef struct {
+    char *filename;
+    char *title;
+    int track_no;
+    int maxb;
+} TrackItem;
 
 #define RTSP_RING_SIZE  131072
 

@@ -3083,32 +3083,42 @@ static int doMedia(sdl2_app *sdlApp)
                     SDL_RenderFillRect(sdlApp->renderer, &file_click_areas[sdlApp->conf->playlist.index - scrl_offset]);
                 }
 
+                char title[PATH_MAX] = {'\0'};
                 SDL_Color color;
                 stat(sdlApp->conf->playlist.files[i + scrl_offset], &stats);
                 if (S_ISDIR(stats.st_mode)) {
                     color = color_green;
-                } else color = color_white;
-
-                // Present a file item without the suffix
-                char filenm[PATH_MAX];
-                strncpy(filenm, sdlApp->conf->playlist.files[i + scrl_offset], sizeof(filenm)-1);
-
-
-                filenm[38] = '\0';  // Don't spill through the rect.
-                char *p = strrchr(filenm, '.');
-                if (p != NULL) {*p = '\0';}
-
-                // Remove any leading track numbers
-                char *display_name = filenm;
-                if (isdigit((unsigned char)filenm[0])) {
-                    int dummy_index;
-                    int bytes_read = 0;
-                    // %d reads the numbers, %n counts the total number of bytes read,
-                    // and " " (the space) matches whitespace following the number
-                    if (sscanf(filenm, "%d %n", &dummy_index, &bytes_read) >= 1) {
-                        display_name = filenm + bytes_read;
+                } else {
+                    color = color_white;
+                    if (sdlApp->conf->playlist.track_no[i + scrl_offset] > 0) {
+                        strncpy(title, sdlApp->conf->playlist.titles[i + scrl_offset], sizeof(title)-1);
+                        title[38] = '\0';
                     }
                 }
+
+                char *display_name;
+
+                if ( *title == '\0' || S_ISDIR(stats.st_mode)) {
+                    // Present a file item without the suffix
+                    char filenm[PATH_MAX];
+                    strncpy(filenm, sdlApp->conf->playlist.files[i + scrl_offset], sizeof(filenm)-1);
+                    filenm[38] = '\0';  // Don't spill through the rect.
+                    char *p = strrchr(filenm, '.');
+                    if (p != NULL) {*p = '\0';}
+
+                    // Remove any leading track numbers
+                        display_name = filenm;
+                    if (isdigit((unsigned char)filenm[0])) {
+                        int dummy_index;
+                        int bytes_read = 0;
+                        // %d reads the numbers, %n counts the total number of bytes read,
+                        // and " " (the space) matches whitespace following the number
+                        if (sscanf(filenm, "%d %n", &dummy_index, &bytes_read) >= 1) {
+                            display_name = filenm + bytes_read;
+                        }
+                    }
+                } else display_name = title;
+
                 draw_textc(sdlApp->renderer, fontMsg, display_name, 55, item_y + 2, 0, color);
             }
 

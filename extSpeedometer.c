@@ -61,15 +61,28 @@ void draw_text(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y)
     draw_textc(r, font, txt, x, y, 0, (SDL_Color){0,0,0,255});
 }
 
-
 // Prepare for a new playlist - doMedia()
 void doVaClean(sdl2_app *sdlApp)
 {
-    if (!sdlApp->conf->playlist.count) return;
+    if (!sdlApp->conf->playlist.count) {
+        memset(&sdlApp->conf->playlist, 0 , sizeof(Playlist));
+        return;
+    }
+
     for (size_t i = 0; i < sdlApp->conf->playlist.count; i++) {
         free(sdlApp->conf->playlist.files[i]);
+
+    if (sdlApp->conf->playlist.track_no[i] > 0 && sdlApp->conf->playlist.titles[i] != NULL)
+        {
+            //printf("REMOVE=%s %ld\n", sdlApp->conf->playlist.titles[i], i);
+            free(sdlApp->conf->playlist.titles[i]);
+        }
     }
+
     free(sdlApp->conf->playlist.files);
+    free(sdlApp->conf->playlist.titles);
+
+    memset(&sdlApp->conf->playlist, 0 , sizeof(Playlist));
     sdlApp->conf->playlist.count = 0;
 }
 
@@ -386,6 +399,8 @@ static int is_audio_file(const char *name)
            has_extension(name, ".avi")  ||
            has_extension(name, ".mp4")  ||
            has_extension(name, ".m4a")  ||
+           has_extension(name, ".mpg")  ||
+           has_extension(name, ".mkv")  ||
            has_extension(name, ".VOB")  ||
            has_extension(name, ".wav");
 }

@@ -67,7 +67,7 @@ sdlSpeedometer has also a built-in RFB (VNC) server function so that an external
 
 ### Note on the Media Player
 - The media player features a layout designed for touchscreens and is well-suited for small screens and large fingers.
-- The Player plays both video and audio from these file extensions: flac, mp3, wav, avi, mp4, m4a and VOB.
+- The Player plays both video and audio from these file extensions: flac, mp3, wav, avi, mp4, m4a, mkv and VOB.
 - The player requires the -A option at application start.
 
 ### Notes on VNC

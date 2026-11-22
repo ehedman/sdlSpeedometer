@@ -22,353 +22,129 @@
 /* Find track number based on a file name i.e "02 Dinah-Moe Humm"   */
 /* ---------------------------------------------------------------- */
 
-static int get_track_from_filename(const char *filepath)
+static void get_track_from_filename(TrackItem *tmeta)
 {
-    if (!filepath || filepath[0] == '\0') return -1;
+    const char *p = tmeta->filename;
+    char *e = strrchr(tmeta->filename, '.');
 
-    struct stat stats;
+    if (e != NULL)  // Remove extension from filename
+        *e = '\0';
 
-    stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode)) // Should not happen
-        return -1;
-
-    const char *p = filepath;
+    if ((p = strrchr(tmeta->filename, '/')) != NULL) {
+            p++;    // Point to filename only
+    }
 
     // Skip any leading spaces or non-alphanumeric characters
-    while (*p && !isdigit((unsigned char)*p) && !isalpha((unsigned char)*p)) {
+    while (*p && !isdigit((unsigned char)*p) && !isalpha((unsigned char)*p) && *p == ' ') {
         p++;
     }
 
     // If the string begins with a digit, read it out.
     if (*p && isdigit((unsigned char)*p)) {
 
-        return atoi(p); // atoi reads digits until it encounters a space, hyphen, or period.
+        tmeta->track_no = atoi(p);   // atoi reads digits until it encounters a space, hyphen, or period.
+
+        // Move beyond digits and leading spaces efter digits
+        while (*p && (isdigit((unsigned char)*p) || *p == ' ' || !isalpha((unsigned char)*p))) {
+            p++;
+        }
     }
 
-    // Found no introductory tracks (e.g., "Intro.mp3")
-    return 0;
+    if (!tmeta->track_no)
+        tmeta->track_no = tolower(p[0]);    // Alpha numeric on first letter
+
+    snprintf(tmeta->title, tmeta->maxb, "%s", p);
 }
 
-/* -------------------------------------------------- */
-/* Find track number in meta data for wav             */
-/* -------------------------------------------------- */
+/* --------------------------------------------------- */
+/* Find track title and track number number from meta  */
+/* --------------------------------------------------- */
 
-static int get_wav_track(const char *filepath)
+static void get_plist_title(TrackItem *tmeta)
 {
-    struct stat stats;
-
-    stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode)) // Should not happen
-        return -1;
-
-    FILE *file = fopen(filepath, "rb");
-    if (!file) return -1;
-
-    char id[4];
-    uint32_t chunk_size;
-
-    // Verify RIFF/WAVE header (the first 12 bytes)
-    if (fread(id, 1, 4, file) != 4 || memcmp(id, "RIFF", 4) != 0) {
-        fclose(file);
-        return 0;
-    }
-    fseek(file, 4, SEEK_CUR); // Skip total file size
-    if (fread(id, 1, 4, file) != 4 || memcmp(id, "WAVE", 4) != 0) {
-        fclose(file);
-        return 0;
-    }
-
-    // Loop through the top-level chunks in the file by skipping over their size
-    while (fread(id, 1, 4, file) == 4) {
-        if (fread(&chunk_size, 4, 1, file) != 1) break;
-
-        // We find a LIST INFO chunk (standard WAV metadata) ---
-        if (memcmp(id, "LIST", 4) == 0) {
-            long list_start = ftell(file);
-            char list_type[4];
-            if (fread(list_type, 1, 4, file) == 4 && memcmp(list_type, "INFO", 4) == 0) {
-                // Loop through sub-chunks inside the INFO list
-                while (ftell(file) < list_start + chunk_size) {
-                    char sub_id[4];
-                    uint32_t sub_size;
-                    if (fread(sub_id, 1, 4, file) != 4) break;
-                    if (fread(&sub_size, 4, 1, file) != 1) break;
-
-                    // ITRK (or TRCK) = Track number in WAV INFO lists
-                    if (memcmp(sub_id, "ITRK", 4) == 0 || memcmp(sub_id, "TRCK", 4) == 0) {
-                        char num_buf[16] = {0};
-                        size_t read_bytes = (sub_size > 15) ? 15 : sub_size;
-                        if (fread(num_buf, 1, read_bytes, file) == read_bytes) {
-                            num_buf[read_bytes] = '\0';
-                            fclose(file);
-                            return atoi(num_buf);
-                        }
-                    } else {
-                        // The RIFF standard requires a padding byte for odd sizes.
-                        uint32_t pad = sub_size % 2;
-                        fseek(file, sub_size + pad, SEEK_CUR);
-                    }
-                }
-            }
-            // Reset to the end of the LIST chunk if nothing was found inside
-            fseek(file, list_start + chunk_size + (chunk_size % 2), SEEK_SET);
-        }
-        // We find an embedded ID3v2 chunk (e.g., from Audacity) ---
-        else if (memcmp(id, "id3 ", 4) == 0 || memcmp(id, "ID3 ", 4) == 0) {
-            long id3_start = ftell(file);
-            char sub_id[4];
-
-            // Search for "TRCK" inside the ID3 block
-            while (ftell(file) < id3_start + chunk_size - 10) {
-                if (fread(sub_id, 1, 4, file) != 4) break;
-
-                if (memcmp(sub_id, "TRCK", 4) == 0) {
-                    fseek(file, 4, SEEK_CUR); // Skip ID3 frame size (4 bytes)
-                    fseek(file, 2, SEEK_CUR); // Skip flags (2 bytes)
-
-                    // Read in the next 20 bytes (covering text + any UTF encoding)
-                    char raw_text[20];
-                    size_t read_len = fread(raw_text, 1, 20, file);
-
-                    char clean_num[16];
-                    int clean_idx = 0;
-
-                    // Clean the string: Extract only digits and skip hidden zeros/Unicode junk
-                    for (size_t i = 0; i < read_len; i++) {
-                        if (raw_text[i] >= '0' && raw_text[i] <= '9') {
-                            clean_num[clean_idx++] = raw_text[i];
-                            if (clean_idx >= 15) break;
-                        }
-                        else if (clean_idx > 0) {
-                            // Stop if we have been reading digits and encounter something else (e.g., '/' or the end)
-                            break;
-                        }
-                    }
-
-                    if (clean_idx > 0) {
-                        clean_num[clean_idx] = '\0';
-                        fclose(file);
-                        return atoi(clean_num);
-                    }
-                }
-                // If it does not match, move back 3 bytes to continue searching byte-by-byte within the ID3 block.
-                fseek(file, -3, SEEK_CUR);
-            }
-            fseek(file, id3_start + chunk_size + (chunk_size % 2), SEEK_SET);
-        }
-        else {
-            // This is the magic: Skip right over the massive audio data in 0 milliseconds!
-            uint32_t pad = chunk_size % 2;
-            fseek(file, chunk_size + pad, SEEK_CUR);
-        }
-    }
-
-    fclose(file);
-
-    return 0; // Didn't find a tracking number
-}
-
-/* -------------------------------------------------- */
-/* Find track number in meta data for mp3             */
-/* -------------------------------------------------- */
-
-static int get_mp3_track(const char *filepath)
-{
-    struct stat stats;
-
-    stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode)) // Should not happen
-        return -1;
-
-    FILE *f = fopen(filepath, "rb");
-    if (!f) return -1;
-
-    unsigned char id3_header[10];
-    if (fread(id3_header, 1, 10, f) != 10) {
-        fclose(f);
-        return 0;
-    }
-
-    // Check that the file actually has an ID3v2 tag first.
-    if (memcmp(id3_header, "ID3", 3) != 0) {
-        fclose(f);
-        return 0;  // No ID3v2 tag found
-    }
-
-    // Calculate the size of the ID3 block (Synchsafe integer: 4 bytes of 7 bits each)
-    unsigned int id3_size = ((id3_header[6] & 0x7F) << 21) |
-                            ((id3_header[7] & 0x7F) << 14) |
-                            ((id3_header[8] & 0x7F) << 7)  |
-                             (id3_header[9] & 0x7F);
-
-    // Allocate a buffer for the entire ID3 tag
-    unsigned char *buffer = malloc(id3_size);
-    if (!buffer) {
-        fclose(f);
-        return 0;
-    }
-
-    if (fread(buffer, 1, id3_size, f) != id3_size) {
-        free(buffer);
-        fclose(f);
-        return 0;
-    }
-
-    unsigned int ptr = 0;
-    int track_num = -1;
-
-    // Scan through the ID3 block for the "TRCK" frame
-    while (ptr + 10 < id3_size) {
-        // A frame header is 10 bytes (4 bytes name, 4 bytes size, 2 bytes flags)
-        unsigned char *frame_id = &buffer[ptr];
-
-        // Calculate the size of this specific metadata field (Big Endian)
-        // Note: ID3v2.4 uses synchsafe here, while ID3v2.3 uses standard bytes.
-        // This general shifting approach works perfectly for standard MP3 files.
-        unsigned int frame_size = (frame_id[4] << 24) | (frame_id[5] << 16) | 
-                                  (frame_id[6] << 8)  | frame_id[7];
-
-        // If we encounter zeros, we have reached the end (padding) of the ID3 tag.
-        if (frame_id[0] == 0) break;
-
-        //Looking for "TRCK" (Track number)
-        if (memcmp(frame_id, "TRCK", 4) == 0) {
-            if (ptr + 10 + frame_size <= id3_size) {
-            // The first byte inside the text field indicates text encoding (usually 0 for ISO or 1 for Unicode)
-            // We skip that encoding byte (+1)
-                unsigned char *text_data = &buffer[ptr + 10 + 1];
-                unsigned int text_len = frame_size - 1;
-
-                // Create a safe null-terminated string
-                char track_str[16] = {0};
-                if (text_len > 15) text_len = 15;
-                memcpy(track_str, text_data, text_len);
-
-                // atoi handles formats like "5" or "5/12" (stops at the slash)
-                track_num = atoi(track_str);
-            }
-            break; // Found it! We can end the loop.
-        }
-
-        // Move on to the next frame
-        ptr += 10 + frame_size;
-    }
-
-    free(buffer);
-    fclose(f);
-    return track_num;
-}
-
-/* -------------------------------------------------- */
-/* Find track number in meta data for flac            */
-/* -------------------------------------------------- */
-
-static int get_flac_track(const char *filepath)
-{
+    memset(tmeta->title, 0, tmeta->maxb);
+    tmeta->track_no = 0;
 
     struct stat stats;
-
-    stat(filepath, &stats);
-    if (S_ISDIR(stats.st_mode)) // Should not happen
-        return -1;
-
-    FILE *f = fopen(filepath, "rb");
-    if (!f) return -1;
-
-    char header[4];
-    if (fread(header, 1, 4, f) != 4 || memcmp(header, "fLaC", 4) != 0) {
-        fclose(f);
-        return 0;  // Not a valid FLAC file
+    stat(tmeta->filename, &stats);
+    if (S_ISDIR(stats.st_mode)) {
+        printf("Should not happen\n");
+        return;
     }
 
-    int is_last = 0;
-    while (!is_last) {
-        unsigned char block_header[4];
-        if (fread(block_header, 1, 4, f) != 4) break;
+    const AVInputFormat *ifmt = NULL;
+    char *p = strrchr(tmeta->filename, '.');
 
-        is_last = block_header[0] & 0x80;
-        int block_type = block_header[0] & 0x7F;
-
-        // Retrieve the 3 size bytes correctly (Big Endian)
-        unsigned int block_size = (block_header[1] << 16) | (block_header[2] << 8) | block_header[3];
-
-        if (block_type == 4) { // VORBIS_COMMENT block
-            unsigned char *buffer = malloc(block_size);
-            if (!buffer) { fclose(f); return 0; }
-
-            if (fread(buffer, 1, block_size, f) == block_size) {
-                unsigned int ptr = 0;
-
-                // Skip the Vendor String (first there are 4 bytes for the length, then the string itself)
-                if (ptr + 4 > block_size) { free(buffer); break; }
-                unsigned int vendor_len = buffer[ptr] | (buffer[ptr+1] << 8) | (buffer[ptr+2] << 16) | (buffer[ptr+3] << 24); // Little Endian!
-                ptr += 4 + vendor_len;
-
-                // Retrieve number of comments/tags (4 bytes Little Endian)
-                if (ptr + 4 > block_size) { free(buffer); break; }
-                unsigned int user_comment_list_length = buffer[ptr] | (buffer[ptr+1] << 8) | (buffer[ptr+2] << 16) | (buffer[ptr+3] << 24);
-                ptr += 4;
-
-                //  Loop through all tags safely
-                for (unsigned int i = 0; i < user_comment_list_length; i++) {
-                    if (ptr + 4 > block_size) break;
-                    unsigned int comment_len = buffer[ptr] | (buffer[ptr+1] << 8) | (buffer[ptr+2] << 16) | (buffer[ptr+3] << 24);
-                    ptr += 4;
-
-                    if (ptr + comment_len > block_size) break;
-
-                    // Check whether this tag begins with "TRACK NUMBER=" (case-insensitive)
-                    if (comment_len > 12 && strncasecmp((char*)&buffer[ptr], "TRACKNUMBER=", 12) == 0) {
-                        // Create a temporary null-terminated string for atoi
-                        char track_str[16] = {0};
-                        unsigned int val_len = comment_len - 12;
-                        if (val_len > 15) val_len = 15;
-
-                        memcpy(track_str, &buffer[ptr + 12], val_len);
-                        int track_num = atoi(track_str);
-
-                        free(buffer);
-                        fclose(f);
-                        return track_num;
-                    }
-
-                    ptr += comment_len; // Go to next tag
-                }
-            }
-            free(buffer);
-            break; // We have finished reading the comments section.
-        } else {
-            // Skip the block if it is not VORBIS_COMMENT
-            fseek(f, block_size, SEEK_CUR);
+    if (p != NULL) {
+        p++;
+        if (!strcasecmp(p, "avi") || !strcasecmp(p, "vob") || !strcasecmp(p, "mpg")) {
+             goto notfound;
+        }
+        // Give FFmpeg a direct hint about the format to avoid format probing.
+        if (!strcasecmp(p, "wav") || !strcasecmp(p, "flac") || !strcasecmp(p, "mp3")) {
+            ifmt = av_find_input_format(p);
         }
     }
 
-    fclose(f);
+    AVFormatContext *fmt_ctx = avformat_alloc_context();
+    if (!fmt_ctx) {
+        goto notfound;
+    }
 
-    return 0;
+    // Skip unnecessary loading/index building upon opening
+    fmt_ctx->flags |= AVFMT_FLAG_NOBUFFER | AVFMT_FLAG_FAST_SEEK;
+    fmt_ctx->probesize = 4096;
+    fmt_ctx->max_analyze_duration = 0;
+
+    // Pass along ifmt (if found, otherwise NULL)
+    if (avformat_open_input(&fmt_ctx, tmeta->filename, ifmt, NULL) < 0) {
+        goto notfound;
+    }
+
+    AVDictionary *meta = fmt_ctx->metadata;
+    if (!meta && fmt_ctx->nb_streams > 0) {
+        meta = fmt_ctx->streams[0]->metadata;
+    }
+
+    if (meta) {
+        const AVDictionaryEntry *title_tag = av_dict_get(meta, "title", NULL, 0);
+        if (title_tag && title_tag->value) {
+            snprintf(tmeta->title, tmeta->maxb, "%s", title_tag->value);
+        }
+
+        const AVDictionaryEntry *track_tag = av_dict_get(meta, "track", NULL, 0);
+        if (track_tag && track_tag->value) {
+            tmeta->track_no = atoi(track_tag->value);
+        }
+    }
+
+    avformat_close_input(&fmt_ctx);
+
+notfound:
+
+    if (!tmeta->track_no) {
+        get_track_from_filename(tmeta);
+    }
+
+//    printf("FOUND '%s'   %d\n", tmeta->title, tmeta->track_no);
+
 }
-
-/* -------------------------------------------------- */
-/* Find media files function                          */
-/* -------------------------------------------------- */
-
-/* Sorting Section */
-typedef struct {
-    char *filename;
-    int track;
-} TrackItem;
 
 // Comparison function for qsort
 static int compare_tracks(const void *a, const void *b) {
-    return ((TrackItem*)a)->track - ((TrackItem*)b)->track;
+    return ((TrackItem*)a)->track_no - ((TrackItem*)b)->track_no;
 }
+
+/* --------------------------------------------------------- */
+/* Build a list with folders, track titles and track numbers */
+/* --------------------------------------------------------- */
 
 int scandirs(Playlist *plist)
 {
-    int rval = 0;
-    int sqtrack_no = 0;
     int folder_count = 0;
     char q_path[PATH_MAX];
+
+    TrackItem tmeta;
 
     struct stat stats;
 
@@ -410,70 +186,86 @@ int scandirs(Playlist *plist)
                   continue;
             }
 
-            if (strcmp(p, "flac") != 0 && strcmp(p, "mp3") != 0 && strcmp(p, "wav") != 0 
-                && strcmp(p, "avi") != 0 && strcmp(p, "mp4") != 0 && strcmp(p, "m4a") != 0 && strcmp(p, "VOB") != 0) {
-                continue;   // Ignore other file types completely
-            }
-
-        }
-
-        stat(q_path, &stats);
-        if (S_ISDIR(stats.st_mode)) {
-            folder_count++;
+            if (   strcmp(p, "flac")    != 0
+                && strcmp(p, "mp3")     != 0
+                && strcmp(p, "wav")     != 0
+                && strcmp(p, "avi")     != 0
+                && strcmp(p, "mp4")     != 0
+                && strcmp(p, "m4a")     != 0
+                && strcmp(p, "mpg")     != 0
+                && strcmp(p, "mkv")     != 0
+                && strcmp(p, "VOB")     != 0)
+                {
+                    continue;   // Ignore other file types completely
+                }
         }
 
         // Expand the array using a pointer
-        char **temp = realloc(plist->files, (plist->count + 1) * sizeof(*plist->files));
+        char **tempf = realloc(plist->files,  (plist->count + 1) * sizeof(*plist->files));
+        char **tempt = realloc(plist->titles, (plist->count + 1) * sizeof(*plist->titles));
 
-        if (temp == NULL) {
+        if (tempf == NULL || tempt == NULL) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia(scandirs): Could not allocate with  realloc() %s", SDL_GetError());
-            rval = -1;
             goto cleanup;
         }
 
-        plist->files = temp;
+        plist->files = tempf;
+        plist->titles = tempt;
 
         // Copy the filename
         plist->files[plist->count] = strdup(entry->d_name);
 
-        if (plist->files[plist->count] == NULL) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia(scandirs): Could not allocate with  strdup() %s", SDL_GetError());
-            rval = -1;
-            goto cleanup;
+        stat(q_path, &stats);
+        if (S_ISDIR(stats.st_mode)) {
+            plist->files[plist->count] = strdup(entry->d_name); //NEW
+            folder_count++;
         }
 
-        if (!S_ISDIR(stats.st_mode))
-            plist->seq_track_no[plist->count] = ++sqtrack_no;
+        plist->titles[plist->count] = NULL; // NEW
+        plist->track_no[plist->count] = 0;  // NEW
 
-#if 0
-        // Diagnostics
-        if (!S_ISDIR(stats.st_mode))
-        printf("DEBUG: [%zu] ptr=%p name=%s  fallback track_no=%d   item=%d\n",
-               plist->count,
-               (void *)plist->files[plist->count],
-               plist->files[plist->count], plist->seq_track_no[plist->count] , sqtrack_no);
-#endif
+        // Copy the title
+        char ttl[100];
+        if (!S_ISDIR(stats.st_mode)) {
+
+            tmeta.filename = q_path;
+            tmeta.maxb = sizeof(ttl);
+            tmeta.title = ttl;
+
+            plist->track_no[plist->count] = 0;
+            get_plist_title(&tmeta);
+
+            if (tmeta.track_no > 0) {
+                if ((plist->titles[plist->count] = strdup(tmeta.title)) == NULL) {
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia(scandirs titles): Could not allocate with  strdup() %s", SDL_GetError());
+                    goto cleanup;
+                }
+                plist->track_no[plist->count] = tmeta.track_no;
+            }
+        }
+
+        *ttl = '\0';
+
+        if (plist->files[plist->count] == NULL) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia(scandirs files): Could not allocate with  strdup() %s", SDL_GetError());
+            goto cleanup;
+        }
 
         plist->count++;
     }
 
     closedir(dir);
     dir = NULL;
-#if 0
-    /* Sorting Section */
-    typedef struct {
-        char *filename;
-        int track;
-    } TrackItem;
 
-    // Comparison function for qsort
-    int compare_tracks(const void *a, const void *b) {
-        return ((TrackItem*)a)->track - ((TrackItem*)b)->track;
-    }
-#endif
+/* ------------------------------------- */
+/*            Sorting section            */
+/* ------------------------------------- */
 
     // Allocate a temporary array for the sorting, based on the number of files.
-    TrackItem *sort_list = malloc(sizeof(TrackItem) * plist->count+folder_count);
+    TrackItem *sort_list = malloc(sizeof(TrackItem) * plist->count);
+
+    if (!sort_list)
+        goto cleanup;
 
     int valid_track_count = 0;
 
@@ -481,28 +273,14 @@ int scandirs(Playlist *plist)
 
         snprintf(q_path, sizeof(q_path), "%s%s", plist->path, plist->files[i]);
 
-        char *ext = strrchr(q_path, '.');
         int track_no = -1;
-
-        if (ext != NULL) {
-            if (strcmp(ext, ".flac") == 0) {
-                track_no = get_flac_track(q_path);
-            } else if (strcmp(ext, ".mp3") == 0) {
-                track_no = get_mp3_track(q_path);
-            } else if (strcmp(ext, ".wav") == 0) {
-                track_no = get_wav_track(q_path);
-            }
-        }
-
-        if (track_no <= 0)
-            track_no = get_track_from_filename(plist->files[i]);
 
         stat(q_path, &stats);
 
-        if (track_no <= 0 && !S_ISDIR(stats.st_mode)) {
-            track_no = plist->seq_track_no[i];
- //           SDL_Log("doMedia(sort): Using sequential track no %d since it is not found in meta data for file %s", track_no, plist->files[i]);
-        }
+        if (plist->track_no[i] <= 0 && !S_ISDIR(stats.st_mode)) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia(enum tracks): Fatal: Can't find title and track number");
+            goto cleanup;
+        } else { track_no = plist->track_no[i]; }
 
         // Simple sort. Pick the first letter a-z-A-Z - usually the artist or album name
         if (S_ISDIR(stats.st_mode)) {
@@ -510,10 +288,10 @@ int scandirs(Playlist *plist)
         }
 
         if (track_no > 0) {
-//            printf("TRACK for %s is %d\n", plist->files[i], track_no);
             // Move the pointer to the filename and track number in our sorting list
             sort_list[valid_track_count].filename = plist->files[i];
-            sort_list[valid_track_count].track = track_no;
+            sort_list[valid_track_count].title = plist->titles[i];
+            sort_list[valid_track_count].track_no = track_no;
             valid_track_count++;
         }
     }
@@ -525,6 +303,8 @@ int scandirs(Playlist *plist)
     // (We are simply copying the pointers back, which is lightning-fast)
     for (int i = 0; i < valid_track_count; i++) {
         plist->files[i] = sort_list[i].filename;
+        plist->titles[i] = sort_list[i].title;
+        plist->track_no[i] = sort_list[i].track_no; // NEW
     }
 
     // Update the counter in case any files were filtered out (e.g., files without track numbers)
@@ -541,24 +321,33 @@ int scandirs(Playlist *plist)
 #if 0
     printf("\n--- After sorting ---\n");
     for (int i = 0; i < plist->count; i++) {
-        printf("File %d: %s\n", i + 1, plist->files[i]);
+        if (plist->track_no[i] > 0 && plist->titles[i] != NULL) {
+            printf("    title %d: title=%s\n", plist->track_no[i], plist->titles[i]);
+        }
     }
 #endif
+
+    return 0;
 
 cleanup:
     if (dir != NULL)
         closedir(dir);
 
-    if (plist->files != NULL && rval) {
+    if (plist->files != NULL) {
         // Release all strings
         for (size_t i = 0; i < plist->count; i++) {
+
             free(plist->files[i]);
+
+            if (plist->track_no[i] > 0)
+                free(plist->titles[i]);
         }
 
         free(plist->files);
+        free(plist->titles);
     }
 
-    return rval;
+    return 1;
 }
 
 /* ------------------------------------------------------------------------ */
