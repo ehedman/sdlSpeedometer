@@ -366,7 +366,7 @@ extern void load_files(rFileOpts *df_opts);
 extern float to_radians(float degrees);
 extern float to_degrees(float radians);
 extern float normalize_degrees(float deg);
-Vector2D nav_to_vector(float course_deg, float speed);
+extern Vector2D nav_to_vector(float course_deg, float speed);
 
 extern void draw_textc(SDL_Renderer *r, TTF_Font *font, const char *txt,
     int x, int y, int l, SDL_Color c);
@@ -389,7 +389,6 @@ extern void draw_vector_arrow(SDL_Renderer* renderer, int start_x, int start_y,
 
 extern SDL_Texture* renderText(SDL_Renderer *r, TTF_Font *font, const char *msg,
     SDL_Color color, SDL_Rect *rect);
-
 
 
 #endif /* SPEEDOMETER_H */

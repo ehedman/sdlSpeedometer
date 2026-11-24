@@ -1950,7 +1950,6 @@ static int threadWarn(void *conf)
     return 0;
 }
 
-
 // Check re-emerging power on console event
 static int checkConsole(SDL_Event e, sdl2_app *sdlApp)
 {
@@ -2536,8 +2535,6 @@ static int doMedia(sdl2_app *sdlApp)
     int wasMuted = sdlApp->conf->muted;
     sdlApp->conf->muted = 1;    // Prevent warnings
 
-    command_push(CMD_STOP);
-
     int muted = 0;
     int apause = 0;
 
@@ -2565,7 +2562,6 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_Texture* nfscrBar  = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "nfscr.png");
 
     SDL_Texture* textBox =  NULL;
-    SDL_Texture* albumArt = NULL;
 
     if (sdlApp->conf->style == 0) {
         textBox = IMG_LoadTexture(sdlApp->renderer, IMAGE_PATH "textBox.png");       
@@ -2605,7 +2601,7 @@ static int doMedia(sdl2_app *sdlApp)
 
     SDL_Rect mutebarR   = {w-60,h-70,40,40};
 
-    char folder_path[RMAX_FILENAME];
+    static char folder_path[RMAX_FILENAME];
     strcpy(folder_path, sdlApp->conf->media_path);
 
     static char current_input[RMAX_FILENAME];
@@ -2614,7 +2610,7 @@ static int doMedia(sdl2_app *sdlApp)
     // Playlist playlist;
     memset(&sdlApp->conf->playlist, 0 , sizeof(sdlApp->conf->playlist));
 
-    char albumArtPath[RMAX_FILENAME];
+    static char albumArtPath[RMAX_FILENAME];
     strncpy(albumArtPath, folder_path, sizeof(albumArtPath));
 
     sdlApp->conf->playlist.path = folder_path;
@@ -2642,7 +2638,7 @@ static int doMedia(sdl2_app *sdlApp)
     g_current_job = job;
     SDL_UnlockMutex(g_job_mutex);
 
-    /* Start control thread */
+    /* Start control the thread */
     if (sdlApp->conf->audioThread == NULL) {
         sdlApp->conf->audioThread = SDL_CreateThread(control_thread, "audio-control", &sdlApp->conf->playlist);
     }
@@ -2699,8 +2695,14 @@ static int doMedia(sdl2_app *sdlApp)
     char path[PATH_MAX];
     
     SDL_Texture* DefAlbumArt = NULL;
+    SDL_Texture* albumArt = NULL;
     snprintf(path, sizeof(path)-1, "%s/%s%s", curDir, IMAGE_PATH, DEF_ACOVER);
     DefAlbumArt = IMG_LoadTexture(sdlApp->renderer, path);
+
+    SDL_Event dummy_event;
+    while (SDL_PollEvent(&dummy_event)) {
+        // clear the event queue
+    }
 
     while (running)
     {
@@ -2796,6 +2798,11 @@ static int doMedia(sdl2_app *sdlApp)
                 if (SDL_PointInRect(&p, &stopR)) {
                     fullScr_t = fullScr = 0;
                     command_push(CMD_STOP);
+                    if (albumArt) {
+                        SDL_DestroyTexture(albumArt);
+                        albumArt = NULL;
+                    }
+                    freeEmbeddedArt();
                 }
                 if (SDL_PointInRect(&p, &nextR)) {
                     command_push(CMD_NEXT);
@@ -2945,20 +2952,20 @@ static int doMedia(sdl2_app *sdlApp)
 
         if (newDir == 1) {
 
-            while (command_push(CMD_SHUTDOWN) < 0)
-                SDL_Delay(10);
+            while (command_push(CMD_STOP) < 0) {
+                SDL_Delay(40);
+            }
 
-            SDL_WaitThread(sdlApp->conf->audioThread, NULL);
-            sdlApp->conf->audioThread = NULL;
-
-            doVaClean(sdlApp);
+            SDL_Delay(40);
 
             if (albumArt) {
                 SDL_DestroyTexture(albumArt);
                 albumArt = NULL;
             }
 
-            memset(&sdlApp->conf->playlist, 0 , sizeof(sdlApp->conf->playlist));
+            freeEmbeddedArt();
+            doVaClean(sdlApp);
+
             scrl_offset = left_dirs[left_dirs_indx];
             sdlApp->conf->playlist.path = folder_path;
             sdlApp->conf->playlist.apath = albumArtPath;
@@ -2980,8 +2987,6 @@ static int doMedia(sdl2_app *sdlApp)
 #endif
             chdir(folder_path);
             newDir = 0;
-
-            sdlApp->conf->audioThread = SDL_CreateThread( control_thread, "audio-control", &sdlApp->conf->playlist);
 
             continue;
         }
@@ -3151,12 +3156,11 @@ static int doMedia(sdl2_app *sdlApp)
 
         if (!fullScr)
         {
-            // Fetch meta data and show them
-            show_audio_metadata(&sdlApp->conf->playlist);
-
             // Draw now playing fields whit meta data
             if (sdlApp->conf->playlist.active)
             {
+                // Fetch meta data and show them
+                show_audio_metadata(&sdlApp->conf->playlist);
 
                 if (!track_start_ms) {
                     track_start_ms = SDL_GetTicks64();
@@ -3184,36 +3188,32 @@ static int doMedia(sdl2_app *sdlApp)
 
                 int  indx = last_item_y+irow_height+10; const int incr=20;
 
-                if (strlen(sdlApp->conf->playlist.title)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.title, 60, indx, 0, color_black);
-                }
-                if (strlen(sdlApp->conf->playlist.artist)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.artist, 60, indx+=incr, 0, color_black);
-                }
-                if (strlen(sdlApp->conf->playlist.album)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album, 60, indx+=incr, 0, color_black);
-                }
-                if (strlen(sdlApp->conf->playlist.album_artist)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album_artist, 60, indx+=incr, 0, color_black);
-                }
-                if (strlen(sdlApp->conf->playlist.genre)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.genre, 60, indx+=incr, 0, color_black);
-                }
-                if (strlen(sdlApp->conf->playlist.date)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.date, 60, indx+=incr, 0, color_black);
-                }
-#if 0
-                if (strlen(sdlApp->conf->playlist.track)) {
-                    draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.track, 60, indx+=incr, 0, color_black);
-                }
-#endif
-                // Load album art
-                if (!media_is_video())
+                if (get_audio_clock() > 0.2f)   // Only when playing something
                 {
-                    if (albumArt == NULL)
-                        albumArt = IMG_LoadTexture(sdlApp->renderer, albumArtPath);
+                    if (strlen(sdlApp->conf->playlist.title)) {
+                        draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.title, 60, indx, 0, color_black);
+                    }
+                    if (strlen(sdlApp->conf->playlist.artist)) {
+                        draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.artist, 60, indx+=incr, 0, color_black);
+                    }
+                    if (strlen(sdlApp->conf->playlist.album)) {
+                        draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album, 60, indx+=incr, 0, color_black);
+                    }
+                    if (strlen(sdlApp->conf->playlist.album_artist)) {
+                        draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.album_artist, 60, indx+=incr, 0, color_black);
+                    }
+                    if (strlen(sdlApp->conf->playlist.genre)) {
+                        draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.genre, 60, indx+=incr, 0, color_black);
+                    }
+                    if (strlen(sdlApp->conf->playlist.date)) {
+                        draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.date, 60, indx+=incr, 0, color_black);
+                    }
+#if 0
+                    if (strlen(sdlApp->conf->playlist.track)) {
+                        draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.track, 60, indx+=incr, 0, color_black);
+                    }
+#endif
                 }
-
                 endf:
             } else {
                 track_start_ms = 0;
@@ -3228,26 +3228,36 @@ static int doMedia(sdl2_app *sdlApp)
             SDL_RenderCopyEx(sdlApp->renderer, textBox, NULL, &textBoxR, 0, NULL, SDL_FLIP_NONE);
         }
 
+        // Load album art
+        if (!media_is_video())
+        {
+            if (albumArt == NULL)
+                albumArt = IMG_LoadTexture(sdlApp->renderer, albumArtPath);
+        }
+
         if (!fullScr && !media_is_video())
         {
-            if (albumArt == NULL) {
-                SDL_RenderCopyEx(sdlApp->renderer, DefAlbumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
+            if (albumArt != NULL) {
+
+                SDL_RenderCopyEx(sdlApp->renderer, albumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
             } else {
-                if (albumArt != NULL)
-                    SDL_RenderCopyEx(sdlApp->renderer, albumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
+                if ((albumArt = getEmbeddedArt(sdlApp->renderer)) == NULL) {
+                    SDL_RenderCopyEx(sdlApp->renderer, DefAlbumArt, NULL, &arttBoxR, 0, NULL, SDL_FLIP_NONE);
+                }
             }
         }
-        
-        if (strnlen(sdlApp->conf->playlist.duration, 40) && fullScr_t) {
+
+        if (strnlen(sdlApp->conf->playlist.duration, 40) && fullScr_t && sdlApp->conf->playlist.active)
+        {
         
             current_position = player_get_cur_pos_sec();
 
-            draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.duration, 60, pgBarR.y+6, 0, color_black);
+            draw_textc(sdlApp->renderer, fontMsg, sdlApp->conf->playlist.duration, 60, pgBarR.y+6, 0, color_white);
 
             int rems = sdlApp->conf->playlist.s_duration - current_position;
             char buf[20];
             snprintf(buf, sizeof(buf),"-%02d:%02d" , rems / 60, rems % 60);
-            draw_textc(sdlApp->renderer, fontMsg, buf, pgBarR.x+pgBarR.w+10, pgBarR.y+6, 0, color_black);
+            draw_textc(sdlApp->renderer, fontMsg, buf, pgBarR.x+pgBarR.w+10, pgBarR.y+6, 0, color_white);
 
             if (strlen(sdlApp->conf->playlist.duration)) {
                 draw_progress_bar(sdlApp->renderer, pgBarR.x, pgBarR.y, pgBarR.w, pgBarR.h, current_position, sdlApp->conf->playlist.s_duration);
@@ -3301,11 +3311,20 @@ static int doMedia(sdl2_app *sdlApp)
             SDL_Delay(60);
     }
 
-    command_push(CMD_STOP);
+    int retry = 20;
+    while (command_push(CMD_SHUTDOWN) < 0) {
+        if (!--retry) break;
+        SDL_Delay(40);
+    }
+
+    if (!retry) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "doMedia: Shutdown failed"); 
+    }
+
     doVaClean(sdlApp);
+    freeEmbeddedArt();
 
     sdlApp->conf->udata->mute = 0;
-    SDL_PauseAudioDevice(sdlApp->conf->deviceId,1);
     SDL_DestroyMutex(g_job_mutex);
 
     chdir(curDir);
@@ -3328,6 +3347,7 @@ static int doMedia(sdl2_app *sdlApp)
     SDL_DestroyTexture(unmuteBar);
     SDL_DestroyTexture(nfscrBar);
     SDL_DestroyTexture(albumArt);
+    SDL_DestroyTexture(DefAlbumArt);
     SDL_DestroyTexture(textBox);
 
     sdlApp->conf->muted = wasMuted;
@@ -3336,7 +3356,7 @@ static int doMedia(sdl2_app *sdlApp)
 }
 
 // ------------------------------------------------------------
-// Publik funktion
+// Public funktion
 // ------------------------------------------------------------
 
 static int scan_cover_art(const char *base_path, CoverList *list)
@@ -3368,8 +3388,6 @@ static int doMediaByCover(sdl2_app *sdlApp)
 
     int wasMuted = sdlApp->conf->muted;
     sdlApp->conf->muted = 1;    // Prevent warnings
-
-    command_push(CMD_STOP);
 
     char folder_path[RMAX_FILENAME];
     static char klicked_folder_path[RMAX_FILENAME];
@@ -3408,7 +3426,8 @@ static int doMediaByCover(sdl2_app *sdlApp)
         // clear the event queue
     }
 
-    if (scan_cover_art(folder_path, &covers) == 0) {
+    if (scan_cover_art(folder_path, &covers) == 0)
+    {
 
         int running = 1;
 
@@ -3537,6 +3556,10 @@ static int doMediaByCover(sdl2_app *sdlApp)
 
             for (int i = pic_indx, j = 0; (i < 15 + pic_indx) && (i < (int)covers.count); i++, j++)
             {
+                if (covers.cover[i] == NULL) {
+                    continue;
+                }
+
                 // % 5 yields the column (0, 1, 2, 3, 4
                 int col = j % 5;
 
@@ -3546,9 +3569,7 @@ static int doMediaByCover(sdl2_app *sdlApp)
                 pictBarR.x = x_start + (col * (w_start+wh_padding));
                 pictBarR.y = y_start + (row * (h_start+wh_padding));
 
-                if (covers.cover[i] != NULL) {
-                    SDL_RenderCopyEx(sdlApp->renderer, covers.cover[i], NULL, &pictBarR, 0, NULL, SDL_FLIP_NONE);
-                }
+                SDL_RenderCopyEx(sdlApp->renderer, covers.cover[i], NULL, &pictBarR, 0, NULL, SDL_FLIP_NONE);
             }
 
             // Slider background
@@ -3794,7 +3815,7 @@ static int doCompass(sdl2_app *sdlApp)
                 }
                 if (SDL_PointInRect(&p, &mediaBarR) && sdlApp->conf->snd_showMixer) {
                         if ((e.type=doMediaByCover(sdlApp))== SDL_QUIT) {
-                        // if ((e.type=doMedia(sdlApp))== SDL_QUIT) {
+                       // if ((e.type=doMedia(sdlApp))== SDL_QUIT) {
                         doBreak = 1;
                         break;
                     }
@@ -7798,7 +7819,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
     SDL_Thread *threadSER = NULL;
     SDL_Thread *threadWrn = NULL;
     configParams->conn = NULL; 
-    struct stat stats;
     Uint32 flags;
 
     if (doInit) {
@@ -7870,78 +7890,6 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         }
     }
 
-    if (configParams->runVnc == 1 && doInit == 1 && !stat("/usr/bin/wayvnc", &stats)) 
-    {
-    
-        // Manager for the wayvnc process
-		SDL_Log("Attempt to start wayvnc");
-
-        pid_t spedoMeterPid = getpid();
-        configParams->wayvncPid = fork();
-
-        if (configParams->wayvncPid == 0)
-        {
-            int fdnull;
-            // close stdin, stderr, stdout
-            if ((fdnull = open("/dev/null", O_RDWR)) > 0)
-            {
-                dup2 (fdnull, STDIN_FILENO);
-                dup2 (fdnull, STDERR_FILENO);
-                close(fdnull);
-            }
-
-            setpgid(0, 0);
-
-			pid_t vnc_pid = -1;
-
-            int reTry = 3;
-
-            while(configParams->runVnc && reTry--)
-            {
-
-				if (kill(spedoMeterPid, 0) != 0) {
-					kill(vnc_pid, SIGTERM);
-                    _exit(0);
-                }
-
-                vnc_pid = fork();
-
-                if (vnc_pid == 0) {
-                    // Child to run wayvnc
-                    setpgid(0, 0);
-                    prctl(PR_SET_PDEATHSIG, SIGTERM);
-                    char str[20] = {'\0'};
-                    sprintf(str, "%d", configParams->vncPort);
-                    char *args[] = { "/usr/bin/wayvnc", "0.0.0.0", str, NULL };
-                    execvp(args[0], args);
-                    SDL_Log("Failed to exec wayvnc (not fatal): %s", strerror(errno));
-                    _exit(0);
-                } else if (vnc_pid > 0) {
-                    // Manager waits until wayvnc dies
-                    int status;
-                    waitpid(vnc_pid, &status, 0); // Clean the zombie
-                    if (kill(spedoMeterPid, 0) != 0) {
-                        _exit(0);
-                    }
-                    if (configParams->runVnc == 0) break;
-                    SDL_Log("wayvnc exited, restarting in 3 seconds...");
-                    sleep(3);
-                } else {
-                    SDL_Log("Failed to fork wayvnc (non fatal): %s", strerror(errno));
-                    _exit(0);
-                }
-            }
-
-            if (reTry <0 ) {
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to restart wayvnc after repeated attempts. Giving up this");
-                 _exit(0);
-            }
-        }
-    } else if (configParams->runVnc == 1 && doInit == 1) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to run /usr/bin/wayvnc (non fatal): %s", strerror(errno));
-        configParams->runVnc = 0;
-    }
-
     if (doInit) {
             
         if (configParams->useWm == 1)
@@ -7951,17 +7899,15 @@ static int openSDL2(configuration *configParams, sdl2_app *sdlApp, int doInit)
         else
             flags = SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS;
 
-        if (1) {
-            flags = flags | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI; 
-         
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_ES);
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,2);
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,0);
-            SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-            SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,24);
-            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS,1);
-            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES,4);
-        }
+        flags = flags | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
+
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,0);
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,24);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS,1);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES,4);
 
         if ((sdlApp->window = SDL_CreateWindow("sdlSpeedometer",
                 0, 0, // Pos x/y
@@ -8055,80 +8001,6 @@ static int checkSubtask(sdl2_app *sdlApp, configuration *configParams)
         return 0;
 
     return 1;
-}
-
-// Give up all resources in favor of a subtask execution.
-static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
-{
-    int runners[3] = {0,0,0};
-    int t_wmax = 3;
-    int status, i=0;
-    char *args[20];
-    char cmd[1024];
-
-    if (!checkSubtask(sdlApp, configParams))
-        return COGPAGE;
-
-    sprintf(cmd, "/bin/bash %s %s %s", SPAWNCMD, sdlApp->subAppsCmd[sdlApp->curPage][0], sdlApp->subAppsCmd[sdlApp->curPage][1]);
-
-    SDL_Log("Launch subcommand: %s", cmd);
-
-    // Break up cmd to an argv array
-    args[i] = strtok(cmd, " ");
-    while(args[i] != NULL)
-        args[++i] = strtok(NULL, " ");
-
-    // Take down threads
-    if (!configParams->runTcp)
-    {
-        runners[0] = configParams->runSer;
-        runners[1] = configParams->runNet;
-        runners[2] = configParams->runAudio;
-        configParams->runSer = configParams->runNet = configParams->runAudio = 0;
-
-
-        while(configParams->numThreads && t_wmax--) {
-            SDL_Delay(350*configParams->numThreads);
-            if ((configParams->numThreads - configParams->runi2c) !=0) {
-                SDL_Log("Taking down threads #%d remains", configParams->numThreads - configParams->runi2c);
-            }
-        }
-
-        if (configParams->numThreads - configParams->runi2c) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d linger.", configParams->numThreads - configParams->runi2c);
-        }
-    }
-
-    SDL_HideWindow(sdlApp->window);
-
-    configParams->subTaskPID = fork ();
-
-    if (configParams->subTaskPID == 0) {
-        // Child
-        setpgid(0, 0);
-        prctl(PR_SET_PDEATHSIG, SIGINT);
-        execv ("/bin/bash", args);
-        _exit(1);
-    }
-
-    // You've picked my bones clean, speak now ...
-    waitpid(configParams->subTaskPID, &status, 0);
-    // ... before I reclaim the meat. (Solonius)
-
-    if (!configParams->runTcp)
-    {
-        // Restore runner's original run status
-        configParams->runSer = runners[0];
-        configParams->runNet = runners[1];
-        configParams->runAudio = runners[2];
-
-        status = openSDL2(configParams, sdlApp, 0);
-    }
-
-    SDL_ShowWindow(sdlApp->window);    // Forcing the window forward
-    SDL_RaiseWindow(sdlApp->window);   // Puts focus
-
-    return sdlApp->curPage;;
 }
 
 static void init_av(configuration *configParams)
@@ -8340,6 +8212,103 @@ static void init_av(configuration *configParams)
     }
 }
 
+// Give up many resources in favor of a subtask execution.
+static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
+{
+    int runners[3] = {0,0,0};
+    int t_wmax = 3;
+    int status, i=0;
+    char *args[20];
+    char cmd[1024];
+
+    if (!checkSubtask(sdlApp, configParams))
+        return COGPAGE;
+
+    sprintf(cmd, "/bin/bash %s %s %s", SPAWNCMD, sdlApp->subAppsCmd[sdlApp->curPage][0], sdlApp->subAppsCmd[sdlApp->curPage][1]);
+
+    SDL_Log("Launch subcommand: %s", cmd);
+
+    // Break up cmd to an argv array
+    args[i] = strtok(cmd, " ");
+    while(args[i] != NULL)
+        args[++i] = strtok(NULL, " ");
+
+    // Take down threads
+    if (!configParams->runTcp)
+    {
+        runners[0] = configParams->runSer;
+        runners[1] = configParams->runNet;
+        runners[2] = configParams->runAudio;
+        configParams->runSer = configParams->runNet = configParams->runAudio = 0;
+
+
+        while(configParams->numThreads && t_wmax--) {
+            SDL_Delay(350*configParams->numThreads);
+            if ((configParams->numThreads - configParams->runi2c) !=0) {
+                SDL_Log("Taking down threads #%d remains", configParams->numThreads - configParams->runi2c);
+            }
+        }
+
+        if (configParams->numThreads - configParams->runi2c) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to take down all threads: %d linger.", configParams->numThreads - configParams->runi2c);
+        }
+    }
+
+    SDL_HideWindow(sdlApp->window);
+
+    // Release the audio system so that subtasks not find them busy
+    if (configParams->snd_useMixer)
+    {
+        // Stop and close SDL audio
+        if (configParams->deviceId) {
+            SDL_PauseAudioDevice(configParams->deviceId, 1);
+            SDL_CloseAudioDevice(configParams->deviceId);
+            configParams->deviceId = 0;
+        }
+
+        // Close mixer and its internally attached HCTL
+        if (configParams->mixer) {
+            snd_mixer_close(configParams->mixer);
+            configParams->mixer = NULL;
+        }
+    }
+
+    configParams->subTaskPID = fork ();
+
+    if (configParams->subTaskPID == 0) {
+        // Child
+        setpgid(0, 0);
+        prctl(PR_SET_PDEATHSIG, SIGINT);
+        execv ("/bin/bash", args);
+        _exit(1);
+    }
+
+    // You've picked my bones clean, speak now ...
+    waitpid(configParams->subTaskPID, &status, 0);
+    // ... before I reclaim the meat. (Solonius)
+
+    if (!configParams->runTcp)
+    {
+        // Restore runner's original run status
+        configParams->runSer = runners[0];
+        configParams->runNet = runners[1];
+        configParams->runAudio = runners[2];
+
+        status = openSDL2(configParams, sdlApp, 0);
+    }
+
+    // Restore the audio system
+    if (configParams->snd_useMixer)
+    {
+        init_av(configParams);
+    }
+
+    SDL_ShowWindow(sdlApp->window);    // Forcing the window forward
+    SDL_RaiseWindow(sdlApp->window);   // Puts focus
+
+    return sdlApp->curPage;;
+}
+
 int main(int argc, char *argv[])
 {
     int c, t_wmax = 20;
@@ -8453,14 +8422,83 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (configParams.runAudio) {
-        init_av(&configParams);
-    }
-
     if (useSyslog) {
         setlogmask (LOG_UPTO (LOG_NOTICE));
         openlog (basename(argv[0]), LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
         syslog (LOG_NOTICE, "Program started by User %d", getuid ());
+    }
+
+    // Run this early so that it not inherit to many properties (audio)
+    if (configParams.runVnc == 1 && !stat("/usr/bin/wayvnc", &stats))
+    {
+
+        // Manager for the wayvnc process
+		SDL_Log("Attempt to start wayvnc");
+
+        pid_t spedoMeterPid = getpid();
+        configParams.wayvncPid = fork();
+
+        if (configParams.wayvncPid == 0)
+        {
+            int fdnull;
+            // close stdin, stderr, stdout
+            if ((fdnull = open("/dev/null", O_RDWR)) > 0)
+            {
+                dup2 (fdnull, STDIN_FILENO);
+                dup2 (fdnull, STDERR_FILENO);
+                close(fdnull);
+            }
+
+            setpgid(0, 0);
+
+			pid_t vnc_pid = -1;
+
+            int reTry = 3;
+
+            while(configParams.runVnc && reTry--)
+            {
+
+				if (kill(spedoMeterPid, 0) != 0) {
+					kill(vnc_pid, SIGTERM);
+                    _exit(0);
+                }
+
+                vnc_pid = fork();
+
+                if (vnc_pid == 0) {
+                    // Child to run wayvnc
+                    setpgid(0, 0);
+                    prctl(PR_SET_PDEATHSIG, SIGTERM);
+                    char str[20] = {'\0'};
+                    sprintf(str, "%d", configParams.vncPort);
+                    char *args[] = { "/usr/bin/wayvnc", "0.0.0.0", str, NULL };
+                    execvp(args[0], args);
+                    SDL_Log("Failed to exec wayvnc (not fatal): %s", strerror(errno));
+                    _exit(0);
+                } else if (vnc_pid > 0) {
+                    // Manager waits until wayvnc dies
+                    int status;
+                    waitpid(vnc_pid, &status, 0); // Clean the zombie
+                    if (kill(spedoMeterPid, 0) != 0) {
+                        _exit(0);
+                    }
+                    if (configParams.runVnc == 0) break;
+                    SDL_Log("wayvnc exited, restarting in 3 seconds...");
+                    sleep(3);
+                } else {
+                    SDL_Log("Failed to fork wayvnc (non fatal): %s", strerror(errno));
+                    _exit(0);
+                }
+            }
+
+            if (reTry <0 ) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to restart wayvnc after repeated attempts. Giving up this");
+                 _exit(0);
+            }
+        }
+    } else if (configParams.runVnc == 1) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to run /usr/bin/wayvnc (non fatal): %s", strerror(errno));
+        configParams.runVnc = 0;
     }
 
     sprintf(buf, "%d", configParams.window_h); SDL_setenv("WINDOW_W", buf, 0);
@@ -8585,7 +8623,6 @@ int main(int argc, char *argv[])
             exit(1);
     }
 
-
     if (configParams.runTyd > 1024) {
 
         SDL_Log("Attempt to start the ttyd daemon for remote configurtion");
@@ -8639,6 +8676,10 @@ int main(int argc, char *argv[])
         }
 
         configParams.ttydPID = pid;
+    }
+
+    if (configParams.runAudio) {
+        init_av(&configParams);
     }
 
     if (openSDL2(&configParams, &sdlApp, 1))

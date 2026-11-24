@@ -161,6 +161,14 @@ typedef struct
 
 } AudioProps;
 
+typedef struct {
+    uint8_t *pixels;  // RGBA32 pixel buffer
+    int width;
+    int height;
+    int pitch;        // Bytes per row
+} AlbumArt;
+
+
 extern void player_init(AudioProps *propps);
 extern void audio_callback(void *userdata, Uint8 *stream, int len);
 extern int control_thread(void *arg);
@@ -184,5 +192,7 @@ extern DecoderJob *job;
 extern DecoderJob *g_current_job;
 extern SDL_mutex *g_job_mutex;
 extern VideoRenderer vr;
+extern SDL_Texture *getEmbeddedArt(SDL_Renderer *renderer);
+extern void freeEmbeddedArt(void);
 
 #endif /* FPLAYSPEEDOMETER_H */

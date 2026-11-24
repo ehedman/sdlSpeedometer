@@ -83,7 +83,6 @@ void doVaClean(sdl2_app *sdlApp)
     free(sdlApp->conf->playlist.titles);
 
     memset(&sdlApp->conf->playlist, 0 , sizeof(Playlist));
-    sdlApp->conf->playlist.count = 0;
 }
 
 // Plotting aid in doEnvironment()
@@ -401,6 +400,7 @@ static int is_audio_file(const char *name)
            has_extension(name, ".m4a")  ||
            has_extension(name, ".mpg")  ||
            has_extension(name, ".mkv")  ||
+           has_extension(name, ".wma")  ||
            has_extension(name, ".VOB")  ||
            has_extension(name, ".wav");
 }
@@ -431,34 +431,42 @@ static char *make_path(const char *dir, const char *name)
 // Add path to the results list
 static int coverlist_add(CoverList *list, const char *path)
 {
-    char **temp = realloc(list->paths, (list->count + 1) * sizeof(*list->paths));
+    char *path_copy = strdup(path);
 
-    if (!temp)
+    if (!path_copy)
         return -1;
 
-    list->paths = temp;
+    char **temp_paths = realloc(
+        list->paths,
+        (list->count + 1) * sizeof(*list->paths)
+    );
 
-    // Expand the array using a pointer
-    list->paths[list->count] = strdup(path);
-
-    if (!list->paths[list->count])
-        return -1;
-
-    // Reallocate memory for the textures (cover)
-    SDL_Texture **temp_covers = realloc(list->cover, (list->count + 1) * sizeof(*list->cover));
-    if (!temp_covers) {
-        free(list->paths[list->count]);
+    if (!temp_paths) {
+        free(path_copy);
         return -1;
     }
-    list->cover = temp_covers;
 
+    list->paths = temp_paths;
 
-    list->cover[list->count] = IMG_LoadTexture(list->renderer, list->paths[list->count]);
-    if (!list->cover[list->count]) {
-        list->cover[list->count] = NULL;
+    SDL_Texture **temp_cover = realloc(
+        list->cover,
+        (list->count + 1) * sizeof(*list->cover)
+    );
+
+    if (!temp_cover) {
+        free(path_copy);
+        return -1;
     }
 
-    list->cover[list->count] = IMG_LoadTexture(list->renderer, list->paths[list->count]);
+    list->cover = temp_cover;
+
+    list->paths[list->count] = path_copy;
+
+    list->cover[list->count] =
+        IMG_LoadTexture(list->renderer, path_copy);
+
+    // Texture may be NULL if image loading fails.
+    // The path is still retained in the list.
 
     list->count++;
 
@@ -511,8 +519,9 @@ int scan_directory(const char *base_path, CoverList *list)
     while ((entry = readdir(dir)) != NULL) {
 
         // Skip "." and ".."
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0) {
+        if (strcmp(entry->d_name, ".")  == 0 ||
+            strcmp(entry->d_name, "..") == 0 ||
+            strchr(entry->d_name, '$') /* windows/smb */ ) {
             continue;
         }
 

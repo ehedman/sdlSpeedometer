@@ -14,6 +14,7 @@
 #include <libavutil/channel_layout.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
+#include <libswscale/swscale.h>
 
 #include "sdlSpeedometer.h"
 #include "fplaydSpeedometer.h"
@@ -130,9 +131,185 @@ notfound:
 
 }
 
+/* ------------------------------------------------------------------------ */
+/*                             Player Section                               */
+/* ------------------------------------------------------------------------ */
+
+static AudioBuffer audio;
+static CommandQueue commands;
+static SDL_AudioDeviceID audio_device;
+static float seek_target_seconds;
+static AVFormatContext  *g_fmt_ctx;
+static AlbumArt embAlbumArt = {0};
+
+RTSPAudioBuffer rtsp_audio;
+DecoderJob *g_current_job = NULL;
+SDL_mutex *g_job_mutex = NULL;
+DecoderJob *job = NULL;
+VideoRenderer vr = {0};
+
+
+static void init_rtsp_audio(AudioProps *apropps)
+{
+    memset(&rtsp_audio, 0, sizeof(RTSPAudioBuffer));
+
+    if ((rtsp_audio.data = malloc(RTSP_RING_SIZE)) == NULL) {
+        rtsp_audio.enabled = 0; rtsp_audio.muted = 1;
+        return;
+    }
+
+    rtsp_audio.enabled = 1; // Activate the stream
+    rtsp_audio.muted = 1;   // Make sure it is muted until user wants it
+
+    // Mutex used in the callback and FFmpeg thread.
+    rtsp_audio.mutex = apropps->commands.rtsp_mutex;
+}
+
+static void print_tag(AVDictionary *dict, const char *key, char *str)
+{
+
+    AVDictionaryEntry *tag = av_dict_get(dict, key, NULL, 0);
+
+    if (tag && tag->value) {
+//        printf("%-12s: %s\n", key, tag->value);
+        snprintf(str, 46, "%-12s: %s", key, tag->value); // Don't spill through GUI limits
+    }
+}
+
 // Comparison function for qsort
 static int compare_tracks(const void *a, const void *b) {
     return ((TrackItem*)a)->track_no - ((TrackItem*)b)->track_no;
+}
+
+/* ------------------------------------------------------------------------ */
+/*                             Public Section                               */
+/* ------------------------------------------------------------------------ */
+
+void player_init(AudioProps *apropps)
+{
+    audio = apropps->audio;
+    commands = apropps->commands;
+    audio_device = apropps->audio_device;
+    init_rtsp_audio(apropps);
+}
+
+float player_get_cur_pos_sec(void)
+{
+    return audio.cur_pos_sec;
+}
+
+void player_set_cur_pos_sec(const float s)
+{
+    seek_target_seconds = s;
+}
+
+int media_is_video(void)
+{
+    return audio.is_video;
+}
+
+/* -------------------------------------------------- */
+/* Command FIFO                                       */
+/* -------------------------------------------------- */
+
+int command_push(PlayerCommand cmd)
+{
+    SDL_LockMutex(commands.mutex);
+
+    if (commands.count >= COMMAND_QUEUE)
+    {
+        SDL_UnlockMutex(commands.mutex);
+
+        return -1;
+    }
+
+    commands.queue[commands.write_pos] = cmd;
+
+    commands.write_pos = (commands.write_pos + 1) % COMMAND_QUEUE;
+
+    commands.count++;
+
+    SDL_CondSignal(commands.cond);
+
+    SDL_UnlockMutex(commands.mutex);
+
+    return 0;
+}
+
+void show_audio_metadata(Playlist *pl)
+{
+    if (!g_fmt_ctx) {
+        return;
+    }
+
+    AVDictionary *metadata = g_fmt_ctx->metadata;
+
+    print_tag(metadata, "title",    pl->title);
+    print_tag(metadata, "artist",   pl->artist);
+    print_tag(metadata, "album",    pl->album);
+    print_tag(metadata, "album_artist",pl->album_artist);
+    print_tag(metadata, "genre",    pl->genre);
+    print_tag(metadata, "date",     pl->date);
+    print_tag(metadata, "track",    pl->track);
+    print_tag(metadata, "comment",  pl->comment);
+
+    // Duration is expressed in AV_TIME_BASE units
+    if (g_fmt_ctx->duration != AV_NOPTS_VALUE) {
+        int64_t seconds = g_fmt_ctx->duration / AV_TIME_BASE;
+
+#if 0
+        printf("%-12s: %02" PRId64 ":%02" PRId64 "\n",
+               "duration",
+               seconds / 60,
+               seconds % 60);
+#endif
+
+        snprintf(pl->duration, sizeof(pl->duration)-1, "%-12s: %02" PRId64 ":%02" PRId64 " ",
+            "duration",
+            seconds / 60,
+            seconds % 60);
+
+        pl->s_duration =  (float)seconds;
+    }
+}
+
+AVFrame *video_queue_peek(VideoQueue *q) {
+    SDL_LockMutex(q->mutex);
+    AVFrame *f = (q->count > 0) ? q->frames[q->head] : NULL;
+    SDL_UnlockMutex(q->mutex);
+    return f;
+}
+
+void video_queue_pop(VideoQueue *q) {
+    SDL_LockMutex(q->mutex);
+    if (q->count > 0) {
+        av_frame_free(&q->frames[q->head]);
+        q->head = (q->head + 1) % VIDEO_QUEUE_SIZE;
+        q->count--;
+        SDL_CondSignal(q->cond);
+    }
+    SDL_UnlockMutex(q->mutex);
+}
+
+double get_audio_clock(void)
+{
+    SDL_LockMutex(audio.mutex);
+    uint64_t bytes = audio.played_bytes;
+    double start_sec = audio.audio_start_sec;
+    uint64_t last_ticks = audio.last_callback_ticks;
+    int paused = audio.paused; // if you have a pause flag
+    SDL_UnlockMutex(audio.mutex);
+
+    double bytes_per_sec = (double)AUDIO_RATE * AUDIO_CHANNELS * 2.0;
+    double clock = start_sec + ((double)bytes / bytes_per_sec);
+
+    if (last_ticks > 0 && !paused) {
+        double elapsed = (double)(SDL_GetTicks64() - last_ticks) / 1000.0;
+        if (elapsed > 0.10) elapsed = 0.10; // clamp to max 1 callback period
+        clock += elapsed;
+    }
+
+    return clock;
 }
 
 /* --------------------------------------------------------- */
@@ -194,6 +371,7 @@ int scandirs(Playlist *plist)
                 && strcmp(p, "m4a")     != 0
                 && strcmp(p, "mpg")     != 0
                 && strcmp(p, "mkv")     != 0
+                && strcmp(p, "wma")     != 0
                 && strcmp(p, "VOB")     != 0)
                 {
                     continue;   // Ignore other file types completely
@@ -217,12 +395,12 @@ int scandirs(Playlist *plist)
 
         stat(q_path, &stats);
         if (S_ISDIR(stats.st_mode)) {
-            plist->files[plist->count] = strdup(entry->d_name); //NEW
+            plist->files[plist->count] = strdup(entry->d_name);
             folder_count++;
         }
 
-        plist->titles[plist->count] = NULL; // NEW
-        plist->track_no[plist->count] = 0;  // NEW
+        plist->titles[plist->count] = NULL;
+        plist->track_no[plist->count] = 0;
 
         // Copy the title
         char ttl[100];
@@ -304,7 +482,7 @@ int scandirs(Playlist *plist)
     for (int i = 0; i < valid_track_count; i++) {
         plist->files[i] = sort_list[i].filename;
         plist->titles[i] = sort_list[i].title;
-        plist->track_no[i] = sort_list[i].track_no; // NEW
+        plist->track_no[i] = sort_list[i].track_no;
     }
 
     // Update the counter in case any files were filtered out (e.g., files without track numbers)
@@ -348,96 +526,6 @@ cleanup:
     }
 
     return 1;
-}
-
-/* ------------------------------------------------------------------------ */
-/*                             Player Section                               */
-/* ------------------------------------------------------------------------ */
-
-static AudioBuffer audio;
-static CommandQueue commands;
-static SDL_AudioDeviceID audio_device;
-static float seek_target_seconds;
-static AVFormatContext  *g_fmt_ctx;
-
-RTSPAudioBuffer rtsp_audio;
-DecoderJob *g_current_job = NULL;
-SDL_mutex *g_job_mutex = NULL;
-DecoderJob *job = NULL;
-VideoRenderer vr = {0};
-
-/* ---------------------------------------------------------------- */
-/* Initialize things to start with                                  */
-/* ---------------------------------------------------------------- */
-
-static void init_rtsp_audio(AudioProps *apropps)
-{
-    memset(&rtsp_audio, 0, sizeof(RTSPAudioBuffer));
-
-    if ((rtsp_audio.data = malloc(RTSP_RING_SIZE)) == NULL) {
-        rtsp_audio.enabled = 0; rtsp_audio.muted = 1;
-        return;
-    }
-
-    rtsp_audio.enabled = 1; // Activate the stream
-    rtsp_audio.muted = 1;   // Make sure it is muted until user wants it
-
-    // Mutex used in the callback and FFmpeg thread.
-    rtsp_audio.mutex = apropps->commands.rtsp_mutex;
-}
-
-/* ------------------------------------------------------------------------ */
-/*                             Public Section                               */
-/* ------------------------------------------------------------------------ */
-void player_init(AudioProps *apropps)
-{
-    audio = apropps->audio;
-    commands = apropps->commands;
-    audio_device = apropps->audio_device;
-    init_rtsp_audio(apropps);
-}
-
-float player_get_cur_pos_sec(void)
-{
-    return audio.cur_pos_sec;
-}
-
-void player_set_cur_pos_sec(const float s)
-{
-    seek_target_seconds = s;
-}
-
-int media_is_video(void)
-{
-    return audio.is_video;
-}
-
-/* -------------------------------------------------- */
-/* Command FIFO                                       */
-/* -------------------------------------------------- */
-
-int command_push(PlayerCommand cmd)
-{
-    SDL_LockMutex(commands.mutex);
-
-    if (commands.count >= COMMAND_QUEUE)
-    {
-        SDL_UnlockMutex(commands.mutex);
-        return -1;
-    }
-
-    commands.queue[commands.write_pos] = cmd;
-
-    commands.write_pos =
-        (commands.write_pos + 1) % COMMAND_QUEUE;
-
-    commands.count++;
-
-    SDL_CondSignal(commands.cond);
-
-    SDL_UnlockMutex(commands.mutex);
-
-    return 0;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -736,54 +824,6 @@ static void receive_frames(DecoderJob *job,
     }
 }
 
-static void print_tag(AVDictionary *dict, const char *key, char *str)
-{
-
-    AVDictionaryEntry *tag = av_dict_get(dict, key, NULL, 0);
-
-    if (tag && tag->value) {
-//        printf("%-12s: %s\n", key, tag->value);
-        snprintf(str, 46, "%-12s: %s", key, tag->value); // Don't spill through GUI limits
-    }
-}
-
-void show_audio_metadata(Playlist *pl)
-{
-    if (!g_fmt_ctx) {
-        return;
-    }
-  
-    AVDictionary *metadata = g_fmt_ctx->metadata;
-
-    print_tag(metadata, "title",    pl->title);
-    print_tag(metadata, "artist",   pl->artist);
-    print_tag(metadata, "album",    pl->album);
-    print_tag(metadata, "album_artist",pl->album_artist);
-    print_tag(metadata, "genre",    pl->genre);
-    print_tag(metadata, "date",     pl->date);
-    print_tag(metadata, "track",    pl->track);
-    print_tag(metadata, "comment",  pl->comment);
-
-    // Duration is expressed in AV_TIME_BASE units
-    if (g_fmt_ctx->duration != AV_NOPTS_VALUE) {
-        int64_t seconds = g_fmt_ctx->duration / AV_TIME_BASE;
-
-#if 0
-        printf("%-12s: %02" PRId64 ":%02" PRId64 "\n",
-               "duration",
-               seconds / 60,
-               seconds % 60);
-#endif
-        
-        snprintf(pl->duration, 79, "%-12s: %02" PRId64 ":%02" PRId64 " ",
-            "duration",
-            seconds / 60,
-            seconds % 60);
-
-        pl->s_duration =  (float)seconds;
-    }
-}
-
 static void video_queue_destroy(VideoQueue *q)
 {
     while (q->count > 0) {
@@ -841,48 +881,124 @@ static void video_queue_clear(VideoQueue *q)
     SDL_UnlockMutex(q->mutex);
 }
 
-/* -------------------------------------------------- */
-/* Public functions                                   */
-/* -------------------------------------------------- */
-
-AVFrame *video_queue_peek(VideoQueue *q) {
-    SDL_LockMutex(q->mutex);
-    AVFrame *f = (q->count > 0) ? q->frames[q->head] : NULL;
-    SDL_UnlockMutex(q->mutex);
-    return f;
-}
-
-void video_queue_pop(VideoQueue *q) {
-    SDL_LockMutex(q->mutex);
-    if (q->count > 0) {
-        av_frame_free(&q->frames[q->head]);
-        q->head = (q->head + 1) % VIDEO_QUEUE_SIZE;
-        q->count--;
-        SDL_CondSignal(q->cond);
-    }
-    SDL_UnlockMutex(q->mutex);
-}
-
-
-double get_audio_clock(void)
+void freeEmbeddedArt(void)
 {
-    SDL_LockMutex(audio.mutex);
-    uint64_t bytes = audio.played_bytes;
-    double start_sec = audio.audio_start_sec;
-    uint64_t last_ticks = audio.last_callback_ticks;
-    int paused = audio.paused; // if you have a pause flag
-    SDL_UnlockMutex(audio.mutex);
+    if (embAlbumArt.pixels != NULL)
+        av_freep(&embAlbumArt.pixels);
 
-    double bytes_per_sec = (double)AUDIO_RATE * AUDIO_CHANNELS * 2.0;
-    double clock = start_sec + ((double)bytes / bytes_per_sec);
+    memset(&embAlbumArt, 0, sizeof(embAlbumArt));
+}
 
-    if (last_ticks > 0 && !paused) {
-        double elapsed = (double)(SDL_GetTicks64() - last_ticks) / 1000.0;
-        if (elapsed > 0.10) elapsed = 0.10; // clamp to max 1 callback period
-        clock += elapsed;
+static int extract_album_art(AVStream *st, AlbumArt *art)
+{
+    freeEmbeddedArt();
+
+    const AVCodec *codec;
+    AVCodecContext *ctx = NULL;
+    AVFrame *frame = NULL;
+    struct SwsContext *sws = NULL;
+    int ret = -1;
+    int errLine=0;
+
+    if (!st || !art || st->attached_pic.size <= 0)
+        return -1;
+
+    memset(art, 0, sizeof(*art));
+
+    codec = avcodec_find_decoder(st->codecpar->codec_id);
+    if (!codec) { errLine = __LINE__; goto cleanup; }
+
+    ctx = avcodec_alloc_context3(codec);
+    if (!ctx) { errLine = __LINE__; goto cleanup; }
+
+    if (avcodec_parameters_to_context(ctx, st->codecpar) < 0)
+        { errLine = __LINE__; goto cleanup; }
+
+    if (avcodec_open2(ctx, codec, NULL) < 0)
+        { errLine = __LINE__; goto cleanup; }
+
+    frame = av_frame_alloc();
+    if (!frame) { errLine = __LINE__; goto cleanup; }
+
+    // Decode the embedded picture
+    if (avcodec_send_packet(ctx, &st->attached_pic) < 0)
+       { errLine = __LINE__; goto cleanup; }
+
+    if (avcodec_receive_frame(ctx, frame) < 0)
+        { errLine = __LINE__; goto cleanup; }
+
+    art->width  = frame->width;
+    art->height = frame->height;
+    art->pitch  = art->width * 4;
+
+    art->pixels = av_malloc((size_t)art->pitch * art->height);
+    if (!art->pixels) { errLine = __LINE__; goto cleanup; }
+
+    // Convert to RGBA32
+    sws = sws_getContext(
+        frame->width,
+        frame->height,
+        frame->format,
+        frame->width,
+        frame->height,
+        AV_PIX_FMT_RGBA,
+        SWS_BILINEAR,
+        NULL, NULL, NULL
+    );
+
+    if (!sws)
+        { errLine = __LINE__; goto cleanup; }
+
+    uint8_t *dst[4] = { art->pixels, NULL, NULL, NULL };
+    int dst_linesize[4] = { art->pitch, 0, 0, 0 };
+
+    if (sws_scale(sws,
+                  (const uint8_t * const *)frame->data,
+                  frame->linesize,
+                  0,
+                  frame->height,
+                  dst,
+                  dst_linesize) <= 0) { errLine = __LINE__; goto cleanup; }
+    ret = 0;
+
+cleanup:
+    if (ret != 0) {
+        av_freep(&art->pixels);
+        memset(art, 0, sizeof(*art));
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "extract_album_art() failed at line %d", errLine);
     }
 
-    return clock;
+    sws_freeContext(sws);
+    av_frame_free(&frame);
+
+    return ret;
+}
+
+SDL_Texture *getEmbeddedArt(SDL_Renderer *renderer)
+{
+
+    if (!embAlbumArt.pixels)
+        return NULL;
+
+    SDL_Texture *albumArt = SDL_CreateTexture(
+        renderer,
+        SDL_PIXELFORMAT_RGBA32,
+        SDL_TEXTUREACCESS_STATIC,
+        embAlbumArt.width,
+        embAlbumArt.height
+    );
+
+    if (albumArt)
+    {
+        SDL_UpdateTexture(
+            albumArt,
+            NULL,
+            embAlbumArt.pixels,
+            embAlbumArt.pitch
+        );
+    } else return NULL;
+
+    return albumArt;
 }
 
 /* -------------------------------------------------- */
@@ -933,8 +1049,7 @@ static int decoder_thread(void *arg)
     if (!codec)
         goto cleanup;
 
-    if (avcodec_parameters_to_context(
-            codec, fmt->streams[audio_stream]->codecpar) < 0)
+    if (avcodec_parameters_to_context(codec, fmt->streams[audio_stream]->codecpar) < 0)
         goto cleanup;
 
     codec->pkt_timebase = fmt->streams[audio_stream]->time_base;
@@ -946,6 +1061,12 @@ static int decoder_thread(void *arg)
     for (unsigned int i = 0; i < fmt->nb_streams; i++)
     {
         AVStream *st = fmt->streams[i];
+
+        // Extract embedded album art
+        if ((st->disposition & AV_DISPOSITION_ATTACHED_PIC) && embAlbumArt.pixels == NULL)
+        {
+            extract_album_art(st, &embAlbumArt);
+        }
 
         if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
         {
@@ -1247,8 +1368,7 @@ static int ring_finished(void)
     return finished;
 }
 
-static void stop_decoder(DecoderJob **job,
-                         SDL_Thread **thread)
+static void stop_decoder(DecoderJob **job, SDL_Thread **thread)
 {
     SDL_PauseAudioDevice(audio_device, 1);
 
@@ -1335,13 +1455,12 @@ static int start_track(Playlist *playlist,
 
 static int command_pop(PlayerCommand *cmd)
 {
+
     SDL_LockMutex(commands.mutex);
 
     /* Wait at most 50 ms */
-
     if (commands.count == 0)
-        SDL_CondWaitTimeout(commands.cond,
-                            commands.mutex, 50);
+        SDL_CondWaitTimeout(commands.cond, commands.mutex, 50);
 
     if (commands.count == 0)
     {
@@ -1361,6 +1480,7 @@ static int command_pop(PlayerCommand *cmd)
     return 1;
 }
 
+// To be instaniated by main application
 int control_thread(void *arg)
 {
     Playlist *playlist = arg;
@@ -1368,9 +1488,7 @@ int control_thread(void *arg)
     SDL_Thread *decoder = NULL;
     DecoderJob *job = NULL;
 
-    int running = 1;
-
-    while (running)
+    while (1)
     {
         PlayerCommand cmd = 0;
 
@@ -1448,8 +1566,10 @@ int control_thread(void *arg)
 
 
                 case CMD_STOP:
-
-                    stop_decoder(&job, &decoder);
+                    if (job) {
+                        stop_decoder(&job, &decoder);
+                        SDL_Delay(30);
+                    }
                     playlist->active = 0;
                     playlist->paused = 0;
                     break;
@@ -1483,15 +1603,27 @@ int control_thread(void *arg)
 
 
                 case CMD_SHUTDOWN:
+                    if (job) {
+                        stop_decoder(&job, &decoder);
+                        SDL_Delay(30);
+                    }
 
-                    running = 0;
+                    playlist->active = 0;
+                    playlist->paused = 0;
+
+                    SDL_PauseAudioDevice(audio_device, 1);
+                    SDL_LockMutex(commands.mutex);
+                    commands.count = 0;
+                    commands.read_pos = 0;
+                    commands.write_pos = 0;
+                    SDL_UnlockMutex(commands.mutex);
                     break;
             }
         }
 
         /* Automatic next track */
 
-        if (running && playlist->active && !playlist->paused && ring_finished())
+        if (playlist->active && !playlist->paused && ring_finished())
         {
             stop_decoder(&job, &decoder);
 
@@ -1513,9 +1645,11 @@ int control_thread(void *arg)
                 playlist->active = 0;
             }
         }
+        SDL_Delay(50);
     }
 
-    stop_decoder(&job, &decoder);
+    if (job)
+        stop_decoder(&job, &decoder);
 
     return 0;
 }
