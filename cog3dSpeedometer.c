@@ -16,6 +16,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengles2.h>
 #include <SDL2/SDL_ttf.h>
+#include <systemd/sd-daemon.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1220,7 +1221,8 @@ int doCog3d(sdl2_app *sdlApp)
     SDL_Rect rollBarR   = {30,396,90,28};       // Show ! a decimal roll value
     SDL_Rect pitchBarR  = {680,396,90,28};      // Show ! a decimal pitch value
 
-    while(running) {
+    while(running)
+    {
 
         char msg_hdg[40] = { "HDG: -" };
         char msg_cog[40] = { "COG: -" };
@@ -1545,6 +1547,12 @@ int doCog3d(sdl2_app *sdlApp)
         }
 
         SDL_GL_SwapWindow(win);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
 
         SDL_Delay((Uint32)delay);
         torsional_load = 0;

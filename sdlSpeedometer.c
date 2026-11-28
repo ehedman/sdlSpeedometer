@@ -25,6 +25,7 @@
 #include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL_net.h>
 #include <SDL2/SDL2_gfxPrimitives.h>
+#include <systemd/sd-daemon.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
@@ -34,6 +35,7 @@
 #include <libswscale/swscale.h>
 #include <linux/videodev2.h>
 #include <libavutil/log.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -2241,7 +2243,8 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
     SDL_Rect clicked_rect = {0,0,0,0 };
     int tMark = 0;
 
-    while (running) {
+    while (running)
+    {
 
         // Failed playback
         if (configParams->runPlbAlive==0 && configParams->runPlb==1) // Thread self terminated
@@ -2518,6 +2521,14 @@ static int doRecord(sdl2_app *sdlApp, configuration *configParams)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now; // Nollställ timern till nuvarande tidpunkt
+        }
+
+        SDL_Delay(60);
     }
 
     TTF_CloseFont(fontMsg);
@@ -3307,6 +3318,12 @@ static int doMedia(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now; // Nollställ timern till nuvarande tidpunkt
+        }
+
         if (vr.texture == NULL) 
             SDL_Delay(60);
     }
@@ -3592,6 +3609,12 @@ static int doMediaByCover(sdl2_app *sdlApp)
             draw_textc(sdlApp->renderer,fontMsg,msg_src, x_start ,h-40, 0, c);
 
             SDL_RenderPresent(sdlApp->renderer);
+
+            Uint64 now = SDL_GetTicks64();
+            if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+                sd_notify(0, "WATCHDOG=1");
+                sdlApp->conf->last_watchdog_tick = now; // Nollställ timern till nuvarande tidpunkt
+            }
 
             SDL_Delay(100);
         }
@@ -4093,6 +4116,12 @@ static int doCompass(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
+
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*100;
         dynUpd = dynUpd > 100? 100:dynUpd;
@@ -4411,7 +4440,13 @@ static int doSumlog(sdl2_app *sdlApp)
             SDL_RenderFillRect(sdlApp->renderer, NULL);
         }
 
-        SDL_RenderPresent(sdlApp->renderer); 
+        SDL_RenderPresent(sdlApp->renderer);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
 
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle -t_angle))*200;
@@ -4711,6 +4746,12 @@ static int doGps(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
 
         SDL_Delay(400);
     }
@@ -5249,6 +5290,12 @@ static int doDepth(sdl2_app *sdlApp)
 
         SDL_RenderPresent(sdlApp->renderer);
 
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
+
         if (!sdlApp->plotMode) {
             // Reduce CPU load if only short scale movements
             dynUpd = (1/fabsf(angle -t_angle))*200;
@@ -5599,6 +5646,12 @@ static int doWind(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
         
         // Reduce CPU load if only short scale movements
         dynUpd = (1/fabsf(angle_a -t_angle_a))*200;
@@ -6122,6 +6175,12 @@ static int doEnvironment(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
  
         if (!dragging) {
             SDL_Delay(90);
@@ -7166,6 +7225,12 @@ static int doVideoCapture(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
     }
 
     doRun.run = 0;  // Take down audio thread
@@ -7315,6 +7380,12 @@ static int doVideo(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
     }
 
     SDL_DestroyTexture(r1.text);
@@ -7527,6 +7598,13 @@ static int doWater(sdl2_app *sdlApp)
         }
 
         SDL_RenderPresent(sdlApp->renderer); 
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
+
         SDL_Delay(1000);
     }
 
@@ -7732,7 +7810,13 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
         SDL_RenderCopyEx(sdlApp->renderer, menuBar, NULL, &menuBarR, 0, NULL, SDL_FLIP_NONE);
         addMenuItems(sdlApp, fontSrc);
 
-        SDL_RenderPresent(sdlApp->renderer); 
+        SDL_RenderPresent(sdlApp->renderer);
+
+        Uint64 now = SDL_GetTicks64();
+        if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+            sd_notify(0, "WATCHDOG=1");
+            sdlApp->conf->last_watchdog_tick = now;
+        }
         
         SDL_Delay(100);
     }
@@ -7772,6 +7856,12 @@ static int doCalibration(sdl2_app *sdlApp, configuration *configParams)
             draw_textc(sdlApp->renderer, fontPRG, doRun.progress, 10, 320, 1, (SDL_Color){0,0,0,255});
 
             SDL_RenderPresent(sdlApp->renderer); 
+
+            Uint64 now = SDL_GetTicks64();
+            if (now - sdlApp->conf->last_watchdog_tick >= WATCHDOG_INTERVAL_MS) {
+                sd_notify(0, "WATCHDOG=1");
+                sdlApp->conf->last_watchdog_tick = now;
+            }
             
             SDL_Delay(100); 
         } 
@@ -8278,11 +8368,14 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
         }
     }
 
+    sd_notify(0, "WATCHDOG_USEC=0");
+
     configParams->subTaskPID = fork ();
 
     if (configParams->subTaskPID == 0) {
         // Child
         setpgid(0, 0);
+        unsetenv("NOTIFY_SOCKET");
         prctl(PR_SET_PDEATHSIG, SIGINT);
         execv ("/bin/bash", args);
         _exit(1);
@@ -8291,6 +8384,9 @@ static int doSubtask(sdl2_app *sdlApp, configuration *configParams)
     // You've picked my bones clean, speak now ...
     waitpid(configParams->subTaskPID, &status, 0);
     // ... before I reclaim the meat. (Solonius)
+
+    snprintf(cmd, sizeof(cmd), "WATCHDOG_USEC=%d\nWATCHDOG=1", WATCHDOG_INTERVAL_MS);
+    sd_notify(0, cmd);
 
     if (!configParams->runTcp)
     {
@@ -8711,6 +8807,8 @@ int main(int argc, char *argv[])
     }
 
     (void)checkSubtask(&sdlApp, &configParams);
+
+    sd_notify(0, "READY=1");
 
     while(1)
     {

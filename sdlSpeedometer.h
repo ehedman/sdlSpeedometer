@@ -9,6 +9,8 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#define WATCHDOG_INTERVAL_MS 4000
+
 #include <sqlite3.h>
 #ifdef HAS_SMBUS_H
 #include <i2c/smbus.h>
@@ -159,6 +161,7 @@ typedef struct {
     int rwfilez;
     int jumpf;
     calibration calib;
+    Uint64 last_watchdog_tick;
     void *sdlApp;
     audUserd *udata;
 } configuration;

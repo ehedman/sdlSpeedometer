@@ -6,7 +6,9 @@ After=labwc-kiosk.service
 Requires=labwc-kiosk.service
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+WatchdogSec=10s
 User=NOTYET
 PAMName=login
 EnvironmentFile=/etc/default/sdlSpeedometer
