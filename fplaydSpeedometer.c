@@ -78,14 +78,14 @@ static void get_plist_title(TrackItem *tmeta)
 
     if (p != NULL) {
         p++;
-        if (!strcasecmp(p, "avi") || !strcasecmp(p, "vob") || !strcasecmp(p, "mpg")) {
-             goto notfound;
-        }
         // Give FFmpeg a direct hint about the format to avoid format probing.
-        if (!strcasecmp(p, "wav") || !strcasecmp(p, "flac") || !strcasecmp(p, "mp3")) {
+        if (!strcasecmp(p, "wav") || !strcasecmp(p, "flac") || !strcasecmp(p, "mp3") || !strcasecmp(p, "wma")) {
             ifmt = av_find_input_format(p);
         }
     }
+
+    if (ifmt == NULL)
+        goto notfound;
 
     AVFormatContext *fmt_ctx = avformat_alloc_context();
     if (!fmt_ctx) {

@@ -3364,16 +3364,21 @@ static int scan_cover_art(const char *base_path, CoverList *list)
     if (!base_path || !list)
         return -1;
 
+    int rval = 0;
+
     list->paths = NULL;
     list->cover = NULL;
     list->count = 0;
+    list->index = 0;
 
     if (scan_directory(base_path, list) != 0) {
         coverlist_free(list);
-        return -1;
+        rval = -1;
     }
 
-    return 0;
+    scan_directorys(-1, NULL);
+
+    return rval;
 }
 
 // Show the media by (album) cover page

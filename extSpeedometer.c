@@ -23,6 +23,10 @@ void draw_textc(SDL_Renderer *r, TTF_Font *font, const char *txt, int x, int y, 
     if (!s)
         return;
 
+    if (c.a == 0) {
+        c = (SDL_Color){255, 255, 255, 255};
+    }
+
     SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
     if (!t) {
         SDL_FreeSurface(s);
@@ -498,14 +502,116 @@ void coverlist_free(CoverList *list)
     list->count = 0;
 }
 
-// Recursive directory scanning - scan_cover_art()
-int scan_directory(const char *base_path, CoverList *list)
+// Filter function that selects only folders (and skips ".", ".." and $ (SMB stuff))
+static int filter_dirs(const struct dirent *entry)
 {
-    DIR *dir = opendir(base_path);
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 || strchr(entry->d_name, '$') != 0)
+    {
+        return 0;
+    }
+
+    // Quick check via d_type (works on most modern file systems, such as ext4)
+    if (entry->d_type == DT_DIR) {
+        return 1;
+    }
+
+    // Fallback using stat() if the file system does not support d_type (e.g., certain SMB/NFS mounts)
+    if (entry->d_type == DT_UNKNOWN) {
+        struct stat st;
+        if (stat(entry->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+char *scan_directorys(const int indx, const char *base_path)
+{
+
+    static char **dirs;
+    static int is_init = 0;
+    static int n = 0;
+    static char base_pathr[PATH_MAX] = { "" };
+
+    if (indx == -1) {   // Release all allocated dirs
+
+        for (int i = 0; i < n; i++) {
+            if (dirs[i] != NULL)
+                free(dirs[i]);
+        }
+
+        if (*dirs != NULL)
+            free(dirs);
+
+        is_init = n = 0;
+        *base_pathr = '\0';
+        return NULL;
+    }
+
+    if (indx == 1 && !is_init && base_path != NULL)
+    {
+        struct dirent **namelist;
+
+        // Read in and sort the folders in the current directory (".")
+        n = scandir(base_path, &namelist, filter_dirs, alphasort);
+        if (n < 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "(doMedia): scandir of %s failed: %s", base_path, strerror(errno));
+            return NULL;
+        }
+
+        dirs = malloc(n * sizeof(char *));
+        memset(dirs, 0, (n * sizeof(char *)));
+        is_init = 1;
+
+        // Save the folders and free up allocated memory
+        for (int i = 0; i < n; i++) {
+            dirs[i] = strdup(namelist[i]->d_name);
+            free(namelist[i]);  // Release each individual item
+        }
+
+        free(namelist); // Release the list itself
+#if 0
+        for (int i = 0; i < n; i++) {
+            printf("%s/\n", dirs[i]);
+        }
+#endif
+        strncpy(base_pathr, base_path, sizeof(base_pathr));
+        return base_pathr;
+
+    } else if (n != 0 || indx <= n) {
+        return dirs[indx];
+    }
+
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "(doMedia): scan_directorys - index mismatch. Expected %d, got %d", n, indx);
+    return NULL;
+}
+
+// Recursive directory (function) scanning - scan for cover art
+int scan_directory(const char *base_path_next, CoverList *list)
+{
+
+    static int level = 1;
+
+    char base_path[PATH_MAX] = { "" };
+    static char start_base_path[PATH_MAX] = { "" };
+    DIR *dir;
+
+    if (level == 2) {   // We only sort root folders
+        snprintf(base_path, sizeof(base_path), "%s%s/", start_base_path, scan_directorys(list->index++, NULL));
+        dir = opendir(base_path);
+    } else {
+        if (!strlen(start_base_path)) {
+            strncpy(start_base_path, base_path_next, sizeof(start_base_path));
+        }
+        (void)scan_directorys(level, base_path_next);
+        snprintf(base_path, sizeof(base_path), "%s", base_path_next);
+        dir = opendir(base_path);
+    }
 
     if (!dir) {
-        perror(base_path);
-        return -1;
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "(doMedia): opendir of %s failed: %s", base_path, strerror(errno));
+        return 1;
     }
 
     struct dirent *entry;
@@ -516,7 +622,15 @@ int scan_directory(const char *base_path, CoverList *list)
     int audio_found = 0;
     int result = 0;
 
-    while ((entry = readdir(dir)) != NULL) {
+    while ((entry = readdir(dir)) != NULL)
+    {
+
+        if (entry->d_type == DT_UNKNOWN) {
+            struct stat st;
+            if (!stat(entry->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
+                continue;
+            }
+        }
 
         // Skip "." and ".."
         if (strcmp(entry->d_name, ".")  == 0 ||
@@ -543,6 +657,8 @@ int scan_directory(const char *base_path, CoverList *list)
         // Recursion into subdirectories
         if (S_ISDIR(st.st_mode)) {
 
+            level++;
+
             if (scan_directory(full_path, list) != 0)
                 result = -1;
 
@@ -550,6 +666,8 @@ int scan_directory(const char *base_path, CoverList *list)
 
             if (result != 0)
                 break;
+
+            level--;
 
             continue;
         }
